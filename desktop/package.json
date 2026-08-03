@@ -1,0 +1,50 @@
+{
+  "name": "todo-checklist",
+  "productName": "할 일 체커",
+  "version": "0.1.0",
+  "description": "팀/프로젝트 기반 메모형 할 일 체커",
+  "author": "baejungwon",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -s first \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 node scripts/launch-electron.cjs\"",
+    "build": "vite build",
+    "start": "npm run build && node scripts/launch-electron.cjs",
+    "dist": "vite build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.15.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.baejungwon.todo-checklist",
+    "productName": "할 일 체커",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon-256.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "할 일 체커",
+      "artifactName": "할일체커-Setup-${version}.${ext}"
+    }
+  }
+}
