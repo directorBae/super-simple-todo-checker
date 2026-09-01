@@ -4,6 +4,7 @@ const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
 const gcal = require('./gcal.cjs');
 const sync = require('./sync.cjs');
+const updater = require('./updater.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 
@@ -76,6 +77,7 @@ function createTray() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '열기', click: showWindow },
+      { label: '업데이트 확인', click: updater.checkNow },
       { type: 'separator' },
       {
         label: '종료',
@@ -300,6 +302,9 @@ app.whenReady().then(() => {
   };
   autoServerSync();
   setInterval(autoServerSync, 10 * 60 * 1000);
+
+  // 트레이 상주라 창을 닫아도 안 죽으므로, 설치 전에 종료 플래그를 세워준다
+  updater.start({ beforeInstall: () => { isQuitting = true; } });
 });
 
 app.on('second-instance', showWindow);

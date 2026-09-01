@@ -1,7 +1,7 @@
 {
   "name": "todo-checklist",
   "productName": "할 일 체커",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "팀/프로젝트 기반 메모형 할 일 체커",
   "author": "baejungwon",
   "private": true,
@@ -10,7 +10,9 @@
     "dev": "concurrently -k -s first \"vite\" \"wait-on tcp:127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 node scripts/launch-electron.cjs\"",
     "build": "vite build",
     "start": "npm run build && node scripts/launch-electron.cjs",
-    "dist": "vite build && electron-builder --win"
+    "dist": "vite build && electron-builder --win",
+    "dist:mac": "vite build && electron-builder --mac",
+    "release": "vite build && electron-builder --win --publish always"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -33,18 +35,45 @@
       "dist/**",
       "electron/**",
       "assets/**",
-      "package.json"
+      "package.json",
+      "!**/*.map"
     ],
     "win": {
-      "target": "nsis",
-      "icon": "assets/icon-256.png"
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon-1024.png"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
       "shortcutName": "할 일 체커",
-      "artifactName": "할일체커-Setup-${version}.${ext}"
+      "artifactName": "todo-checker-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "directorBae",
+        "repo": "super-simple-todo-checker"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon-1024.png",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "artifactName": "todo-checker-${version}-${arch}.${ext}"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

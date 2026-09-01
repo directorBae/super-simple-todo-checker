@@ -3,5 +3,7 @@ dist/
 .expo/
 *.log
 build/
+# electron-builder 의 빌드 리소스(entitlements 등)는 소스라서 추적한다
+!desktop/build/
 
 **/release/**

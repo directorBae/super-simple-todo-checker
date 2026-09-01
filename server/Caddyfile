@@ -1,0 +1,12 @@
+# Caddy가 {$SYNC_DOMAIN} 인증서를 자동 발급하고 sync 컨테이너로 프록시한다.
+{
+	email {$SYNC_EMAIL}
+}
+
+{$SYNC_DOMAIN} {
+	encode gzip
+	# 클라이언트 실제 IP를 서버 로그/레이트리밋에 전달
+	reverse_proxy sync:8787 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

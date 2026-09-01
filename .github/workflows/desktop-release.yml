@@ -1,0 +1,52 @@
+# 데스크톱 릴리스 — 태그를 밀면 Windows/macOS 설치본을 만들어 GitHub Releases 에 올린다.
+# 올라간 latest.yml / latest-mac.yml 을 앱의 electron-updater 가 보고 자동 업데이트한다.
+#
+#   npm version 1.0.1 --prefix desktop   (package.json 버전 올리고 커밋)
+#   git tag v1.0.1 && git push --tags
+#
+# macOS 서명·공증은 아래 Secrets 가 설정된 경우에만 수행된다 (없으면 미서명으로 빌드).
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID, CSC_LINK, CSC_KEY_PASSWORD
+name: desktop-release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win
+          - os: macos-latest
+            args: --mac
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write        # Releases 에 업로드하려면 필요
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: 의존성 설치
+        working-directory: desktop
+        run: npm ci
+
+      - name: 빌드 · 배포
+        working-directory: desktop
+        run: npx vite build && npx electron-builder ${{ matrix.args }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 서명 자격증명 — Secrets 에 없으면 빈 값이라 electron-builder 가 미서명으로 진행한다
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

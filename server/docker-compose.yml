@@ -1,0 +1,41 @@
+# 자체 서버(VPS)에 HTTPS로 올리는 구성 — Caddy가 Let's Encrypt 인증서를 자동 발급/갱신한다.
+#
+#   1) DNS A 레코드로 도메인을 이 서버 IP에 연결
+#   2) .env 파일에 SYNC_DOMAIN, SYNC_EMAIL, SYNC_TOKEN 작성
+#   3) docker compose up -d
+#
+# 이후 앱 설정에는 https://<SYNC_DOMAIN> 를 넣는다 (포트 불필요).
+services:
+  sync:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: 8787
+      DATA_DIR: /data
+      SYNC_TOKEN: ${SYNC_TOKEN:?SYNC_TOKEN 을 .env 에 설정하세요}
+      TRUST_PROXY: "1"
+    volumes:
+      - sync-data:/data
+    expose:
+      - "8787"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SYNC_DOMAIN: ${SYNC_DOMAIN:?SYNC_DOMAIN 을 .env 에 설정하세요}
+      SYNC_EMAIL: ${SYNC_EMAIL:?SYNC_EMAIL 을 .env 에 설정하세요}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - sync
+
+volumes:
+  sync-data:
+  caddy-data:
+  caddy-config:
