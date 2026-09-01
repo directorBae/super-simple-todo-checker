@@ -6,8 +6,12 @@ import Teams from './Teams.jsx';
 
 export default function Settings({ db }) {
   const s = db.settings;
+  const syncCfg = s.sync || { url: '', token: '', lastSync: null };
   const [clientId, setClientId] = useState(s.gcal.clientId);
   const [clientSecret, setClientSecret] = useState(s.gcal.clientSecret);
+  const [syncUrl, setSyncUrl] = useState(syncCfg.url);
+  const [syncToken, setSyncToken] = useState(syncCfg.token);
+  const [syncMsg, setSyncMsg] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState(null);
@@ -84,6 +88,47 @@ export default function Settings({ db }) {
           Windows 시작 시 자동 실행 (백그라운드)
         </label>
         <p className="desc">창을 닫아도 트레이에서 계속 실행되며 알림을 보냅니다. 완전 종료는 트레이 아이콘 → 종료.</p>
+      </Section>
+
+      <Section title="동기화 (데스크톱 ↔ 모바일)">
+        <p className="desc">
+          server/를 실행해 두면 데스크톱과 모바일이 같은 팀·프로젝트·할 일을 공유합니다. 서버가 출력하는
+          주소와 토큰을 여기와 모바일 설정에 똑같이 입력하세요. 설정해 두면 시작 시 + 10분마다 자동 동기화됩니다.
+        </p>
+        <div className="todo-form">
+          <input
+            className="grow"
+            placeholder="서버 주소 (예: http://192.168.0.10:8787)"
+            value={syncUrl}
+            onChange={(e) => setSyncUrl(e.target.value)}
+            onBlur={() => window.api.updateSettings({ sync: { url: syncUrl.trim() } })}
+          />
+          <input
+            className="grow"
+            type="password"
+            placeholder="토큰"
+            value={syncToken}
+            onChange={(e) => setSyncToken(e.target.value)}
+            onBlur={() => window.api.updateSettings({ sync: { token: syncToken.trim() } })}
+          />
+        </div>
+        <div className="btn-row">
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setSyncMsg('동기화 중…');
+              const r = await window.api.syncNow();
+              setBusy(false);
+              setSyncMsg(r.ok ? '동기화 완료.' : `오류: ${r.error}`);
+            }}
+          >
+            지금 동기화
+          </button>
+          {syncCfg.lastSync && <span className="meta">마지막 동기화: {fmtDateTime(syncCfg.lastSync)}</span>}
+        </div>
+        {syncMsg && <p className="desc">{syncMsg}</p>}
       </Section>
 
       <Section title="구글 캘린더 가져오기">

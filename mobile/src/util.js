@@ -17,6 +17,11 @@ export function fmtDate(dateStr) {
   return `${m}/${d}(${wd})`;
 }
 
+export function fmtDateTime(ms) {
+  const d = new Date(ms);
+  return `${fmtDate(localDateStr(d))} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export function dateParts(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   return { y, m, d, dow: new Date(y, m - 1, d).getDay() };
@@ -66,4 +71,72 @@ export function importantHighlight(todo, db) {
   if (team && team.important) return team.color;
   if (p && p.important) return (team && team.color) || '#f59e0b';
   return null;
+}
+
+/* 입력한 한 줄이 팀/프로젝트(콘텐츠는 채널) 이름이면 그룹 컨텍스트를 돌려준다 (desktop Todos.jsx와 동일) */
+export function resolveGroup(v, kind, db) {
+  if (kind === 'content') {
+    const known = new Set([...CHANNELS, ...db.todos.filter((t) => t.channel).map((t) => t.channel)]);
+    if (known.has(v)) return { label: v, color: channelColor(v), teamId: null, projectId: null, channel: v };
+  }
+  const team = db.teams.find((t) => t.name === v);
+  if (team) return { label: team.name, color: team.color, teamId: team.id, projectId: null, channel: null };
+  const proj = db.projects.find((p) => p.status === 'active' && p.name === v);
+  if (proj) {
+    const pTeam = db.teams.find((t) => t.id === proj.teamId);
+    return {
+      label: proj.name,
+      color: pTeam ? pTeam.color : '#94a3b8',
+      teamId: null,
+      projectId: proj.id,
+      channel: null,
+    };
+  }
+  return null;
+}
+
+/* 입력 중 자동완성 후보 — 팀/프로젝트(콘텐츠는 채널) 이름 부분일치, 앞글자 일치 우선 */
+export function suggestGroups(q, kind, db) {
+  const v = q.trim().toLowerCase();
+  if (!v) return [];
+  const names = [];
+  if (kind === 'content') names.push(...CHANNELS);
+  names.push(...db.teams.map((t) => t.name));
+  names.push(...db.projects.filter((p) => p.status === 'active').map((p) => p.name));
+  const rank = (n) => (n.toLowerCase().startsWith(v) ? 0 : 1);
+  return [...new Set(names)]
+    .filter((n) => n.toLowerCase().includes(v) && n !== q.trim())
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .slice(0, 4)
+    .map((n) => resolveGroup(n, kind, db))
+    .filter(Boolean);
+}
+
+/* 여러 줄 텍스트: 줄마다 할 일로 추가하되, 팀/프로젝트/채널 이름 줄은 그룹 전환으로 처리.
+   add(payload)로 실제 추가를 위임하고 마지막 그룹 컨텍스트를 반환 */
+export function pasteLines(text, { date, kind, db, ctx, add, firstPrefix = '' }) {
+  const lines = text.split(/\r?\n/).map((s) => s.trim());
+  let cur = ctx;
+  let first = true;
+  for (let line of lines) {
+    if (first) {
+      line = (firstPrefix + line).trim();
+      first = false;
+    }
+    if (!line) continue;
+    const g = resolveGroup(line, kind, db);
+    if (g) {
+      cur = g;
+      continue;
+    }
+    add({
+      title: line,
+      date,
+      kind,
+      teamId: cur ? cur.teamId : null,
+      projectId: cur ? cur.projectId : null,
+      channel: cur ? cur.channel : null,
+    });
+  }
+  return cur;
 }

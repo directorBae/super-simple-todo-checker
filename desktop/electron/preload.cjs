@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
 
   updateSettings: (patch) => invoke('settings:update', patch),
   ackMissed: () => invoke('notif:ack'),
+  syncNow: () => invoke('sync:now'),
 
   gcalConnect: () => invoke('gcal:connect'),
   gcalSync: () => invoke('gcal:sync'),

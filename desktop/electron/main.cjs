@@ -3,6 +3,7 @@ const path = require('path');
 const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
 const gcal = require('./gcal.cjs');
+const sync = require('./sync.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 
@@ -121,6 +122,7 @@ function registerIpc() {
       channel: p.channel || null,
       status: p.status === 'bucket' ? 'bucket' : 'todo',
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       completedAt: null,
     });
     return done();
@@ -131,6 +133,7 @@ function registerIpc() {
     if (!t) return store.db;
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
     Object.assign(t, patch);
+    t.updatedAt = Date.now();
     if ('status' in patch) t.completedAt = patch.status === 'done' ? Date.now() : null;
     // 시간이 바뀌거나 다시 활성화되면 알림을 재무장
     if (timeChanged || patch.status === 'todo') clearTodoNotifs(id);
@@ -139,6 +142,7 @@ function registerIpc() {
 
   ipcMain.handle('todo:delete', (_, id) => {
     store.db.todos = store.db.todos.filter((t) => t.id !== id);
+    store.db.tombstones.push({ coll: 'todos', id, deletedAt: Date.now() });
     clearTodoNotifs(id);
     return done();
   });
@@ -155,6 +159,7 @@ function registerIpc() {
       status: p.status === 'bucket' ? 'bucket' : 'active',
       notes: p.notes || '',
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
     return done();
   });
@@ -163,12 +168,19 @@ function registerIpc() {
     const p = store.db.projects.find((x) => x.id === id);
     if (!p) return store.db;
     Object.assign(p, patch);
+    p.updatedAt = Date.now();
     return done();
   });
 
   ipcMain.handle('project:delete', (_, id) => {
     store.db.projects = store.db.projects.filter((p) => p.id !== id);
-    for (const t of store.db.todos) if (t.projectId === id) t.projectId = null;
+    store.db.tombstones.push({ coll: 'projects', id, deletedAt: Date.now() });
+    for (const t of store.db.todos) {
+      if (t.projectId === id) {
+        t.projectId = null;
+        t.updatedAt = Date.now();
+      }
+    }
     return done();
   });
 
@@ -176,7 +188,7 @@ function registerIpc() {
   ipcMain.handle('team:add', (_, p) => {
     const name = String(p.name || '').trim();
     if (!name) return store.db;
-    store.db.teams.push({ id: store.id(), name, color: p.color || '#2563eb', createdAt: Date.now() });
+    store.db.teams.push({ id: store.id(), name, color: p.color || '#2563eb', createdAt: Date.now(), updatedAt: Date.now() });
     return done();
   });
 
@@ -184,24 +196,44 @@ function registerIpc() {
     const t = store.db.teams.find((x) => x.id === id);
     if (!t) return store.db;
     Object.assign(t, patch);
+    t.updatedAt = Date.now();
     return done();
   });
 
   ipcMain.handle('team:delete', (_, id) => {
     store.db.teams = store.db.teams.filter((t) => t.id !== id);
-    for (const p of store.db.projects) if (p.teamId === id) p.teamId = null;
-    for (const t of store.db.todos) if (t.teamId === id) t.teamId = null;
+    store.db.tombstones.push({ coll: 'teams', id, deletedAt: Date.now() });
+    for (const p of store.db.projects) {
+      if (p.teamId === id) {
+        p.teamId = null;
+        p.updatedAt = Date.now();
+      }
+    }
+    for (const t of store.db.todos) {
+      if (t.teamId === id) {
+        t.teamId = null;
+        t.updatedAt = Date.now();
+      }
+    }
     return done();
   });
 
   // ---- 설정 ----
   ipcMain.handle('settings:update', (_, patch) => {
     const s = store.db.settings;
-    const { gcal: gcalPatch, ...rest } = patch;
+    const { gcal: gcalPatch, sync: syncPatch, ...rest } = patch;
     if (gcalPatch) Object.assign(s.gcal, gcalPatch);
+    if (syncPatch) Object.assign(s.sync, syncPatch);
     Object.assign(s, rest);
     if ('autoLaunch' in rest) applyAutoLaunch();
     return done();
+  });
+
+  // ---- 동기화 서버 ----
+  ipcMain.handle('sync:now', async () => {
+    const r = await sync.syncNow(store);
+    if (r.ok) broadcast();
+    return r;
   });
 
   // ---- 알림 ----
@@ -257,6 +289,17 @@ app.whenReady().then(() => {
   };
   autoSync();
   setInterval(autoSync, 30 * 60 * 1000);
+
+  // 동기화 서버가 설정돼 있으면 시작 시 + 10분마다 조용히 동기화
+  const autoServerSync = () => {
+    if (sync.configured(store)) {
+      sync.syncNow(store).then((r) => {
+        if (r.ok) broadcast();
+      });
+    }
+  };
+  autoServerSync();
+  setInterval(autoServerSync, 10 * 60 * 1000);
 });
 
 app.on('second-instance', showWindow);

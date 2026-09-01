@@ -10,11 +10,10 @@ const { randomUUID } = require('crypto');
  *    - 프로젝트를 먼저 만들고 그 안에서 할 일을 단계별로 쪼개 채워넣는 뷰/플로우.
  *    - todos.projectId는 이미 있으므로 UI + "프로젝트 템플릿(마일스톤→할 일 자동 생성)"만 추가하면 됨.
  *
- * 2. 동기화 서버 (모바일 ↔ 데스크톱 같은 할 일 공유)
- *    - 지금은 JSON 파일(db.json) / 모바일 AsyncStorage로 각자 저장. 스키마는 동일하게 맞춰둠.
- *    - 계획: 경량 서버(REST 또는 SQLite+sync) 두고 이 Store를 "로컬 캐시 + 원격 push/pull"로 확장.
- *    - 준비: 모든 엔티티에 id(uuid)·createdAt이 이미 있음. 추가로 updatedAt·deletedAt(soft delete)을
- *      붙이면 last-write-wins 병합이 가능. 서버 붙이기 전까지는 필드만 추가해도 무해함.
+ * 2. 동기화 서버 (모바일 ↔ 데스크톱 같은 할 일 공유) — 구현됨 (../../server, sync.cjs)
+ *    - teams/projects/todos에 updatedAt, 삭제는 tombstones([{coll,id,deletedAt}])로 기록.
+ *    - POST {url}/sync로 전체 상태를 보내면 서버가 LWW(updatedAt) + tombstone 우선으로 병합해
+ *      돌려주고, 클라이언트는 응답으로 통째로 교체. settings는 기기별이라 동기화하지 않음.
  *
  * 3. 문서/서류 업로드 → LLM 자동 분석 → 할 일 리스트화
  *    - 계획 스키마:
@@ -25,9 +24,10 @@ const { randomUUID } = require('crypto');
  *      흐름이 안전함. status enum 확장 시 기존 필터('todo'|'done'|'bucket' 비교)들을 함께 손볼 것.
  */
 const DEFAULTS = {
-  teams: [],       // { id, name, color, createdAt }
-  projects: [],    // { id, name, teamId, term: 'short'|'long', status: 'active'|'bucket'|'done', notes, createdAt }
-  todos: [],       // { id, kind: 'todo'|'content', title, notes, date, startTime, endTime, projectId, teamId, channel, status: 'todo'|'done'|'bucket', createdAt, completedAt }
+  teams: [],       // { id, name, color, createdAt, updatedAt }
+  projects: [],    // { id, name, teamId, term: 'short'|'long', status: 'active'|'bucket'|'done', notes, createdAt, updatedAt }
+  todos: [],       // { id, kind: 'todo'|'content', title, notes, date, startTime, endTime, projectId, teamId, channel, status: 'todo'|'done'|'bucket', createdAt, updatedAt, completedAt }
+  tombstones: [],  // { coll: 'teams'|'projects'|'todos', id, deletedAt } — 동기화 병합 시 삭제 전파용
   notifLog: [],    // { key, todoId, type: 'start'|'end'|'daily', due, firedAt, missed, ackAt }
   gcalEvents: [],  // { id, title, start, end, allDay }
   settings: {
@@ -40,6 +40,7 @@ const DEFAULTS = {
     dailyWrapupTime: '21:00',
     autoLaunch: false,
     gcal: { clientId: '', clientSecret: '', tokens: null, lastSync: null },
+    sync: { url: '', token: '', lastSync: null },
   },
 };
 
@@ -60,6 +61,7 @@ class Store {
           ...structuredClone(DEFAULTS.settings),
           ...(d.settings || {}),
           gcal: { ...structuredClone(DEFAULTS.settings.gcal), ...(d.settings && d.settings.gcal ? d.settings.gcal : {}) },
+          sync: { ...structuredClone(DEFAULTS.settings.sync), ...(d.settings && d.settings.sync ? d.settings.sync : {}) },
         },
       };
     } catch {
