@@ -6,8 +6,12 @@
 todo-checklist/
 ├─ desktop/   Electron + Vite + React (Windows 데스크톱, 트레이 상주·알림·구글 캘린더)
 ├─ mobile/    Expo React Native SDK 57 (iOS / Android)
-└─ server/    동기화 서버 — 의존성 없는 Node 단일 파일 (데스크톱 ↔ 모바일 같은 할 일 공유)
+└─ server/    개인용 Node 서버 + 로컬 SQLite (기기 동기화·Notion·Google·iCloud·OpenAI)
 ```
+
+## API 연결
+
+[개인용 연결 설정 가이드](docs/integration-setup.md)에서 Google·Notion·Apple·OpenAI 등록 절차와 로컬 서버 실행 방법을 확인한다. 별도 DB 서버는 사용하지 않는다.
 
 ## 실행
 
@@ -33,25 +37,25 @@ npm run ios     # iOS 시뮬레이터 (macOS 필요; 실기기는 Expo Go QR 스
 
 데이터: 기기 내 AsyncStorage (`todo-checker/db` 키, 데스크톱 db.json과 같은 스키마)
 
-데스크톱과 같은 워크플로를 지원한다: 일/월 뷰 전환, 팀·프로젝트·채널 그룹 입력(이름 입력 또는 칩 선택 시 그룹 전환, 부분일치 자동완성),
-여러 줄 붙여넣기(입력 줄의 📋 버튼 — 팀/프로젝트/채널 이름 줄은 그룹 전환으로 처리), 날짜 미정 목록, 버킷, 프로젝트 진행률.
+데스크톱과 같은 워크플로를 지원한다: 일/월 뷰 전환, 팀·프로젝트 그룹 입력(이름 입력 또는 칩 선택 시 그룹 전환, 부분일치 자동완성),
+여러 줄 붙여넣기(입력 줄의 📋 버튼 — 팀/프로젝트 이름 줄은 그룹 전환으로 처리), 날짜 미정 목록, 버킷, 프로젝트 진행률.
 스토어 배포용 식별자는 `com.todochecker.app` (app.json).
 
 ### 동기화 서버
 
 ```sh
 cd server
-npm start        # 기본 포트 8787. 첫 실행 시 토큰을 자동 생성해 출력 (data/token.txt에 보관)
+npm start        # 기본 포트 8787. 첫 실행 시 서버 토큰을 data/token.txt에 저장
 ```
 
-- 의존성 없는 Node 18+ 단일 파일(`server/index.js`). `PORT`, `SYNC_TOKEN` 환경변수로 조정.
+- Node 22.13+ 서버. 처음에는 server/에서 npm ci로 의존성을 설치한다.
 - 데스크톱 설정 → "동기화", 모바일 설정 → "동기화"에 **같은 주소·토큰**을 입력하면
-  팀/프로젝트/할 일이 양쪽에서 합쳐진다 (settings·알림 로그는 기기별이라 동기화 안 함).
+  팀/프로젝트/할 일이 양쪽에서 합쳐진다 (설정·알림 로그는 기기별로 유지).
 - 주소는 폰에서 접근 가능한 값이어야 한다 — 같은 Wi-Fi면 PC의 LAN IP (`ipconfig`의 IPv4, 예: `http://192.168.0.10:8787`).
   외부에서 쓰려면 HTTPS로 올린다 (Fly.io 한 방 배포 또는 Docker+Caddy — [server/DEPLOY.md](server/DEPLOY.md)).
   iOS는 평문 HTTP를 로컬 네트워크에서만 허용하므로, 집 밖에서 쓰려면 HTTPS가 사실상 필수다.
 - 병합 규칙: 레코드별 last-write-wins(`updatedAt`), 삭제는 tombstone이 전파 (기기 시계 기준이므로 개인용 수준).
-- 자동 동기화: 데스크톱은 시작 시 + 10분마다, 모바일은 앱을 켤 때. 수동은 각 설정 화면의 "지금 동기화".
+- 자동 동기화: 두 앱 모두 시작 시와 실행 중 15초마다. 수동은 각 설정 화면의 "지금 동기화".
 
 ## 배포
 
@@ -100,4 +104,4 @@ mobile은 동일 스키마를 AsyncStorage에 저장. 레코드마다 `updatedAt
 - **프로젝트 중심 할 일 채우기** — 프로젝트를 만들고 그 안에서 단계별로 할 일을 쪼개 넣는 플로우 (스키마는 준비됨, `desktop/electron/store.cjs` 주석 참고)
 - **동기화 고도화** — 지금은 전체 상태 교환(LWW). 데이터가 커지면 변경분만 주고받는 방식·HTTPS 배포 가이드 추가
 - **LLM 문서 분석** — 문서/서류 업로드 → LLM이 분석해 할 일 리스트로 변환. `sources` 컬렉션 + `todos.sourceId` + 'suggested' 상태로 확장 예정 (store.cjs 주석에 스키마 초안)
-- 모바일: 테마 6종 이식, 알림(expo-notifications — Expo Go는 안드로이드 로컬 알림 미지원이라 dev build 필요), 구글 캘린더 연동
+- 모바일: 테마 6종 이식, 알림(expo-notifications — Expo Go는 안드로이드 로컬 알림 미지원이라 dev build 필요)

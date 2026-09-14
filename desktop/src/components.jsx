@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CHANNELS, fmtDate, channelColor, importantHighlight } from './util.js';
+import { fmtDate, importantHighlight } from './util.js';
 
 export function ChipPicker({ label, options, value, onChange }) {
   if (!options.length) return null;
@@ -293,33 +293,18 @@ export function TodoForm({ initial = {}, kind = 'todo', projects = [], teams = [
     <form className="todo-form" onSubmit={submit}>
       <input
         className="grow"
-        placeholder={kind === 'content' ? '콘텐츠 제목' : '할 일 제목'}
+        placeholder={'할 일 제목'}
         value={f.title}
         onChange={set('title')}
       />
       <input type="date" value={f.date} onChange={set('date')} title="날짜" />
       <TimeField value={f.startTime} placeholder="시작" onChange={(v) => setF({ ...f, startTime: v })} />
       <TimeField value={f.endTime} placeholder="마무리" onChange={(v) => setF({ ...f, endTime: v })} />
-      {kind === 'content' && (
-        <>
-          <input
-            className="channel-input"
-            list="channel-list"
-            placeholder="채널"
-            value={f.channel}
-            onChange={set('channel')}
-          />
-          <datalist id="channel-list">
-            {CHANNELS.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </>
-      )}
+
       <button type="submit" className="primary">
         추가
       </button>
-      {kind !== 'content' && showLinks && (projects.length > 0 || teams.length > 0) && (
+      {showLinks && (projects.length > 0 || teams.length > 0) && (
         <div className="picker-rows">
           <ChipPicker
             label="프로젝트"
@@ -345,52 +330,8 @@ export function TodoForm({ initial = {}, kind = 'todo', projects = [], teams = [
 }
 
 /* 기존 항목 편집기 — 버튼 없이 모든 변경이 즉시 저장됨 */
-export function TodoEditor({ todo, db }) {
-  const upd = (patch) => window.api.updateTodo(todo.id, patch);
-  return (
-    <div className="todo-editor">
-      <div className="editor-row">
-        <input type="date" value={todo.date || ''} onChange={(e) => upd({ date: e.target.value || null })} />
-        <TimeField value={todo.startTime || ''} placeholder="시작" onChange={(v) => upd({ startTime: v || null })} />
-        <TimeField value={todo.endTime || ''} placeholder="마무리" onChange={(v) => upd({ endTime: v || null })} />
-        {todo.kind === 'content' && (
-          <>
-            <input
-              key={todo.id + (todo.channel || '')}
-              className="channel-input"
-              list="channel-list-editor"
-              placeholder="채널"
-              defaultValue={todo.channel || ''}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v !== (todo.channel || '')) upd({ channel: v || null });
-              }}
-            />
-            <datalist id="channel-list-editor">
-              {CHANNELS.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </>
-        )}
-      </div>
-      {todo.kind !== 'content' && db.projects.length > 0 && (
-        <div className="picker-rows">
-          <ChipPicker
-            label="프로젝트"
-            options={db.projects
-              .filter((p) => p.status !== 'done')
-              .map((p) => {
-                const team = db.teams.find((t) => t.id === p.teamId);
-                return { id: p.id, label: p.name, color: team ? team.color : null, important: p.important };
-              })}
-            value={todo.projectId || ''}
-            onChange={(v) => upd({ projectId: v || null })}
-          />
-        </div>
-      )}
-    </div>
-  );
+export function TodoEditor({ todo }) {
+  return <div className="todo-editor date-only"><label>날짜 <input aria-label="할 일 날짜" type="date" value={todo.date || ''} onChange={e => window.api.updateTodo(todo.id, { date: e.target.value || null, endDate: null })} /></label><button className="ghost" onClick={() => window.api.updateTodo(todo.id, { date: null, endDate: null, startTime: null, endTime: null })}>날짜 없음</button></div>;
 }
 
 export function TodoRow({ todo, db, showDate = false }) {
@@ -410,11 +351,7 @@ export function TodoRow({ todo, db, showDate = false }) {
         <span className="title" onClick={() => setEditing(!editing)} title="클릭하여 편집">
           {todo.title}
         </span>
-        {todo.channel && (
-          <span className="badge" style={{ background: channelColor(todo.channel), color: '#fff' }}>
-            {todo.channel}
-          </span>
-        )}
+
         {project && <span className="badge">{project.name}</span>}
         <TeamControl todo={todo} db={db} />
         <span className="meta">

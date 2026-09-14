@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
 const { randomUUID } = require('crypto');
+const { migrateTeams } = require('./migrate-teams.cjs');
 
 /*
  * TODO(roadmap): 데이터 계층 로드맵
@@ -26,7 +27,7 @@ const { randomUUID } = require('crypto');
 const DEFAULTS = {
   teams: [],       // { id, name, color, createdAt, updatedAt }
   projects: [],    // { id, name, teamId, term: 'short'|'long', status: 'active'|'bucket'|'done', notes, createdAt, updatedAt }
-  todos: [],       // { id, kind: 'todo'|'content', title, notes, date, startTime, endTime, projectId, teamId, channel, status: 'todo'|'done'|'bucket', createdAt, updatedAt, completedAt }
+  todos: [],       // { id, kind: 'todo', title, notes, date, startTime, endTime, projectId, teamId, channel, status: 'todo'|'done'|'bucket', createdAt, updatedAt, completedAt }
   tombstones: [],  // { coll: 'teams'|'projects'|'todos', id, deletedAt } — 동기화 병합 시 삭제 전파용
   notifLog: [],    // { key, todoId, type: 'start'|'end'|'daily', due, firedAt, missed, ackAt }
   gcalEvents: [],  // { id, title, start, end, allDay }
@@ -39,7 +40,6 @@ const DEFAULTS = {
     dailyWrapup: true,
     dailyWrapupTime: '21:00',
     autoLaunch: false,
-    gcal: { clientId: '', clientSecret: '', tokens: null, lastSync: null },
     sync: { url: '', token: '', lastSync: null },
   },
 };
@@ -47,20 +47,22 @@ const DEFAULTS = {
 class Store {
   constructor() {
     this.file = path.join(app.getPath('userData'), 'db.json');
-    this.db = this.load();
+    this.db = migrateTeams(this.load());
     this._timer = null;
   }
 
   load() {
     try {
       const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      d.todos = (d.todos || []).map(t => ({ ...t, kind: 'todo', origin: t.origin || { type: 'legacy' } }));
+      d.gcalEvents = [];
+      if (d.settings) delete d.settings.gcal;
       return {
         ...structuredClone(DEFAULTS),
         ...d,
         settings: {
           ...structuredClone(DEFAULTS.settings),
           ...(d.settings || {}),
-          gcal: { ...structuredClone(DEFAULTS.settings.gcal), ...(d.settings && d.settings.gcal ? d.settings.gcal : {}) },
           sync: { ...structuredClone(DEFAULTS.settings.sync), ...(d.settings && d.settings.sync ? d.settings.sync : {}) },
         },
       };

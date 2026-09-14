@@ -1,4 +1,14 @@
 node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.tmp.cjs
+artifacts/
+dist-check/
+dist-check-ios/
 dist/
 .expo/
 *.log
@@ -7,3 +17,5 @@ build/
 !desktop/build/
 
 **/release/**
+
+secret/

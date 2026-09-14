@@ -21,10 +21,9 @@ contextBridge.exposeInMainWorld('api', {
   updateSettings: (patch) => invoke('settings:update', patch),
   ackMissed: () => invoke('notif:ack'),
   syncNow: () => invoke('sync:now'),
+  pairDevice: () => invoke('sync:pair'),
+  integrations: (payload) => invoke('integrations:request', payload),
 
-  gcalConnect: () => invoke('gcal:connect'),
-  gcalSync: () => invoke('gcal:sync'),
-  gcalDisconnect: () => invoke('gcal:disconnect'),
 
   onDbChanged: (cb) => ipcRenderer.on('db-changed', (_, db) => cb(db)),
   onOpenView: (cb) => ipcRenderer.on('open-view', (_, view) => cb(view)),

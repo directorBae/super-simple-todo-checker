@@ -40,17 +40,6 @@ export const byTime = (a, b) => ((a.startTime || '99') < (b.startTime || '99') ?
 export const byDateTime = (a, b) =>
   (a.date || '9999') + (a.startTime || '99') < (b.date || '9999') + (b.startTime || '99') ? -1 : 1;
 
-export const CHANNELS = ['Instagram', 'YouTube', 'X', '블로그', 'TikTok', '기타'];
-
-const CHANNEL_COLORS = ['#e1306c', '#ef4444', '#111827', '#22c55e', '#8b5cf6', '#f59e0b'];
-export function channelColor(channel) {
-  if (!channel) return '#94a3b8';
-  const i = CHANNELS.indexOf(channel);
-  if (i >= 0) return CHANNEL_COLORS[i];
-  let h = 0;
-  for (const c of channel) h = (h * 31 + c.charCodeAt(0)) % 997;
-  return CHANNEL_COLORS[h % CHANNEL_COLORS.length];
-}
 
 // 프로젝트를 통해 소속된 팀까지 고려한 실제 팀 id
 export function effectiveTeamId(todo, db) {

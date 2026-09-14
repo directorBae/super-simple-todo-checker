@@ -2,6 +2,7 @@
  * 릴리스에 올라간 latest.yml 을 보고 새 버전을 받아 다음 실행 때 적용한다. */
 const { app, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const demoBuild = !!require('../package.json').demoBuild;
 
 const CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
@@ -10,7 +11,7 @@ const check = () => autoUpdater.checkForUpdates().catch(() => {});
 /* 시작 시 + 6시간마다 조용히 확인. beforeInstall 로 트레이 상주 종료 플래그를 넘겨받는다. */
 function start({ beforeInstall } = {}) {
   // 개발 실행에는 latest.yml 이 없어 매번 실패하므로 패키징된 앱에서만 돈다
-  if (!app.isPackaged) return;
+  if (!app.isPackaged || demoBuild) return;
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -38,6 +39,10 @@ function start({ beforeInstall } = {}) {
 
 /* 트레이 메뉴에서 수동 확인 — 조용한 자동 확인과 달리 결과를 항상 알려준다 */
 async function checkNow() {
+  if (demoBuild) {
+    dialog.showMessageBox({ type: 'info', title: '데모 빌드', message: '촬영용 빌드는 자동 업데이트를 사용하지 않습니다.' });
+    return;
+  }
   if (!app.isPackaged) {
     dialog.showMessageBox({ type: 'info', title: '업데이트', message: '개발 실행에서는 업데이트를 확인하지 않습니다.' });
     return;

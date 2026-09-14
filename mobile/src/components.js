@@ -21,12 +21,13 @@ export function Glass({ style, intensity = 45, children }) {
 }
 
 /* 누르면 통통 눌리는 버튼 래퍼 */
-export function PressScale({ onPress, onLongPress, style, children, haptic }) {
+export function PressScale({ onPress, onLongPress, style, containerStyle, children, haptic }) {
   const scale = useRef(new Animated.Value(1)).current;
   const to = (v) =>
     Animated.spring(scale, { toValue: v, useNativeDriver: true, speed: 40, bounciness: 8 }).start();
   return (
     <Pressable
+      style={containerStyle}
       onPressIn={() => to(0.95)}
       onPressOut={() => to(1)}
       onPress={() => {

@@ -2,7 +2,8 @@
   "expo": {
     "name": "할 일 체커",
     "slug": "todo-checker",
-    "version": "1.0.0",
+    "owner": "teamblco",
+    "version": "1.1.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -26,7 +27,8 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "versionCode": 7
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -48,7 +50,13 @@
           "resizeMode": "contain",
           "backgroundColor": "#E6F4FE"
         }
-      ]
-    ]
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "338b53aa-b90b-4756-96dd-38fe1f73e026"
+      }
+    }
   }
 }

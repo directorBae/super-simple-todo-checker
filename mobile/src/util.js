@@ -39,17 +39,6 @@ export const lineSort = (a, b) => {
 export const byDateTime = (a, b) =>
   (a.date || '9999') + (a.startTime || '99') < (b.date || '9999') + (b.startTime || '99') ? -1 : 1;
 
-export const CHANNELS = ['Instagram', 'YouTube', 'X', '블로그', 'TikTok', '기타'];
-
-const CHANNEL_COLORS = ['#e1306c', '#ef4444', '#111827', '#22c55e', '#8b5cf6', '#f59e0b'];
-export function channelColor(channel) {
-  if (!channel) return '#94a3b8';
-  const i = CHANNELS.indexOf(channel);
-  if (i >= 0) return CHANNEL_COLORS[i];
-  let h = 0;
-  for (const c of channel) h = (h * 31 + c.charCodeAt(0)) % 997;
-  return CHANNEL_COLORS[h % CHANNEL_COLORS.length];
-}
 
 // 프로젝트를 통해 소속된 팀까지 고려한 실제 팀 id
 export function effectiveTeamId(todo, db) {
@@ -73,12 +62,9 @@ export function importantHighlight(todo, db) {
   return null;
 }
 
-/* 입력한 한 줄이 팀/프로젝트(콘텐츠는 채널) 이름이면 그룹 컨텍스트를 돌려준다 (desktop Todos.jsx와 동일) */
+/* 입력한 한 줄이 팀/프로젝트 이름이면 그룹 컨텍스트를 돌려준다 (desktop Todos.jsx와 동일) */
 export function resolveGroup(v, kind, db) {
-  if (kind === 'content') {
-    const known = new Set([...CHANNELS, ...db.todos.filter((t) => t.channel).map((t) => t.channel)]);
-    if (known.has(v)) return { label: v, color: channelColor(v), teamId: null, projectId: null, channel: v };
-  }
+
   const team = db.teams.find((t) => t.name === v);
   if (team) return { label: team.name, color: team.color, teamId: team.id, projectId: null, channel: null };
   const proj = db.projects.find((p) => p.status === 'active' && p.name === v);
@@ -95,12 +81,12 @@ export function resolveGroup(v, kind, db) {
   return null;
 }
 
-/* 입력 중 자동완성 후보 — 팀/프로젝트(콘텐츠는 채널) 이름 부분일치, 앞글자 일치 우선 */
+/* 입력 중 자동완성 후보 — 팀/프로젝트 이름 부분일치, 앞글자 일치 우선 */
 export function suggestGroups(q, kind, db) {
   const v = q.trim().toLowerCase();
   if (!v) return [];
   const names = [];
-  if (kind === 'content') names.push(...CHANNELS);
+
   names.push(...db.teams.map((t) => t.name));
   names.push(...db.projects.filter((p) => p.status === 'active').map((p) => p.name));
   const rank = (n) => (n.toLowerCase().startsWith(v) ? 0 : 1);

@@ -9,7 +9,10 @@ ENV NODE_ENV=production \
     PORT=8787
 
 WORKDIR /app
-COPY package.json index.js ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY index.js ./
+COPY lib ./lib
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && mkdir -p /data
 

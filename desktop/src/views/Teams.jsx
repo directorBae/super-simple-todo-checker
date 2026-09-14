@@ -32,7 +32,7 @@ export default function Teams({ db }) {
   };
 
   const remove = (team) => {
-    if (window.confirm(`'${team.name}' 팀을 삭제할까요? 소속 프로젝트/할 일은 유지되고 연결만 해제됩니다.`)) {
+    if (window.confirm(`'${team.name}' 팀을 삭제할까요? 소속 할 일은 유지되고 연결만 해제됩니다.`)) {
       window.api.deleteTeam(team.id);
     }
   };
@@ -67,7 +67,7 @@ export default function Teams({ db }) {
               </span>
               {hl && <span className="hl-star" style={{ color: team.color }}>★</span>}
               <span className="meta">
-                프로젝트 {projCount} · 할 일 {todoCount}
+                할 일 {todoCount}
               </span>
               <span className="row-actions">
                 <button

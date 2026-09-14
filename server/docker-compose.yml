@@ -14,6 +14,14 @@ services:
       DATA_DIR: /data
       SYNC_TOKEN: ${SYNC_TOKEN:?SYNC_TOKEN 을 .env 에 설정하세요}
       TRUST_PROXY: "1"
+      PUBLIC_URL: https://${SYNC_DOMAIN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NOTION_CLIENT_ID: ${NOTION_CLIENT_ID:-}
+      NOTION_CLIENT_SECRET: ${NOTION_CLIENT_SECRET:-}
+      TIME_ZONE: ${TIME_ZONE:-Asia/Seoul}
     volumes:
       - sync-data:/data
     expose:

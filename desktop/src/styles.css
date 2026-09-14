@@ -904,7 +904,7 @@ button.team-badge-btn:hover {
   animation: rise-in 0.28s ease;
 }
 
-/* ---------- 콘텐츠 캘린더 ---------- */
+/* ---------- 월간 할 일 캘린더 ---------- */
 .cal-nav {
   display: flex;
   align-items: center;
@@ -1829,25 +1829,6 @@ button.team-badge-btn:hover {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* ---------- 콘텐츠 캘린더 구분 표시 ---------- */
-h1.content-title {
-  background: linear-gradient(120deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.kind-pill {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  color: var(--accent);
-  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: var(--accent-soft);
-  border-radius: 99px;
-  padding: 2px 9px;
-}
-
 /* =====================================================================
    테마: 다크 — 깊은 밤의 인디고 유리
    ===================================================================== */
@@ -2427,3 +2408,75 @@ h1.content-title {
     transition-duration: 0.01ms !important;
   }
 }
+
+.integration-form, .integration-target { display: grid; gap: 10px; padding: 16px; margin: 12px 0; border: 1px solid var(--border, #cbd5e1); border-radius: 12px; }
+.integration-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.integration-field { display: grid; gap: 6px; font-size: 13px; }
+.integration-field select, .integration-field input { width: 100%; min-width: 0; }
+.integration-account { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.integration-account > span { flex: 1; }
+.integration-error { color: #b91c1c; white-space: pre-wrap; }
+.todo-integration { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.todo-editor textarea { min-height: 70px; width: 100%; }
+.integrations .btn-row { flex-wrap: wrap; }
+
+.integrations button:not(.primary):not(.ghost) { border: 1px solid var(--border, #cbd5e1); border-radius: 9px; padding: 7px 12px; background: rgba(255,255,255,.45); color: inherit; cursor: pointer; }
+.integrations button:disabled { opacity: .5; cursor: default; }
+
+/* Unified glass surfaces */
+.main-tabs { display:flex;gap:4px; }
+.connect-nav { background:var(--accent);color:white;border:1px solid #ffffff30;border-radius:14px;padding:10px 17px;font-weight:600;box-shadow:0 5px 18px #4275d926; }
+.connect-nav span { margin-left:9px; }
+.sync-indicator { border:0;background:none;color:var(--muted);font-size:11px; }
+.sync-indicator::before { content:'';display:inline-block;width:6px;height:6px;background:#50a58b;border-radius:50%;margin-right:6px; }
+.sync-indicator.offline::before { background:#d99556; }
+.menu-wrap { position:relative; }
+.menu-pop { position:absolute;top:48px;right:0;width:238px;padding:12px;border:1px solid var(--glass-edge);border-radius:22px;background:var(--pop);backdrop-filter:blur(40px) saturate(160%);box-shadow:var(--shadow-md);display:grid;gap:5px;z-index:60; }
+.menu-pop>button { text-align:left;border:0;background:transparent;padding:12px;border-radius:12px; }
+.menu-pop>button:hover { background:var(--srf-3); }
+.menu-label { padding:8px 10px;color:var(--muted);font-size:12px; }
+.menu-themes { display:flex;gap:7px;padding:0 8px 10px; }
+.menu-themes button { width:28px;height:28px;border-radius:50%;padding:0;border:2px solid var(--glass-edge); }
+.menu-themes button.selected { outline:2px solid var(--accent);outline-offset:2px; }
+.onboarding { flex:1;overflow:auto;display:flex;align-items:center;flex-direction:column;padding:38px 40px 30px; }
+.welcome-mark { width:58px;height:58px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--glass-edge);border-radius:19px;font-size:31px;color:var(--accent);box-shadow:inset 0 1px 2px var(--inner-glow),var(--shadow-md);backdrop-filter:blur(24px); }
+.eyebrow { letter-spacing:3px;font-size:10px;font-weight:700;color:var(--muted);margin-top:22px; }
+.onboarding h1 { font-size:39px;letter-spacing:-1.7px;font-weight:700;margin:10px 0; }
+.welcome-desc { color:var(--muted);font-size:15px;line-height:1.8;text-align:center;margin:4px 0 28px; }
+.tool-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;width:100%;max-width:830px; }
+.tool-card { display:flex;flex-direction:column;gap:16px;align-items:flex-start;text-align:left;padding:26px;border-radius:26px;border:1px solid var(--glass-edge);background:var(--panel);box-shadow:inset 0 1px 2px var(--inner-glow),0 14px 32px #2539650b;backdrop-filter:blur(28px) saturate(180%);transition:transform .2s,background .2s; }
+.tool-card:hover { transform:translateY(-4px);background:var(--panel-strong); }
+.tool-card strong { font-size:17px;letter-spacing:-.3px; }
+.connected-label { font-size:12px;color:var(--accent); }
+.welcome-actions { margin-top:28px;display:flex;align-items:center;gap:16px; }
+.welcome-actions .primary { padding:13px 28px;border-radius:16px; }
+.padded-content { padding:35px 48px;overflow:auto; }
+.page-heading { margin-bottom:28px; }
+.page-heading h1 { margin:0 0 10px;font-size:31px;letter-spacing:-1px; }
+.page-heading p { color:var(--muted); }
+.provider-overlay { position:fixed;inset:0;background:var(--overlay);backdrop-filter:blur(9px);display:flex;align-items:center;justify-content:center;z-index:100;padding:30px; }
+.provider-dialog { width:620px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;border:1px solid var(--glass-edge);border-radius:28px;background:var(--pop);backdrop-filter:blur(45px) saturate(180%);box-shadow:var(--shadow-lg);overflow:hidden; }
+.provider-heading { display:flex;align-items:center;gap:12px; }
+.provider-body { display:flex;flex-direction:column;gap:15px; }
+.account-card,.connected-source { padding:16px;border-radius:18px;background:var(--srf-1);border:1px solid var(--glass-edge);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+.connected-source small { display:block;color:var(--muted);margin-top:5px; }
+.provider-body details { padding:14px;border:1px solid var(--border);border-radius:16px; }
+.provider-body summary { cursor:pointer;font-size:13px; }
+.provider-body details .integration-grid { margin-top:15px; }
+.popup-panel { border-radius:28px;background:var(--pop);backdrop-filter:blur(42px) saturate(180%);border:1px solid var(--glass-edge);box-shadow:inset 0 1px 1px var(--inner-glow),var(--shadow-lg); }
+.pair-panel { padding:12px;line-height:1.8; }
+.pair-address { padding:10px 14px;border:1px solid var(--glass-edge);background:var(--srf-1);border-radius:12px;margin-top:8px;font-variant-numeric:tabular-nums;user-select:all; }
+.pair-code { font-size:52px;font-weight:700;letter-spacing:10px;margin:20px 0;color:var(--accent);user-select:all; }
+.date-only { display:flex;gap:12px;align-items:center; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important;transition:none!important; } }
+/* Keep the original compact notebook chrome. Glass changes only the material. */
+.topbar { z-index:20; overflow:visible; backdrop-filter:blur(24px) saturate(160%); }
+.logo { border:0; padding:0; font-size:14px; cursor:pointer; }
+.connect-nav { padding:7px 11px; border-radius:10px; font-size:12px; margin:0 8px; box-shadow:none; }
+.top-icons { align-items:center; }
+
+/* Compact provenance marks, outside the editable notebook text. */
+.provider-logo { display:inline-flex; flex-shrink:0; overflow:hidden; vertical-align:middle; }
+.source-icons { display:inline-flex; align-items:center; flex-shrink:0; vertical-align:middle; }
+.cal-chip { display:flex; align-items:center; gap:4px; }
+.cal-chip-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

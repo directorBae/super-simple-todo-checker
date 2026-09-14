@@ -1,6 +1,7 @@
+import { SourceIcons } from '../icons.jsx';
 import React, { useState } from 'react';
 import { Section, Empty } from '../components.jsx';
-import { channelColor, todayStr } from '../util.js';
+import { todayStr } from '../util.js';
 
 function BucketTodoRow({ todo, db }) {
   const [date, setDate] = useState('');
@@ -8,12 +9,8 @@ function BucketTodoRow({ todo, db }) {
   return (
     <div className="todo-row">
       <div className="todo-line">
-        <span className="title">{todo.title}</span>
-        {todo.kind === 'content' && (
-          <span className="badge" style={{ background: channelColor(todo.channel), color: '#fff' }}>
-            {todo.channel || '콘텐츠'}
-          </span>
-        )}
+        <SourceIcons todo={todo}/><span className="title">{todo.title}</span>
+
         {project && <span className="badge">{project.name}</span>}
         <span className="row-actions">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="활성화할 날짜 (선택)" />
@@ -38,7 +35,6 @@ function BucketTodoRow({ todo, db }) {
 
 export default function Buckets({ db }) {
   const [todoTitle, setTodoTitle] = useState('');
-  const [kind, setKind] = useState('todo');
   const [projName, setProjName] = useState('');
 
   const todoBuckets = db.todos.filter((t) => t.status === 'bucket');
@@ -47,7 +43,7 @@ export default function Buckets({ db }) {
   const addTodoBucket = (e) => {
     e.preventDefault();
     if (!todoTitle.trim()) return;
-    window.api.addTodo({ title: todoTitle.trim(), kind, status: 'bucket' });
+    window.api.addTodo({ title: todoTitle.trim(), kind: 'todo', status: 'bucket' });
     setTodoTitle('');
   };
 
@@ -62,18 +58,15 @@ export default function Buckets({ db }) {
     <div>
       <p className="desc">앞으로 챙기고 싶지만 아직 애매한 일들을 담아 두는 곳. 준비가 되면 활성화하세요.</p>
 
-      <Section title={`할 일 · 콘텐츠 버킷 (${todoBuckets.length})`}>
+      <Section title={`할 일 버킷 (${todoBuckets.length})`}>
         <form className="todo-form" onSubmit={addTodoBucket}>
           <input
             className="grow"
-            placeholder="언젠가 할 일 / 만들 콘텐츠"
+            placeholder="언젠가 할 일"
             value={todoTitle}
             onChange={(e) => setTodoTitle(e.target.value)}
           />
-          <select value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="todo">할 일</option>
-            <option value="content">콘텐츠</option>
-          </select>
+
           <button type="submit" className="primary">
             담기
           </button>
@@ -85,38 +78,7 @@ export default function Buckets({ db }) {
         )}
       </Section>
 
-      <Section title={`프로젝트 버킷 (${projBuckets.length})`}>
-        <form className="todo-form" onSubmit={addProjBucket}>
-          <input
-            className="grow"
-            placeholder="언젠가 하고 싶은 프로젝트"
-            value={projName}
-            onChange={(e) => setProjName(e.target.value)}
-          />
-          <button type="submit" className="primary">
-            담기
-          </button>
-        </form>
-        {projBuckets.length ? (
-          projBuckets.map((p) => (
-            <div className="todo-row" key={p.id}>
-              <div className="todo-line">
-                <span className="title">{p.name}</span>
-                <span className="row-actions">
-                  <button className="ghost" onClick={() => window.api.updateProject(p.id, { status: 'active' })}>
-                    활성화
-                  </button>
-                  <button className="ghost danger" onClick={() => window.api.deleteProject(p.id)}>
-                    ✕
-                  </button>
-                </span>
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty>버킷이 비어 있습니다.</Empty>
-        )}
-      </Section>
+
     </div>
   );
 }

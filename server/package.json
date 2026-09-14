@@ -4,6 +4,13 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test --test-timeout=20000 test/*.test.js"
+  },
+  "engines": { "node": ">=22.13.0" },
+  "dependencies": {
+    "ical.js": "^2.2.1",
+    "luxon": "^3.7.2",
+    "tsdav": "^2.3.3"
   }
 }

@@ -4,6 +4,11 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "demo": {
+      "extends": "preview",
+      "autoIncrement": true,
+      "environment": "preview"
+    },
     "preview": {
       "distribution": "internal",
       "android": {

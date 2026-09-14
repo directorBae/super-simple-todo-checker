@@ -1,24 +1,32 @@
 {
   "name": "mobile",
-  "version": "1.0.0",
+  "version": "1.1.4",
   "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~57.0.18",
-    "expo-blur": "~57.0.2",
-    "expo-build-properties": "~57.0.15",
-    "expo-clipboard": "~57.0.1",
-    "expo-haptics": "~57.0.2",
-    "expo-linear-gradient": "~57.0.1",
-    "expo-splash-screen": "~57.0.8",
+    "@react-native-community/datetimepicker": "9.1.0",
+    "expo": "~57.0.22",
+    "expo-blur": "~57.0.3",
+    "expo-build-properties": "~57.0.17",
+    "expo-clipboard": "~57.0.2",
+    "expo-glass-effect": "~57.0.3",
+    "expo-haptics": "~57.0.3",
+    "expo-linear-gradient": "~57.0.2",
+    "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-svg": "15.15.4"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
+    "build:demo:ios": "npx eas-cli@latest build --platform ios --profile demo",
+    "apple:check": "node scripts/eas-apple.cjs check",
+    "apple:register": "node scripts/eas-apple.cjs register",
+    "build:demo:ios:workaround": "node scripts/eas-apple.cjs build",
+    "build:demo:android": "npx eas-cli@latest build --platform android --profile demo",
     "web": "expo start --web"
   },
   "private": true

@@ -1,16 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TodoEditor, TeamControl } from '../components.jsx';
+import { SourceIcons } from '../icons.jsx';
 import {
   todayStr,
   addDays,
   localDateStr,
   effectiveTeamId,
-  channelColor,
   importantHighlight,
   eventOnDate,
   fmtTime,
-  CHANNELS,
-} from '../util.js';
+  } from '../util.js';
 
 const DOW_NAMES = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
 
@@ -29,39 +28,25 @@ const lineSort = (a, b) => {
   const ka = a.startTime || '99:99';
   const kb = b.startTime || '99:99';
   if (ka !== kb) return ka < kb ? -1 : 1;
-  return (a.createdAt || 0) - (b.createdAt || 0);
+  return (a.sortOrder ?? a.createdAt ?? 0) - (b.sortOrder ?? b.createdAt ?? 0);
 };
 
-/* 입력한 한 줄이 팀/프로젝트(콘텐츠는 채널) 이름이면 그룹 컨텍스트를 돌려준다 */
+/* 입력한 한 줄이 팀/프로젝트 이름이면 그룹 컨텍스트를 돌려준다 */
 function resolveGroup(v, kind, db) {
-  if (kind === 'content') {
-    const known = new Set([...CHANNELS, ...db.todos.filter((t) => t.channel).map((t) => t.channel)]);
-    if (known.has(v)) return { label: v, color: channelColor(v), teamId: null, projectId: null, channel: v };
-  }
+
   const team = db.teams.find((t) => t.name === v);
   if (team) return { label: team.name, color: team.color, teamId: team.id, projectId: null, channel: null };
-  const proj = db.projects.find((p) => p.status === 'active' && p.name === v);
-  if (proj) {
-    const pTeam = db.teams.find((t) => t.id === proj.teamId);
-    return {
-      label: proj.name,
-      color: pTeam ? pTeam.color : '#94a3b8',
-      teamId: null,
-      projectId: proj.id,
-      channel: null,
-    };
-  }
   return null;
 }
 
-/* 입력 중 자동완성 후보 — 팀/프로젝트(콘텐츠는 채널) 이름 부분일치, 앞글자 일치 우선 */
+/* 입력 중 자동완성 후보 — 팀/프로젝트 이름 부분일치, 앞글자 일치 우선 */
 function suggestGroups(q, kind, db) {
   const v = q.trim().toLowerCase();
   if (!v) return [];
   const names = [];
-  if (kind === 'content') names.push(...CHANNELS);
+
   names.push(...db.teams.map((t) => t.name));
-  names.push(...db.projects.filter((p) => p.status === 'active').map((p) => p.name));
+
   const rank = (n) => (n.toLowerCase().startsWith(v) ? 0 : 1);
   return [...new Set(names)]
     .filter((n) => n.toLowerCase().includes(v) && n !== q.trim())
@@ -124,7 +109,7 @@ function pasteLines(text, { date, kind, db, ctx, firstPrefix = '' }) {
   return cur;
 }
 
-/* 한 줄(할 일/콘텐츠). 제목 클릭 → 인라인 편집 */
+/* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
 function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape, indent, kind }) {
   const [detail, setDetail] = useState(false);
   const inputRef = useRef(null);
@@ -176,6 +161,7 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
           checked={isDone}
           onChange={() => window.api.updateTodo(todo.id, { status: isDone ? 'todo' : 'done' })}
         />
+        <SourceIcons todo={todo}/>
         {editing ? (
           <input
             ref={inputRef}
@@ -206,11 +192,7 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
             {todo.title}
           </span>
         )}
-        {todo.kind === 'content' && todo.channel && (
-          <span className="badge" style={{ background: channelColor(todo.channel), color: '#fff' }}>
-            {todo.channel}
-          </span>
-        )}
+
         {project && <span className="badge">{project.name}</span>}
         <span className="memo-right">
           {(todo.startTime || todo.endTime) && (
@@ -413,7 +395,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
       <input
         ref={ref}
         className="memo-input"
-        placeholder={kind === 'content' ? '콘텐츠 입력' : '할 일 입력'}
+        placeholder={'할 일 입력'}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -603,8 +585,7 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
   const chip = (t) => {
     const hl = importantHighlight(t, db);
     let edge = '#cbd5e1';
-    if (kind === 'content') edge = channelColor(t.channel);
-    else {
+    {
       const team = db.teams.find((x) => x.id === effectiveTeamId(t, db));
       if (team) edge = team.color;
     }
@@ -615,7 +596,7 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
         style={hl ? { borderLeftColor: edge, '--hl': hl } : { borderLeftColor: edge }}
         title={t.title}
       >
-        {t.title}
+        <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{t.title}</span>
       </div>
     );
   };
@@ -668,13 +649,13 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
   );
 }
 
-/* 메모형 무한 스크롤 보드 — 할 일(kind='todo')과 콘텐츠 캘린더(kind='content')가 공유 */
+/* 할 일 보드 */
 export default function MemoBoard({ db, kind = 'todo' }) {
   const today = todayStr();
   const [range, setRange] = useState({ start: -7, end: 35 });
   const [showUndated, setShowUndated] = useState(false);
-  // 할 일은 일(리스트) 보기, 콘텐츠 캘린더는 월 보기가 기본 — 탭별로 독립
-  const [view, setView] = useState(kind === 'content' ? 'month' : 'list');
+  // 기본은 일별 목록
+  const [view, setView] = useState('month');
   const [ym, setYm] = useState(() => {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
@@ -828,10 +809,10 @@ export default function MemoBoard({ db, kind = 'todo' }) {
   return (
     <div ref={rootRef} className="memo-wrap">
       <div className="memo-toolbar">
-        <h1 className={kind === 'content' ? 'content-title' : ''}>
-          {kind === 'content' ? '📅 콘텐츠 캘린더' : '할 일'}
+        <h1 className={''}>
+          {'할 일'}
         </h1>
-        {kind === 'content' && <span className="kind-pill">CONTENT</span>}
+
         <div className="view-toggle">
           <button className={'ghost' + (view === 'list' ? ' on' : '')} onClick={() => setView('list')}>
             일

@@ -1,170 +1,33 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Platform,
-  SafeAreaView,
-  StatusBar as RNStatusBar,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, SafeAreaView, Platform, StatusBar as NativeStatusBar, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import { DbProvider } from './src/store.js';
-import { T, shadow } from './src/theme.js';
-import { PressScale, FadeInUp } from './src/components.js';
+import { DbProvider, useDb } from './src/store.js';
+import { DesignProvider, useDesign, Surface, Button, Sheet, Icon, THEMES } from './src/design.js';
 import Board from './src/screens/Board.js';
-import Projects from './src/screens/Projects.js';
+import Teams from './src/screens/Teams.js';
 import Buckets from './src/screens/Buckets.js';
 import Settings from './src/screens/Settings.js';
-
-const TABS = [
-  { key: 'todos', label: '할 일', icon: '✓' },
-  { key: 'content', label: '콘텐츠', icon: '✎' },
-  { key: 'projects', label: '프로젝트', icon: '▤' },
-  { key: 'buckets', label: '버킷', icon: '◎' },
-  { key: 'settings', label: '설정', icon: '⚙' },
-];
-
-/* 은은하게 떠다니는 배경 블롭 */
-function Blob({ size, color, style, dx, dy, duration }) {
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(v, { toValue: 1, duration, useNativeDriver: true }),
-        Animated.timing(v, { toValue: 0, duration, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        {
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color,
-          transform: [
-            { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, dx] }) },
-            { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, dy] }) },
-            { scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) },
-          ],
-        },
-        style,
-      ]}
-    />
-  );
+import Integrations from './src/screens/Integrations.js';
+const TABS = [{ key:'todos', label:'TODOs', icon:'check' }, { key:'integrations', label:'도구 연결', icon:'connect' }, { key:'teams', label:'팀', icon:'teams' }, { key:'buckets', label:'버킷', icon:'bucket' }];
+function Shell() {
+ const { db, api } = useDb(), d = useDesign(), [tab, setTab] = useState('todos'), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false);
+ const onboarding = !db.settings.onboardingDone;
+ const finish = () => { api.updateSettings({ onboardingDone:true }); setTab('todos'); };
+ return <SafeAreaView style={{ flex:1, paddingTop:Platform.OS === 'android' ? NativeStatusBar.currentHeight || 0 : 0 }}>
+   <Surface native style={{borderRadius:0,borderWidth:0,borderBottomWidth:1}} contentStyle={{ paddingHorizontal:18, paddingVertical:10, flexDirection:'row', alignItems:'center', gap:10 }}>
+    <Text style={{ fontSize:16, fontWeight:'800', color:d.accent, letterSpacing:-.3 }}>{onboarding || tab==='todos' ? '✓ 체커' : TABS.find(t => t.key === tab).label}</Text><View style={{ flex:1 }} />
+    {!onboarding && <Pressable accessibilityLabel="동기화 상태" onPress={() => setSettings(true)}><View style={{ width:7, height:7, borderRadius:4, backgroundColor:db.settings.sync.error ? '#d99556' : db.settings.sync.lastSync ? '#4baf91' : '#a0adbf' }} /></Pressable>}
+    <Pressable accessibilityLabel="메뉴" onPress={() => setMenu(true)} hitSlop={12}><View style={{padding:5}}><Icon name="menu" size={19} /></View></Pressable>
+   </Surface>
+   {onboarding ? <View style={{ flex:1 }}><View style={{ paddingHorizontal:28, paddingTop:32, paddingBottom:12 }}><Text style={{ color:d.muted, fontSize:12, fontWeight:'700', letterSpacing:2 }}>WELCOME TO CHECKER</Text><Text style={{ color:d.text, fontSize:32, lineHeight:42, fontWeight:'700', letterSpacing:-1, marginTop:14 }}>흩어진 일들을{ '\n' }한곳으로.</Text><Text style={{ color:d.muted, lineHeight:22, marginTop:12 }}>쓰고 있는 도구를 연결해 시작하세요.{ '\n' }연결은 언제든 바꿀 수 있어요.</Text></View><Integrations /><View style={{ padding:22, paddingTop:0, gap:8 }}><Button title="시작하기" primary onPress={finish} /><Button title="지금은 건너뛰기" onPress={finish} /></View></View> :
+    <View style={{ flex:1 }}>{tab === 'todos' ? <Board /> : tab === 'integrations' ? <Integrations /> : tab === 'teams' ? <Teams /> : <Buckets />}</View>}
+   {!onboarding && <Surface native style={{ position:'absolute', left:16, right:16, bottom:Platform.OS === 'ios' ? 28 : 20, borderRadius:24 }} contentStyle={{ flexDirection:'row', padding:6 }}>
+    {TABS.map(t => <Pressable key={t.key} accessibilityRole="tab" accessibilityLabel={t.label} accessibilityState={{ selected:tab === t.key }} onPress={() => setTab(t.key)} style={{ flex:1, alignItems:'center', gap:2, paddingVertical:7, borderRadius:18, backgroundColor:tab === t.key ? d.input : 'transparent' }}><Icon name={t.icon} size={18} color={tab === t.key ? d.accent : d.muted} /><Text style={{ fontSize:10, color:tab === t.key ? d.accent : d.muted, fontWeight:'600' }}>{t.label}</Text></Pressable>)}
+   </Surface>}
+   {menu && <Sheet title="메뉴" onClose={() => setMenu(false)}><Text style={{ color:d.muted }}>테마</Text><View style={{ flexDirection:'row', flexWrap:'wrap', gap:8 }}>{THEMES.map(t => <Button key={t.id} title={t.name} primary={db.settings.theme === t.id || (!db.settings.theme && t.id === 'light')} onPress={() => api.updateSettings({ theme:t.id })} />)}</View><Button title="서버 연결 · 동기화" onPress={() => { setMenu(false); setSettings(true); }} /><Button title="도구 연결" onPress={() => { setMenu(false); if(!onboarding) setTab('integrations'); }} /></Sheet>}
+   {settings && <Sheet title="내 서버" onClose={() => setSettings(false)}><Settings /></Sheet>}
+   <StatusBar style={d.dark ? 'light' : 'dark'} />
+ </SafeAreaView>;
 }
-
-function Screen({ tab }) {
-  if (tab === 'todos') return <Board kind="todo" />;
-  if (tab === 'content') return <Board kind="content" />;
-  if (tab === 'projects') return <Projects />;
-  if (tab === 'buckets') return <Buckets />;
-  return <Settings />;
-}
-
-export default function App() {
-  const [tab, setTab] = useState('todos');
-  const topPad = Platform.OS === 'android' ? (RNStatusBar.currentHeight || 0) : 0;
-  const title = TABS.find((t) => t.key === tab).label;
-
-  return (
-    <DbProvider>
-      <View style={{ flex: 1 }}>
-        {/* 배경 — 파스텔 그라데이션 + 블롭 (데스크톱과 같은 무드) */}
-        <LinearGradient
-          colors={['#f2f3fd', '#eef1fb', '#f6effa']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <Blob size={340} color="rgba(199,210,254,0.5)" style={{ top: -110, left: -90 }} dx={50} dy={40} duration={9000} />
-        <Blob size={300} color="rgba(251,207,232,0.42)" style={{ bottom: -80, right: -90 }} dx={-45} dy={-35} duration={11000} />
-        <Blob size={240} color="rgba(186,230,253,0.4)" style={{ top: '38%', right: -120 }} dx={-40} dy={30} duration={13000} />
-
-        <SafeAreaView style={{ flex: 1, paddingTop: topPad }}>
-          {/* 상단 유리 헤더 */}
-          <View style={styles.header}>
-            <BlurView intensity={35} tint="light" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
-            <Text style={styles.logo}>✓ 체커</Text>
-            <Text style={styles.headerTitle}>{title}</Text>
-          </View>
-
-          <FadeInUp key={tab} style={{ flex: 1 }}>
-            <Screen tab={tab} />
-          </FadeInUp>
-
-          {/* 하단 유리 탭바 */}
-          <View style={[styles.tabbar, shadow(3)]}>
-            <BlurView intensity={55} tint="light" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.5)' }]} />
-            {TABS.map((t) => {
-              const active = tab === t.key;
-              return (
-                <PressScale key={t.key} haptic onPress={() => setTab(t.key)} style={{ flex: 1 }}>
-                  <View style={[styles.tabItem, active && styles.tabItemActive]}>
-                    <Text style={{ fontSize: 16, color: active ? T.accent : T.muted }}>{t.icon}</Text>
-                    <Text
-                      style={{
-                        fontSize: 10,
-                        fontWeight: active ? '700' : '500',
-                        color: active ? T.accent : T.muted,
-                      }}
-                    >
-                      {t.label}
-                    </Text>
-                  </View>
-                </PressScale>
-              );
-            })}
-          </View>
-        </SafeAreaView>
-        <StatusBar style="dark" />
-      </View>
-    </DbProvider>
-  );
-}
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.65)',
-    overflow: 'hidden',
-  },
-  logo: { fontSize: 16, fontWeight: '800', color: T.accent, letterSpacing: -0.3 },
-  headerTitle: { fontSize: 15, fontWeight: '600', color: T.text },
-  tabbar: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: Platform.OS === 'ios' ? 28 : 20,
-    flexDirection: 'row',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    overflow: 'hidden',
-    padding: 6,
-  },
-  tabItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-    paddingVertical: 7,
-    borderRadius: 18,
-  },
-  tabItemActive: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    ...shadow(1),
-  },
-});
+function ThemedApp() { const { db } = useDb(); return <DesignProvider theme={db.settings.theme}><Shell /></DesignProvider>; }
+export default function App() { return <DbProvider><ThemedApp /></DbProvider>; }

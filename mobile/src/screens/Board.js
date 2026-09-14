@@ -1,787 +1,89 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { BlurView } from 'expo-blur';
-import * as Clipboard from 'expo-clipboard';
+import { KeyboardAvoidingView, Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useDb } from '../store.js';
-import { T, shadow, glassCard } from '../theme.js';
-import { Check, TeamDot, Badge, TeamChip, GhostButton, PrimaryButton, EmptyNote, FadeInUp, PressScale } from '../components.js';
-import {
-  todayStr,
-  addDays,
-  localDateStr,
-  dateParts,
-  DOW_NAMES,
-  lineSort,
-  effectiveTeamId,
-  importantHighlight,
-  channelColor,
-  CHANNELS,
-  resolveGroup,
-  suggestGroups,
-  pasteLines,
-} from '../util.js';
+import { useDesign, Surface, Button, Icon } from '../design.js';
+import { todayStr, addDays, dateParts, DOW_NAMES, effectiveTeamId } from '../util.js';
+import { lineOrder } from '../notepad.js';
+import { TaskLine, DateSheet } from './NotebookLine.js';
+import MonthView from './NotebookMonth.js';
 
-const PAST = 7;
-const FUTURE = 30;
-
-/* 그룹(팀/프로젝트/채널) 선택 칩 */
-function GroupChip({ group, active, accent, onPress }) {
-  return (
-    <PressScale haptic onPress={onPress}>
-      <View
-        style={[
-          styles.gchip,
-          active && { borderColor: group.color, backgroundColor: 'rgba(255,255,255,0.88)' },
-          accent && { borderColor: T.accent, backgroundColor: 'rgba(255,255,255,0.88)' },
-        ]}
-      >
-        <TeamDot color={group.color} />
-        <Text style={[styles.gchipText, (active || accent) && { color: T.text, fontWeight: '700' }]}>{group.label}</Text>
-        {accent && <Text style={styles.gchipHint}>카테고리</Text>}
-      </View>
-    </PressScale>
-  );
+function DaySection({ date, db, api, focus, setFocus, onDate, onDrag, onDrop, onMove, rows, onDeleted, reveal }) {
+ const d=useDesign(), [draft,setDraft]=useState(''), [team,setTeam]=useState(null), [active,setActive]=useState(false), input=useRef(null);
+ const items=db.todos.filter(t=>(t.date||null)===date&&t.status!=='bucket').sort(lineOrder);
+ const groups=[{team:null,list:items.filter(t=>!effectiveTeamId(t,db))},...db.teams.map(t=>({team:t,list:items.filter(item=>effectiveTeamId(item,db)===t.id)}))];
+ const ordered=groups.flatMap(g=>g.list), isToday=date===todayStr();
+ const part=date?dateParts(date):null;
+ useEffect(()=>{ if(focus?.id==='draft'&&focus.date===date) {setTeam(focus.teamId||null);input.current?.focus();} },[focus]);
+ const add=text=>{
+  const parts=text.replace(/\r/g,'').split('\n'); if(parts.length===1){setDraft(text);return;}
+  const tail=parts.pop(); let selectedTeam=team, order=Math.max(0,...items.map(t=>t.sortOrder??t.createdAt??0));
+  for(const title of parts) { if(!title.trim()) continue; const match=db.teams.find(t=>t.name.toLowerCase()===title.trim().toLowerCase()); if(match){selectedTeam=match.id;setTeam(match.id);}else api.addTodo({title,date,teamId:selectedTeam,sortOrder:order+=1024}); }
+  setDraft(tail);
+ };
+ const commit=()=>{setActive(false);if(draft.trim())add(draft+'\n');};
+ const focusLine=target=>setFocus({...target,date,nonce:Date.now()});
+ return <View style={{paddingVertical:12,paddingHorizontal:12,marginHorizontal:-12,borderRadius:18,backgroundColor:isToday?d.fill:'transparent',borderWidth:isToday?1:0,borderColor:d.edge,marginVertical:isToday?6:0}}>
+  <View style={{flexDirection:'row',alignItems:'baseline',gap:8,marginBottom:4}}>
+   <Text style={{fontSize:16,fontWeight:'800',color:isToday?d.accent:part?.dow===0?'#e11d48':part?.dow===6?'#4f6ef7':d.text}}>{part?DOW_NAMES[part.dow]:'날짜 미정'}</Text>
+   {part&&<Text style={{fontSize:12,color:d.muted}}>{part.m}월 {part.d}일</Text>}
+   {isToday&&<View style={{backgroundColor:d.accent,borderRadius:99,paddingHorizontal:8,paddingVertical:2}}><Text style={{fontSize:10,color:d.dark?'#172842':'#fff',fontWeight:'700'}}>오늘</Text></View>}
+  </View>
+  {groups.filter(g=>g.list.length).map(g=><View key={g.team?.id||'none'}>
+   {g.team&&<View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:8,marginBottom:2}}><View style={{width:7,height:7,borderRadius:4,backgroundColor:g.team.color}}/><Text style={{fontSize:12,fontWeight:'700',color:g.team.important?g.team.color:d.muted}}>{g.team.name}{g.team.important?' ★':''}</Text></View>}
+   {g.list.map(todo=>{const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} api={api} previous={ordered[i-1]} next={ordered[i+1]} focus={focus} register={()=>{}} rowRef={ref=>{rows.current[todo.id]=ref;}} onFocus={focusLine} onDate={onDate} onDrag={onDrag} onDrop={onDrop} onMove={onMove} onDeleted={onDeleted} /></View>;})}
+  </View>)}
+  <View style={{flexDirection:'row',alignItems:'center',gap:5,paddingVertical:2}}>
+   <Text style={{width:20,textAlign:'center',fontSize:15,color:active?d.accent:d.muted}}>＋</Text>
+   {team&&<Pressable onPress={()=>setTeam(null)} style={{paddingHorizontal:7,paddingVertical:3,borderRadius:99,backgroundColor:d.input}}><Text style={{fontSize:11,color:d.muted}}>{db.teams.find(t=>t.id===team)?.name} ×</Text></Pressable>}
+   <TextInput ref={input} accessibilityLabel={'새 할 일 '+(date||'날짜 미정')} placeholder="할 일 입력" placeholderTextColor={d.muted} value={draft} onChangeText={add} multiline scrollEnabled={false} submitBehavior="newline" onFocus={()=>{setActive(true);reveal(input);}} onBlur={commit} onKeyPress={e=>{if(e.nativeEvent.key==='Backspace'&&!draft&&ordered.length)focusLine({id:ordered.at(-1).id,position:ordered.at(-1).title.length});}} style={{flex:1,fontSize:15,lineHeight:21,color:d.text,paddingVertical:6,minHeight:33}}/>
+  </View>
+  {active&&!!db.teams.length&&<ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{gap:5,paddingVertical:4,marginLeft:20}}>{db.teams.map(t=><Pressable key={t.id} onPress={()=>setTeam(team===t.id?null:t.id)} style={{flexDirection:'row',alignItems:'center',gap:5,borderWidth:1,borderColor:team===t.id?t.color:d.edge,backgroundColor:d.fill,borderRadius:99,paddingHorizontal:10,paddingVertical:4}}><View style={{width:6,height:6,borderRadius:3,backgroundColor:t.color}}/><Text style={{fontSize:12,color:d.muted}}>{t.name}</Text></Pressable>)}</ScrollView>}
+ </View>;
 }
 
-/* 항목 한 줄 */
-function Line({ todo, db, api, indent, onOpen }) {
-  const done = todo.status === 'done';
-  const hl = importantHighlight(todo, db);
-  const project = db.projects.find((p) => p.id === todo.projectId);
-  return (
-    <FadeInUp>
-      <Pressable onPress={onOpen}>
-        <View style={[styles.line, indent && { marginLeft: 22 }]}>
-          <Check checked={done} onToggle={() => api.updateTodo(todo.id, { status: done ? 'todo' : 'done' })} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text
-              numberOfLines={2}
-              style={[
-                styles.lineTitle,
-                hl && { backgroundColor: hl + '2e', paddingHorizontal: 4, borderRadius: 4, alignSelf: 'flex-start' },
-                done && { textDecorationLine: 'line-through', color: T.muted },
-              ]}
-            >
-              {todo.title}
-            </Text>
-          </View>
-          {todo.kind === 'content' && todo.channel && (
-            <Badge color={channelColor(todo.channel)} textColor="#fff">
-              {todo.channel}
-            </Badge>
-          )}
-          {project && <Badge>{project.name}</Badge>}
-          {(todo.startTime || todo.endTime) && (
-            <Text style={styles.meta}>
-              {todo.startTime || ''}
-              {todo.endTime ? `~${todo.endTime}` : ''}
-            </Text>
-          )}
-        </View>
-      </Pressable>
-    </FadeInUp>
-  );
+export default function Board() {
+ const {db,api}=useDb(), d=useDesign(), today=todayStr();
+ const [view,setView]=useState('month'),[ym,setYm]=useState(()=>{const n=new Date();return {y:n.getFullYear(),m:n.getMonth()};}),[range,setRange]=useState({start:-7,end:30}),[undated,setUndated]=useState(false);
+ const [focus,setFocus]=useState(null),[dateTodo,setDateTodo]=useState(null),[dragging,setDragging]=useState(null),[hover,setHover]=useState(null),[undo,setUndo]=useState(null);
+ const scroll=useRef(null),positions=useRef({}),pending=useRef(today),busy=useRef(false),rows=useRef({}),zones=useRef({}),geometry=useRef({rows:[],teams:[]}),activeInput=useRef(null),viewport=useRef(null),scrollY=useRef(0),keyboardTop=useRef(Infinity);
+ const dates=useMemo(()=>Array.from({length:range.end-range.start+1},(_,i)=>addDays(today,range.start+i)),[range,today]);
+ const reveal=ref=>{if(ref)activeInput.current=ref;setTimeout(()=>{
+  const field=activeInput.current?.current;if(!field?.isFocused())return;
+  viewport.current?.measureInWindow((vx,vy,vw,vh)=>field.measureInWindow((x,y,w,h)=>{
+   const bottom=Math.min(vy+vh,keyboardTop.current)-28,top=vy+12;
+   const delta=y+h>bottom?y+h-bottom:y<top?y-top:0;
+   if(Math.abs(delta)>2)scroll.current?.scrollTo({y:Math.max(0,scrollY.current+delta),animated:false});
+  }));
+ },120);};
+ useEffect(()=>{const show=Keyboard.addListener('keyboardDidShow',e=>{keyboardTop.current=e.endCoordinates.screenY;reveal(activeInput.current);});const hide=Keyboard.addListener('keyboardDidHide',()=>{keyboardTop.current=Infinity;});return()=>{show.remove();hide.remove();};},[]);
+ useEffect(()=>{busy.current=false;},[range]);
+ const openDay=date=>{const offset=Math.round((Date.parse(date+'T12:00:00')-Date.parse(today+'T12:00:00'))/864e5);pending.current=date;setRange(r=>({start:Math.min(r.start,offset-7),end:Math.max(r.end,offset+14)}));setView('list');};
+ const goToday=()=>{if(view==='month'){const n=new Date();setYm({y:n.getFullYear(),m:n.getMonth()});}else if(positions.current[today]!=null)scroll.current?.scrollTo({y:Math.max(0,positions.current[today]-6),animated:true});else openDay(today);};
+ const onScroll=e=>{scrollY.current=e.nativeEvent.contentOffset.y;if(busy.current||pending.current||dragging)return;const {contentOffset,contentSize,layoutMeasurement}=e.nativeEvent;if(contentOffset.y+layoutMeasurement.height>contentSize.height-600){busy.current=true;setRange(r=>({...r,end:r.end+14}));}else if(contentOffset.y<200){busy.current=true;setRange(r=>({...r,start:r.start-14}));}};
+ const measure=()=>{const g={rows:[],teams:[]};geometry.current=g;Object.entries(rows.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.rows.push({id,x,y,w,h})));Object.entries(zones.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.teams.push({id,x,y,w,h})));};
+ useEffect(()=>{if(dragging){const t=setTimeout(measure,80);return()=>clearTimeout(t);}},[dragging,db.teams]);
+ const hit=(items,x,y)=>items.find(r=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h);
+ const drop=(todo,x,y)=>{
+  if(todo){const target=hit(geometry.current.teams,x,y),row=hit(geometry.current.rows,x,y);if(target)api.updateTodo(todo.id,{teamId:target.id==='none'?null:target.id,projectId:null});else if(row&&row.id!==todo.id){const destination=db.todos.find(t=>t.id===row.id);const ordered=db.todos.filter(t=>t.id!==todo.id&&t.status!=='bucket'&&(t.date||null)===(destination.date||null)&&effectiveTeamId(t,db)===effectiveTeamId(destination,db)).sort(lineOrder);const at=ordered.findIndex(t=>t.id===row.id);ordered.splice(at+(y>row.y+row.h/2?1:0),0,todo);ordered.forEach((t,i)=>api.updateTodo(t.id,{sortOrder:(i+1)*1024,...(t.id===todo.id?{date:destination.date||null,teamId:effectiveTeamId(destination,db),projectId:null}:{})}));}}
+  setDragging(null);setHover(null);
+ };
+ const section=date=><DaySection date={date} db={db} api={api} focus={focus} setFocus={setFocus} rows={rows} onDate={setDateTodo} onDrag={setDragging} onDrop={drop} onMove={(x,y)=>setHover(hit(geometry.current.teams,x,y)?.id||null)} onDeleted={(todo,action)=>setUndo({todo,action})} reveal={reveal}/>;
+ return <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==='ios'?'padding':'height'} keyboardVerticalOffset={60}>
+  <View style={{flexDirection:'row',alignItems:'center',gap:8,paddingHorizontal:16,paddingTop:10,paddingBottom:4}}>
+   <View style={{flexDirection:'row',padding:2,gap:2,borderRadius:12,borderWidth:1,borderColor:d.edge,backgroundColor:d.fill}}>{[['list','일'],['month','월']].map(([key,label])=><Pressable key={key} accessibilityRole="button" accessibilityLabel={label} onPress={()=>key==='list'?openDay(today):setView('month')} style={{paddingHorizontal:14,paddingVertical:5,borderRadius:10,backgroundColor:view===key?d.input:'transparent'}}><Text style={{fontSize:13,color:view===key?d.accent:d.muted,fontWeight:view===key?'700':'400'}}>{label}</Text></Pressable>)}</View>
+   {view==='list'&&<Pressable onPress={()=>setUndated(!undated)} style={{padding:6}}><Text style={{fontSize:12,color:undated?d.accent:d.muted}}>날짜 미정 {db.todos.filter(t=>!t.date&&t.status!=='bucket').length||''}</Text></Pressable>}
+  </View>
+  {view==='month'?<ScrollView contentContainerStyle={{paddingHorizontal:16,paddingBottom:120}}><MonthView db={db} ym={ym} setYm={setYm} openDay={openDay}/></ScrollView>:
+   <View ref={viewport} collapsable={false} style={{flex:1}} onLayout={()=>reveal(activeInput.current)}><ScrollView ref={scroll} onContentSizeChange={()=>reveal(activeInput.current)} scrollEnabled={!dragging} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" onScroll={onScroll} scrollEventThrottle={64} maintainVisibleContentPosition={{minIndexForVisible:0}} contentContainerStyle={{paddingHorizontal:16,paddingBottom:160}}>
+    {undated&&section(null)}
+    {dates.map((date,i)=><View key={date} onLayout={e=>{positions.current[date]=e.nativeEvent.layout.y;if(pending.current===date&&scroll.current){pending.current=null;const y=Math.max(0,e.nativeEvent.layout.y-6);requestAnimationFrame(()=>scroll.current?.scrollTo({y,animated:false}));}}}>
+     {(i===0||date.endsWith('-01'))&&<Text style={{fontSize:12,fontWeight:'600',color:d.muted,paddingVertical:12}}>{dateParts(date).y}년 {dateParts(date).m}월</Text>}
+     {section(date)}
+    </View>)}
+   </ScrollView></View>}
+  {!dragging&&!undo&&<Pressable accessibilityLabel="오늘로 이동" onPress={goToday} style={{position:'absolute',right:16,bottom:100}}><Surface native style={{borderRadius:99}} contentStyle={{paddingHorizontal:14,paddingVertical:9}}><Text style={{fontSize:13,fontWeight:'700',color:d.accent}}>◎ 오늘</Text></Surface></Pressable>}
+  {undo&&!dragging&&<Surface native style={{position:'absolute',bottom:98,left:16,right:16}} contentStyle={{padding:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}><Text style={{fontSize:13,color:d.text}}>{undo.action==='delete'?'할 일을 삭제했어요':'버킷에 담았어요'}</Text><Pressable onPress={()=>{if(undo.action==='bucket')api.updateTodo(undo.todo.id,{status:undo.todo.status});else api.restoreTodo(undo.todo);setUndo(null);}}><Text style={{color:d.accent,fontWeight:'700'}}>되돌리기</Text></Pressable><Pressable accessibilityLabel="알림 닫기" onPress={()=>setUndo(null)}><Icon name="close" size={16}/></Pressable></Surface>}
+  {dragging&&<Surface native style={{position:'absolute',left:16,right:16,bottom:96}} contentStyle={{padding:14,gap:10}}><View style={{flexDirection:'row',justifyContent:'space-between'}}><Text style={{fontSize:13,color:d.text,fontWeight:'700'}}>팀으로 옮기기</Text><Pressable accessibilityLabel="이동 취소" onPress={()=>setDragging(null)}><Icon name="close" size={18}/></Pressable></View><View style={{flexDirection:'row',flexWrap:'wrap',gap:6}}>{[{id:'none',name:'팀 없음'},...db.teams].map(t=><View key={t.id} ref={ref=>{zones.current[t.id]=ref;}} collapsable={false} onLayout={measure}><Button title={t.name} primary={hover===t.id} style={{paddingVertical:7,paddingHorizontal:11}} onPress={()=>{api.updateTodo(dragging.id,{teamId:t.id==='none'?null:t.id,projectId:null});setDragging(null);}}/></View>)}</View></Surface>}
+  {dateTodo&&<DateSheet todo={db.todos.find(t=>t.id===dateTodo.id)||dateTodo} api={api} onClose={()=>setDateTodo(null)}/>}
+ </KeyboardAvoidingView>;
 }
-
-/* 하루 섹션 */
-function DaySection({ date, kind, db, api, isToday, onOpen }) {
-  const [text, setText] = useState('');
-  const [ctx, setCtx] = useState(null); // 그룹 컨텍스트 { label, color, teamId, projectId, channel }
-  const [focused, setFocused] = useState(false);
-
-  const items = db.todos.filter((t) => t.kind === kind && t.date === date && t.status !== 'bucket').sort(lineSort);
-  const noTeam = items.filter((t) => !effectiveTeamId(t, db));
-  const teamGroups = db.teams
-    .map((team) => ({ team, list: items.filter((t) => effectiveTeamId(t, db) === team.id) }))
-    .filter((g) => g.list.length);
-
-  const { m, d, dow } = dateParts(date);
-  const dowColor = dow === 0 ? '#e11d48' : dow === 6 ? '#4f6ef7' : T.text;
-
-  const sugs = focused && text.trim() ? suggestGroups(text, kind, db) : [];
-
-  // 빠른 선택 칩 — 콘텐츠는 채널 먼저, 그다음 팀
-  const quicks = [
-    ...(kind === 'content' ? CHANNELS.map((c) => resolveGroup(c, kind, db)).filter(Boolean) : []),
-    ...db.teams.map((t) => ({ label: t.name, color: t.color, teamId: t.id, projectId: null, channel: null })),
-  ];
-
-  const addWithCtx = (v) =>
-    api.addTodo({
-      title: v,
-      date,
-      kind,
-      teamId: ctx ? ctx.teamId : null,
-      projectId: ctx ? ctx.projectId : null,
-      channel: ctx ? ctx.channel : null,
-    });
-
-  const submit = () => {
-    const v = text.trim();
-    if (!v) return;
-    // 팀/프로젝트(콘텐츠는 채널) 이름을 입력하면 그 그룹으로 전환 (데스크톱과 동일한 흐름)
-    const g = resolveGroup(v, kind, db);
-    if (g) setCtx(g);
-    else addWithCtx(v);
-    setText('');
-  };
-
-  // 클립보드 붙여넣기 — 여러 줄이면 줄마다 추가, 그룹 이름 줄은 그룹 전환 (데스크톱 pasteLines와 동일)
-  const pasteClip = async () => {
-    const t = ((await Clipboard.getStringAsync()) || '').replace(/\r/g, '');
-    if (!t.trim()) return;
-    if (t.includes('\n')) {
-      const last = pasteLines(t, { date, kind, db, ctx, add: api.addTodo, firstPrefix: text });
-      setCtx(last || null);
-      setText('');
-    } else {
-      setText((text + t).trim());
-    }
-  };
-
-  return (
-    <View style={[styles.day, isToday && styles.dayToday, isToday && shadow(1)]}>
-      <View style={styles.dayHead}>
-        <Text style={[styles.dow, { color: isToday ? T.accent : dowColor }]}>{DOW_NAMES[dow]}</Text>
-        <Text style={styles.dayDate}>
-          {m}월 {d}일
-        </Text>
-        {isToday && (
-          <View style={styles.todayBadge}>
-            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>오늘</Text>
-          </View>
-        )}
-      </View>
-
-      {noTeam.map((t) => (
-        <Line key={t.id} todo={t} db={db} api={api} onOpen={() => onOpen(t)} />
-      ))}
-      {teamGroups.map(({ team, list }) => (
-        <View key={team.id}>
-          <View style={styles.teamHead}>
-            <TeamDot color={team.color} />
-            <Text
-              style={[
-                styles.teamName,
-                team.important && { color: team.color, fontWeight: '800' },
-              ]}
-            >
-              {team.name}
-              {team.important ? ' ★' : ''}
-            </Text>
-          </View>
-          {list.map((t) => (
-            <Line key={t.id} todo={t} db={db} api={api} indent onOpen={() => onOpen(t)} />
-          ))}
-        </View>
-      ))}
-
-      {/* 입력 줄 — 그룹 칩 + 텍스트 + 붙여넣기 */}
-      <View style={styles.inputRow}>
-        <Text style={{ color: focused ? T.accent : 'rgba(148,163,184,0.7)', fontSize: 15, width: 20, textAlign: 'center' }}>
-          ＋
-        </Text>
-        {ctx && (
-          <PressScale haptic onPress={() => setCtx(null)}>
-            <View style={[styles.ctxChip, { borderColor: ctx.color }]}>
-              <TeamDot color={ctx.color} />
-              <Text style={{ fontSize: 11, color: T.text, fontWeight: '600' }}>{ctx.label}</Text>
-              <Text style={{ fontSize: 10, color: T.muted }}>✕</Text>
-            </View>
-          </PressScale>
-        )}
-        <TextInput
-          style={styles.input}
-          value={text}
-          placeholder={kind === 'content' ? '콘텐츠 입력' : '할 일 입력'}
-          placeholderTextColor="rgba(148,163,184,0.55)"
-          onChangeText={setText}
-          onSubmitEditing={submit}
-          blurOnSubmit={false}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
-            if (text.trim()) submit();
-          }}
-          returnKeyType="done"
-        />
-        {focused && (
-          <PressScale haptic onPress={pasteClip}>
-            <Text style={{ fontSize: 15, paddingHorizontal: 6 }}>📋</Text>
-          </PressScale>
-        )}
-      </View>
-      {focused && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" style={{ marginLeft: 20 }}>
-          <View style={{ flexDirection: 'row', gap: 5, paddingVertical: 4 }}>
-            {sugs.length > 0
-              ? sugs.map((g) => (
-                  <GroupChip
-                    key={g.label}
-                    group={g}
-                    accent
-                    onPress={() => {
-                      setCtx(g);
-                      setText('');
-                    }}
-                  />
-                ))
-              : quicks.map((g) => (
-                  <GroupChip
-                    key={g.label}
-                    group={g}
-                    active={!!ctx && ctx.label === g.label}
-                    onPress={() => setCtx(ctx && ctx.label === g.label ? null : g)}
-                  />
-                ))}
-          </View>
-        </ScrollView>
-      )}
-    </View>
-  );
-}
-
-/* 항목 편집 시트 (유리 모달) */
-function Editor({ todo, db, api, onClose }) {
-  const [title, setTitle] = useState(todo.title);
-  const [date, setDate] = useState(todo.date || '');
-  const [startTime, setStartTime] = useState(todo.startTime || '');
-  const [endTime, setEndTime] = useState(todo.endTime || '');
-
-  const pickableProjects = db.projects.filter((p) => p.status !== 'done');
-  const selProj = db.projects.find((p) => p.id === todo.projectId);
-  const inheritedTeam = selProj && selProj.teamId ? db.teams.find((t) => t.id === selProj.teamId) : null;
-
-  const save = () => {
-    const patch = {
-      date: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : date === '' ? null : todo.date,
-      startTime: /^\d{2}:\d{2}$/.test(startTime) ? startTime : startTime === '' ? null : todo.startTime,
-      endTime: /^\d{2}:\d{2}$/.test(endTime) ? endTime : endTime === '' ? null : todo.endTime,
-    };
-    const v = title.trim();
-    if (v) patch.title = v;
-    api.updateTodo(todo.id, patch);
-    onClose();
-  };
-
-  return (
-    <Modal transparent animationType="fade" onRequestClose={save}>
-      <Pressable style={styles.overlay} onPress={save}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ width: '100%' }}>
-          <Pressable onPress={() => {}}>
-            <View style={[glassCard, shadow(3), { borderRadius: 24, marginHorizontal: 4 }]}>
-              <BlurView intensity={70} tint="light" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,255,255,0.72)' }]} />
-              <View style={{ padding: 18, gap: 10 }}>
-                <TextInput style={styles.editTitle} value={title} onChangeText={setTitle} multiline />
-
-                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                  <TextInput
-                    style={[styles.editField, { flex: 1 }]}
-                    value={date}
-                    onChangeText={setDate}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor="rgba(148,163,184,0.6)"
-                  />
-                  <GhostButton label="오늘" onPress={() => setDate(todayStr())} />
-                  <GhostButton label="+1일" onPress={() => setDate(addDays(date || todayStr(), 1))} />
-                  <GhostButton label="미정" onPress={() => setDate('')} />
-                </View>
-
-                <View style={{ flexDirection: 'row', gap: 6 }}>
-                  <TextInput
-                    style={[styles.editField, { flex: 1 }]}
-                    value={startTime}
-                    onChangeText={setStartTime}
-                    placeholder="시작 09:00"
-                    placeholderTextColor="rgba(148,163,184,0.6)"
-                  />
-                  <TextInput
-                    style={[styles.editField, { flex: 1 }]}
-                    value={endTime}
-                    onChangeText={setEndTime}
-                    placeholder="마무리 18:00"
-                    placeholderTextColor="rgba(148,163,184,0.6)"
-                  />
-                </View>
-
-                {todo.kind !== 'content' && pickableProjects.length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 5 }}>
-                      <GroupChip
-                        group={{ label: '프로젝트 없음', color: T.muted }}
-                        active={!todo.projectId}
-                        onPress={() => api.updateTodo(todo.id, { projectId: null })}
-                      />
-                      {pickableProjects.map((p) => {
-                        const team = db.teams.find((t) => t.id === p.teamId);
-                        return (
-                          <GroupChip
-                            key={p.id}
-                            group={{ label: p.name, color: team ? team.color : '#94a3b8' }}
-                            active={todo.projectId === p.id}
-                            onPress={() => api.updateTodo(todo.id, { projectId: todo.projectId === p.id ? null : p.id })}
-                          />
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-                )}
-
-                {inheritedTeam ? (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <TeamDot color={inheritedTeam.color} />
-                    <Text style={{ fontSize: 12, color: T.muted }}>
-                      팀: {inheritedTeam.name} ({selProj.name} 프로젝트 따라감)
-                    </Text>
-                  </View>
-                ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 5 }}>
-                      <TeamChip team={null} active={!todo.teamId} onPress={() => api.updateTodo(todo.id, { teamId: null })} />
-                      {db.teams.map((team) => (
-                        <TeamChip
-                          key={team.id}
-                          team={team}
-                          active={todo.teamId === team.id}
-                          onPress={() => api.updateTodo(todo.id, { teamId: team.id })}
-                        />
-                      ))}
-                    </View>
-                  </ScrollView>
-                )}
-
-                {todo.kind === 'content' && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 5 }}>
-                      {CHANNELS.map((c) => (
-                        <PressScale key={c} haptic onPress={() => api.updateTodo(todo.id, { channel: todo.channel === c ? null : c })}>
-                          <Badge color={todo.channel === c ? channelColor(c) : 'rgba(241,245,249,0.9)'} textColor={todo.channel === c ? '#fff' : '#475569'}>
-                            {c}
-                          </Badge>
-                        </PressScale>
-                      ))}
-                    </View>
-                  </ScrollView>
-                )}
-
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                  <GhostButton
-                    label="버킷으로"
-                    onPress={() => {
-                      api.updateTodo(todo.id, { status: 'bucket' });
-                      onClose();
-                    }}
-                  />
-                  <GhostButton
-                    label="삭제"
-                    danger
-                    onPress={() => {
-                      api.deleteTodo(todo.id);
-                      onClose();
-                    }}
-                  />
-                  <View style={{ flex: 1 }} />
-                  <PrimaryButton label="완료" onPress={save} />
-                </View>
-              </View>
-            </View>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Pressable>
-    </Modal>
-  );
-}
-
-/* 월 캘린더 뷰 (데스크톱 MonthView와 동일한 규칙) */
-function MonthView({ db, kind, ym, setYm, openDay }) {
-  const today = todayStr();
-  const first = new Date(ym.y, ym.m, 1);
-  const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
-  const cells = [];
-  for (let i = 0; i < first.getDay(); i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(localDateStr(new Date(ym.y, ym.m, d)));
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const byDate = {};
-  for (const t of db.todos) {
-    if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
-    (byDate[t.date] = byDate[t.date] || []).push(t);
-  }
-
-  const move = (n) => {
-    const d = new Date(ym.y, ym.m + n, 1);
-    setYm({ y: d.getFullYear(), m: d.getMonth() });
-  };
-
-  const chip = (t) => {
-    const hl = importantHighlight(t, db);
-    let edge = '#cbd5e1';
-    if (kind === 'content') edge = channelColor(t.channel);
-    else {
-      const team = db.teams.find((x) => x.id === effectiveTeamId(t, db));
-      if (team) edge = team.color;
-    }
-    return (
-      <View key={t.id} style={[styles.calChip, { borderLeftColor: edge }, hl && { backgroundColor: hl + '22' }]}>
-        <Text
-          numberOfLines={1}
-          style={[styles.calChipText, t.status === 'done' && { color: T.muted, textDecorationLine: 'line-through' }]}
-        >
-          {t.title}
-        </Text>
-      </View>
-    );
-  };
-
-  return (
-    <View>
-      <View style={styles.calNav}>
-        <GhostButton label="◀" onPress={() => move(-1)} />
-        <Text style={styles.calTitle}>
-          {ym.y}년 {ym.m + 1}월
-        </Text>
-        <GhostButton label="▶" onPress={() => move(1)} />
-        <View style={{ flex: 1 }} />
-        <GhostButton
-          label="이번 달"
-          onPress={() => {
-            const d = new Date();
-            setYm({ y: d.getFullYear(), m: d.getMonth() });
-          }}
-        />
-      </View>
-      <View style={styles.calGrid}>
-        {['일', '월', '화', '수', '목', '금', '토'].map((w, i) => (
-          <View key={w} style={styles.calCell}>
-            <Text style={[styles.calDow, i === 0 && { color: '#e11d48' }, i === 6 && { color: '#4f6ef7' }]}>{w}</Text>
-          </View>
-        ))}
-        {cells.map((date, i) => {
-          const list = date ? byDate[date] || [] : [];
-          const isToday = date === today;
-          return (
-            <Pressable key={i} onPress={() => date && openDay(date)} style={[styles.calCell, styles.calDayCell, isToday && styles.calToday]}>
-              {date && (
-                <View style={[styles.calDayNum, isToday && { backgroundColor: T.accent }]}>
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: isToday ? '#fff' : T.muted }}>
-                    {Number(date.slice(8))}
-                  </Text>
-                </View>
-              )}
-              {list.slice(0, 3).map(chip)}
-              {list.length > 3 && <Text style={styles.calMore}>+{list.length - 3}</Text>}
-            </Pressable>
-          );
-        })}
-      </View>
-      <Text style={styles.calDesc}>날짜를 누르면 그 날의 리스트로 이동합니다.</Text>
-    </View>
-  );
-}
-
-export default function Board({ kind }) {
-  const { db, api } = useDb();
-  const [editing, setEditing] = useState(null);
-  // 할 일은 일(리스트) 보기, 콘텐츠 캘린더는 월 보기가 기본 — 데스크톱과 동일
-  const [view, setView] = useState(kind === 'content' ? 'month' : 'list');
-  const [showUndated, setShowUndated] = useState(false);
-  const [range, setRange] = useState({ start: -PAST, end: FUTURE });
-  const [ym, setYm] = useState(() => {
-    const d = new Date();
-    return { y: d.getFullYear(), m: d.getMonth() };
-  });
-  const today = todayStr();
-  const scrollRef = useRef(null);
-  const yMap = useRef({});
-  const pendingScroll = useRef(today); // 이 날짜의 레이아웃이 잡히면 그 위치로 스크롤
-  const busy = useRef(false);
-
-  useEffect(() => {
-    busy.current = false;
-  }, [range.start, range.end]);
-
-  const dates = useMemo(() => {
-    const out = [];
-    for (let i = range.start; i <= range.end; i++) out.push(addDays(today, i));
-    return out;
-  }, [today, range.start, range.end]);
-
-  const offsetFromToday = (dateStr) => {
-    const a = dateParts(today);
-    const b = dateParts(dateStr);
-    return Math.round((new Date(b.y, b.m - 1, b.d) - new Date(a.y, a.m - 1, a.d)) / 864e5);
-  };
-
-  const undated = db.todos
-    .filter((t) => !t.date && t.status !== 'bucket' && t.kind === kind)
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-
-  // 월 뷰에서 날짜를 누르면 리스트의 그 날짜로
-  const openDay = (date) => {
-    const off = offsetFromToday(date);
-    setRange((r) => ({ start: Math.min(r.start, off - 7), end: Math.max(r.end, off + 14) }));
-    pendingScroll.current = date;
-    setView('list');
-  };
-
-  const toList = () => {
-    if (view === 'list') return;
-    pendingScroll.current = today;
-    setView('list');
-  };
-
-  const goToday = () => {
-    if (view === 'month') {
-      const d = new Date();
-      setYm({ y: d.getFullYear(), m: d.getMonth() });
-    } else if (scrollRef.current && yMap.current[today] != null) {
-      scrollRef.current.scrollTo({ y: Math.max(0, yMap.current[today] - 6), animated: true });
-    }
-  };
-
-  // 무한 스크롤: 위/아래 근처에서 날짜 범위 확장 (위쪽은 maintainVisibleContentPosition이 위치 보정)
-  const onScroll = (e) => {
-    if (busy.current) return;
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    if (contentOffset.y + layoutMeasurement.height > contentSize.height - 900) {
-      busy.current = true;
-      setRange((r) => ({ ...r, end: r.end + 21 }));
-    } else if (contentOffset.y < 400) {
-      busy.current = true;
-      setRange((r) => ({ ...r, start: r.start - 21 }));
-    }
-  };
-
-  const editingTodo = editing ? db.todos.find((t) => t.id === editing) : null;
-
-  return (
-    <View style={{ flex: 1 }}>
-      {/* 툴바 — 일/월 전환, 날짜 미정 */}
-      <View style={styles.toolbar}>
-        <View style={styles.viewToggle}>
-          <PressScale haptic onPress={toList}>
-            <View style={[styles.togBtn, view === 'list' && styles.togOn]}>
-              <Text style={[styles.togText, view === 'list' && styles.togTextOn]}>일</Text>
-            </View>
-          </PressScale>
-          <PressScale haptic onPress={() => setView('month')}>
-            <View style={[styles.togBtn, view === 'month' && styles.togOn]}>
-              <Text style={[styles.togText, view === 'month' && styles.togTextOn]}>월</Text>
-            </View>
-          </PressScale>
-        </View>
-        {view === 'list' && undated.length > 0 && (
-          <GhostButton
-            label={`날짜 미정 ${undated.length}`}
-            onPress={() => setShowUndated(!showUndated)}
-            style={showUndated && { borderColor: T.accent, backgroundColor: 'rgba(255,255,255,0.85)' }}
-          />
-        )}
-      </View>
-
-      {view === 'month' ? (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
-          <MonthView db={db} kind={kind} ym={ym} setYm={setYm} openDay={openDay} />
-        </ScrollView>
-      ) : (
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
-          keyboardShouldPersistTaps="handled"
-          onScroll={onScroll}
-          scrollEventThrottle={64}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        >
-          {showUndated && (
-            <View style={{ marginBottom: 8 }}>
-              <Text style={styles.undatedTitle}>날짜 미정</Text>
-              {undated.length === 0 && <EmptyNote>날짜 미정 항목이 없습니다.</EmptyNote>}
-              {undated.map((t) => (
-                <Line key={t.id} todo={t} db={db} api={api} onOpen={() => setEditing(t.id)} />
-              ))}
-            </View>
-          )}
-          {dates.map((date) => (
-            <View
-              key={date}
-              onLayout={(e) => {
-                yMap.current[date] = e.nativeEvent.layout.y;
-                if (pendingScroll.current === date && scrollRef.current) {
-                  pendingScroll.current = null;
-                  const y = Math.max(0, e.nativeEvent.layout.y - 6);
-                  requestAnimationFrame(() => scrollRef.current && scrollRef.current.scrollTo({ y, animated: false }));
-                }
-              }}
-            >
-              <DaySection date={date} kind={kind} db={db} api={api} isToday={date === today} onOpen={(t) => setEditing(t.id)} />
-            </View>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* 오늘로 점프 FAB */}
-      <PressScale haptic onPress={goToday} style={styles.fab}>
-        <View style={[styles.fabInner, shadow(2)]}>
-          <Text style={styles.fabText}>◎ 오늘</Text>
-        </View>
-      </PressScale>
-
-      {editingTodo && <Editor todo={editingTodo} db={db} api={api} onClose={() => setEditing(null)} />}
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 4,
-  },
-  viewToggle: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    backgroundColor: 'rgba(255,255,255,0.45)',
-    padding: 2,
-    gap: 2,
-  },
-  togBtn: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 10 },
-  togOn: { backgroundColor: 'rgba(255,255,255,0.95)', ...shadow(1) },
-  togText: { fontSize: 13, color: T.muted },
-  togTextOn: { color: T.accent, fontWeight: '700' },
-  undatedTitle: { fontSize: 13, fontWeight: '700', color: T.muted, marginTop: 8, marginBottom: 4 },
-  day: {
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    marginHorizontal: -12,
-    borderRadius: 18,
-  },
-  dayToday: {
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    borderWidth: 1,
-    borderColor: T.glassEdge,
-    marginVertical: 6,
-  },
-  dayHead: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 4 },
-  dow: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
-  dayDate: { fontSize: 12, color: T.muted },
-  todayBadge: {
-    backgroundColor: T.accent,
-    borderRadius: 99,
-    paddingHorizontal: 9,
-    paddingVertical: 2,
-    ...shadow(1),
-  },
-  teamHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingHorizontal: 2 },
-  teamName: { fontSize: 12, fontWeight: '700', color: T.muted },
-  line: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  lineTitle: { fontSize: 15, color: T.text },
-  meta: { fontSize: 11, color: T.muted, fontVariant: ['tabular-nums'] },
-  inputRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 2, gap: 4 },
-  input: { flex: 1, fontSize: 15, color: T.text, paddingVertical: 6 },
-  ctxChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 99,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-  },
-  gchip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderWidth: 1,
-    borderColor: T.border,
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    borderRadius: 99,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-  },
-  gchipText: { fontSize: 12, color: T.muted },
-  gchipHint: { fontSize: 9, color: T.accent, fontWeight: '700' },
-  calNav: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
-  calTitle: { fontSize: 15, fontWeight: '800', color: T.text, letterSpacing: -0.3 },
-  calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  calCell: { width: `${100 / 7}%`, alignItems: 'stretch', padding: 1.5 },
-  calDow: { fontSize: 11, fontWeight: '700', color: T.muted, textAlign: 'center', paddingVertical: 4 },
-  calDayCell: {
-    minHeight: 78,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-    padding: 3,
-    gap: 2,
-  },
-  calToday: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderWidth: 1,
-    borderColor: T.accent,
-    ...shadow(1),
-  },
-  calDayNum: {
-    alignSelf: 'flex-start',
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-  },
-  calChip: {
-    borderLeftWidth: 3,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    paddingHorizontal: 2,
-    paddingVertical: 1,
-  },
-  calChipText: { fontSize: 8.5, color: T.text },
-  calMore: { fontSize: 8.5, color: T.muted, paddingLeft: 2 },
-  calDesc: { fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 },
-  fab: { position: 'absolute', right: 16, bottom: 100 },
-  fabInner: {
-    borderRadius: 99,
-    borderWidth: 1,
-    borderColor: T.glassEdge,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  fabText: { fontSize: 13, fontWeight: '700', color: T.accent },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(30,27,75,0.35)',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  editTitle: { fontSize: 17, fontWeight: '600', color: T.text, padding: 0 },
-  editField: {
-    borderWidth: 1,
-    borderColor: T.border,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    fontSize: 13,
-    color: T.text,
-  },
-});

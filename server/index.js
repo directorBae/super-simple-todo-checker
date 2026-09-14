@@ -1,255 +1,163 @@
-/*
- * 할 일 체커 동기화 서버 — 의존성 없는 Node 단일 파일 (Node 18+)
- *
- * 데스크톱/모바일이 전체 상태(teams/projects/todos/tombstones)를 POST /sync로 보내면
- * last-write-wins(updatedAt 기준) + tombstone(삭제 우선)으로 병합해 되돌려준다.
- * 클라이언트는 응답으로 로컬 상태를 통째로 교체한다. settings는 기기별이라 동기화하지 않음.
- *
- * 실행:   node index.js            (기본 포트 8787)
- * 환경:   PORT, SYNC_TOKEN         (토큰 미지정 시 자동 생성해 data/token.txt에 보관·출력)
- *         DATA_DIR                 저장 위치 (기본 ./data)
- *         TRUST_PROXY=1            리버스 프록시 뒤에서 X-Forwarded-For를 실제 IP로 신뢰
- *         BACKUP_KEEP              db.json 일 단위 백업 보관 개수 (기본 7, 0이면 끔)
- * 저장:   data/db.json  (+ data/db.YYYY-MM-DD.json 백업)
- * 배포:   Dockerfile / docker-compose.yml(Caddy HTTPS) / fly.toml — DEPLOY.md 참고
- */
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { Storage } = require('./lib/storage');
+const { Integrations } = require('./lib/integrations');
+const { ApiError, editable } = require('./lib/common');
+const { createPairing, publishLocalConnection } = require('./lib/pairing');
+const { createLogin } = require('./lib/login');
 
-const PORT = Number(process.env.PORT || 8787);
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
-const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');
-const TOMBSTONE_TTL = 90 * 24 * 60 * 60 * 1000; // 90일 지난 tombstone은 정리
-const BODY_LIMIT = 20 * 1024 * 1024;
-const COLLS = ['teams', 'projects', 'todos'];
-const TRUST_PROXY = process.env.TRUST_PROXY === '1';
-const BACKUP_KEEP = Number(process.env.BACKUP_KEEP ?? 7);
-const AUTH_FAIL_LIMIT = 20; // IP당 허용 인증 실패 횟수
-const AUTH_FAIL_WINDOW = 10 * 60 * 1000; // 10분
-
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
-let TOKEN = (process.env.SYNC_TOKEN || '').trim();
-const TOKEN_FROM_ENV = !!TOKEN;
-if (!TOKEN) {
-  try {
-    TOKEN = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-  } catch {}
-  if (!TOKEN) {
-    TOKEN = crypto.randomBytes(24).toString('base64url');
-    fs.writeFileSync(TOKEN_FILE, TOKEN + '\n');
+function configuration(env = process.env) {
+  const publicUrl = (env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  if (publicUrl) {
+    const u = new URL(publicUrl);
+    if (u.pathname !== '/' || u.search || u.hash || u.username || u.password || (u.protocol !== 'https:' && !(u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)))) throw new Error('PUBLIC_URL must be an HTTPS origin (localhost HTTP allowed).');
   }
+  return { publicUrl, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET, notionClientId: env.NOTION_CLIENT_ID, notionClientSecret: env.NOTION_CLIENT_SECRET, openaiKey: env.OPENAI_API_KEY, openaiModel: env.OPENAI_MODEL || 'gpt-4.1-mini', timeZone: env.TIME_ZONE || 'Asia/Seoul' };
 }
-
-let db = { teams: [], projects: [], todos: [], tombstones: [] };
-try {
-  const loaded = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  for (const k of [...COLLS, 'tombstones']) if (Array.isArray(loaded[k])) db[k] = loaded[k];
-} catch {}
-
-let lastBackup = 0;
-
-function persist() {
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 1));
-  backup();
-  fs.renameSync(tmp, DB_FILE);
-}
-
-// db.json이 단일 파일이라 유실에 취약 — 덮어쓰기 직전 원본을 하루 한 번 날짜별로 복사해 둔다.
-function backup() {
-  const now = Date.now();
-  if (BACKUP_KEEP <= 0 || now - lastBackup < 24 * 60 * 60 * 1000) return;
-  try {
-    if (!fs.existsSync(DB_FILE)) return;
-    lastBackup = now;
-    fs.copyFileSync(DB_FILE, path.join(DATA_DIR, `db.${new Date(now).toISOString().slice(0, 10)}.json`));
-    const olds = fs
-      .readdirSync(DATA_DIR)
-      .filter((f) => /^db\.\d{4}-\d{2}-\d{2}\.json$/.test(f))
-      .sort();
-    for (const f of olds.slice(0, Math.max(0, olds.length - BACKUP_KEEP))) fs.unlinkSync(path.join(DATA_DIR, f));
-  } catch (e) {
-    console.error('백업 실패:', e.message);
+function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'), token = process.env.SYNC_TOKEN, config = configuration(), overrides, loginPassword = process.env.PERSONAL_PASSWORD } = {}) {
+  const store = new Storage(dir), db = store.data;
+  const tokenPath = path.join(dir, 'token.txt');
+  if (!token) {
+    if (!fs.existsSync(tokenPath)) fs.writeFileSync(tokenPath, crypto.randomBytes(24).toString('base64url'), { mode: 0o600 });
+    token = fs.readFileSync(tokenPath, 'utf8').trim();
   }
-}
-
-// 레코드의 비교 시각 — updatedAt이 없던 옛 데이터는 createdAt으로 대신
-const stamp = (r) => r.updatedAt || r.createdAt || 0;
-
-/* 클라이언트 상태를 서버 상태에 병합 (LWW + tombstone) */
-function merge(client) {
-  // tombstone 합집합 (coll:id별 최신 deletedAt)
-  const tombs = new Map();
-  for (const t of [...db.tombstones, ...(Array.isArray(client.tombstones) ? client.tombstones : [])]) {
-    if (!t || !t.id || !COLLS.includes(t.coll)) continue;
-    const k = t.coll + ':' + t.id;
-    const prev = tombs.get(k);
-    if (!prev || (t.deletedAt || 0) > prev.deletedAt) tombs.set(k, { coll: t.coll, id: t.id, deletedAt: t.deletedAt || 0 });
-  }
-
-  for (const coll of COLLS) {
-    const map = new Map(db[coll].map((r) => [r.id, r]));
-    for (const r of Array.isArray(client[coll]) ? client[coll] : []) {
-      if (!r || !r.id) continue;
-      const cur = map.get(r.id);
-      if (!cur || stamp(r) >= stamp(cur)) map.set(r.id, r);
-    }
-    const out = [];
-    for (const r of map.values()) {
-      const t = tombs.get(coll + ':' + r.id);
-      if (t && t.deletedAt >= stamp(r)) continue; // 삭제가 더 최신 → 지운다
-      if (t) tombs.delete(coll + ':' + r.id); // 삭제 이후에 수정됨 → 부활, tombstone 폐기
-      out.push(r);
-    }
-    db[coll] = out.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-  }
-
-  const now = Date.now();
-  db.tombstones = [...tombs.values()].filter((t) => now - t.deletedAt < TOMBSTONE_TTL);
-
-  // 사라진 팀/프로젝트를 가리키는 참조 정리 (안 하면 클라이언트 그룹 렌더링에서 항목이 숨는다)
-  const teamIds = new Set(db.teams.map((t) => t.id));
-  const projIds = new Set(db.projects.map((p) => p.id));
-  for (const p of db.projects) if (p.teamId && !teamIds.has(p.teamId)) p.teamId = null;
-  for (const t of db.todos) {
-    if (t.teamId && !teamIds.has(t.teamId)) t.teamId = null;
-    if (t.projectId && !projIds.has(t.projectId)) t.projectId = null;
-  }
-
-  persist();
-}
-
-/* 토큰 비교는 상수 시간으로 — 공개 인터넷에 노출되면 타이밍으로 한 바이트씩 새어나갈 수 있다 */
-function tokenOk(header) {
-  const given = Buffer.from(String(header || ''), 'utf8');
-  const want = Buffer.from('Bearer ' + TOKEN, 'utf8');
-  if (given.length !== want.length) {
-    crypto.timingSafeEqual(want, want); // 길이가 달라도 같은 비용을 치러 길이 추론을 막는다
-    return false;
-  }
-  return crypto.timingSafeEqual(given, want);
-}
-
-/* 인증 실패를 IP·시간창 단위로 세어 토큰 무차별 대입을 막는다 */
-const authFails = new Map();
-
-function clientIp(req) {
-  if (TRUST_PROXY) {
-    const fwd = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (fwd) return fwd;
-  }
-  return req.socket.remoteAddress || '?';
-}
-
-function blocked(ip) {
-  const e = authFails.get(ip);
-  if (!e) return false;
-  if (Date.now() - e.first > AUTH_FAIL_WINDOW) {
-    authFails.delete(ip);
-    return false;
-  }
-  return e.n >= AUTH_FAIL_LIMIT;
-}
-
-function noteFail(ip) {
-  const e = authFails.get(ip);
-  if (!e || Date.now() - e.first > AUTH_FAIL_WINDOW) authFails.set(ip, { n: 1, first: Date.now() });
-  else e.n++;
-}
-
-const log = (...a) => console.log(new Date().toISOString(), ...a);
-
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
-
-function send(res, code, obj) {
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...CORS });
-  res.end(JSON.stringify(obj));
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on('data', (c) => {
-      size += c.length;
-      if (size > BODY_LIMIT) {
-        reject(new Error('body too large'));
-        req.destroy();
-        return;
+  if (!token) throw new Error('SYNC_TOKEN cannot be empty');
+  const integrations = new Integrations(store, config, overrides);
+  const pairing = createPairing();
+  const login = createLogin(dir, loginPassword);
+  const authFailures = new Map();
+  const stamp = r => r.updatedAt || r.createdAt || 0;
+  const snapshot = () => ({ teams: db.teams, projects: db.projects, todos: db.todos.filter(t => !integrations.excluded(t.id)).map(t => integrations.decorate(t)), excludedTodoIds: db.todos.filter(t => integrations.excluded(t.id)).map(t => t.id), tombstones: db.tombstones });
+  function merge(client) {
+    if (!client || typeof client !== 'object' || Array.isArray(client)) throw new ApiError('상태 형식이 올바르지 않습니다.');
+    for (const key of ['teams', 'projects', 'todos', 'tombstones']) if (client[key] !== undefined && (!Array.isArray(client[key]) || client[key].length > 100000)) throw new ApiError('잘못된 컬렉션: ' + key);
+    for (const coll of ['teams', 'projects', 'todos']) for (const r of client[coll] || []) {
+      if (!r || typeof r.id !== 'string' || r.id.length > 200 || !Number.isFinite(stamp(r)) || stamp(r) > Date.now() + 300000) throw new ApiError('항목 ID와 기기 시간을 확인해 주세요.');
+      if (coll === 'todos') {
+        if (typeof r.title !== 'string' || r.title.length > 10000 || (r.notes && (typeof r.notes !== 'string' || r.notes.length > 50000))) throw new ApiError('할 일 제목 또는 메모가 너무 깁니다.');
+        if (!['todo', 'done', 'bucket'].includes(r.status)) throw new ApiError('할 일 상태가 올바르지 않습니다.');
       }
-      chunks.push(c);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
-}
-
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, CORS);
-    res.end();
-    return;
-  }
-  if (req.method === 'GET' && url.pathname === '/health') {
-    send(res, 200, { ok: true, name: 'todo-checker-sync' });
-    return;
-  }
-
-  const ip = clientIp(req);
-  if (blocked(ip)) {
-    send(res, 429, { ok: false, error: 'too many attempts' });
-    return;
-  }
-  if (!tokenOk(req.headers.authorization)) {
-    noteFail(ip);
-    log(`401 ${ip} ${req.method} ${url.pathname}`);
-    send(res, 401, { ok: false, error: 'unauthorized' });
-    return;
-  }
-  authFails.delete(ip);
-
-  if (req.method === 'GET' && url.pathname === '/db') {
-    send(res, 200, { ok: true, ...db });
-    return;
-  }
-  if (req.method === 'POST' && url.pathname === '/sync') {
-    try {
-      const body = JSON.parse((await readBody(req)) || '{}');
-      merge(body);
-      log(`sync ${ip} teams=${db.teams.length} projects=${db.projects.length} todos=${db.todos.length}`);
-      send(res, 200, { ok: true, serverTime: Date.now(), ...db });
-    } catch (e) {
-      send(res, 400, { ok: false, error: e.message });
     }
-    return;
+    const tombs = new Map(db.tombstones.map(t => [t.coll + ':' + t.id, t]));
+    for (const t of client.tombstones || []) {
+      if (!t || !['teams', 'projects', 'todos'].includes(t.coll) || typeof t.id !== 'string' || !Number.isFinite(t.deletedAt) || t.deletedAt > Date.now() + 300000) throw new ApiError('삭제 기록이 올바르지 않습니다.');
+      const key = t.coll + ':' + t.id;
+      if (!tombs.has(key) || tombs.get(key).deletedAt < t.deletedAt) tombs.set(key, { coll: t.coll, id: t.id, deletedAt: t.deletedAt });
+    }
+    for (const coll of ['teams', 'projects', 'todos']) {
+      const map = new Map(db[coll].map(r => [r.id, r]));
+      for (const incoming of client[coll] || []) {
+        if (coll === 'todos' && Object.hasOwn(db.todoAliases, incoming.id)) {
+          // Preserve edits made to a merged item offline as a reviewable conflict.
+          const canonical = db.todos.find(t => t.id === integrations.duplicates.canonicalId(incoming.id));
+          const previous = db.duplicateMemories.findLast(m => m.decision === 'merged' && m.members.some(x => x.snapshot.todoId === incoming.id))?.members.find(x => x.snapshot.todoId === incoming.id)?.snapshot;
+          if (canonical && previous && editable.some(k => k in incoming && k in previous && (incoming[k] ?? null) !== (previous[k] ?? null))) {
+            canonical.clientConflict ||= { message: '병합된 업무가 다른 기기에서 수정되었습니다. 유지할 내용을 선택해 주세요.', incoming: Object.fromEntries(editable.filter(k => k in incoming).map(k => [k, incoming[k]])) };
+          }
+          continue;
+        }
+        const old = map.get(incoming.id), tomb = tombs.get(coll + ':' + incoming.id);
+        if (tomb && tomb.deletedAt >= stamp(incoming)) continue;
+        if (coll !== 'todos') {
+          if (!old || stamp(incoming) > stamp(old)) {
+            const keys = coll === 'teams' ? ['id', 'name', 'color', 'important', 'createdAt', 'updatedAt'] : ['id', 'name', 'teamId', 'term', 'status', 'notes', 'important', 'createdAt', 'updatedAt'];
+            map.set(incoming.id, Object.fromEntries(keys.filter(k => k in incoming).map(k => [k, incoming[k]])));
+          }
+          continue;
+        }
+        const patch = Object.fromEntries(editable.filter(k => k in incoming).map(k => [k, incoming[k]]));
+        patch.kind = 'todo'; delete patch.channel;
+        if (!old) {
+          const todo = { ...patch, id: incoming.id, createdAt: incoming.createdAt || Date.now(), updatedAt: stamp(incoming), revision: 1, origin: { type: incoming.origin?.type === 'app' ? 'app' : 'legacy' } };
+          map.set(todo.id, todo); integrations.changed(todo);
+        } else if (stamp(incoming) > stamp(old)) {
+          if (!editable.some(k => k in patch && (patch[k] ?? null) !== (old[k] ?? null))) continue;
+          if (config.multiUser && ((incoming.syncRevision !== undefined && incoming.syncRevision !== old.revision) || (incoming.syncRevision === undefined && db.links.some(l => l.todoId === old.id)))) {
+            old.clientConflict = { message: '다른 기기 또는 원본에서 먼저 수정했습니다.', incoming: patch }; continue;
+          }
+          Object.assign(old, patch, { updatedAt: stamp(incoming), revision: old.revision + 1 });
+          delete old.clientConflict;
+          old.completedAt = old.status === 'done' ? Date.now() : null;
+          integrations.changed(old);
+        }
+      }
+      db[coll] = [...map.values()].filter(r => !(tombs.get(coll + ':' + r.id)?.deletedAt >= stamp(r)));
+    }
+    db.tombstones = [...tombs.values()].map(t => t.coll === 'todos' && Object.hasOwn(db.todoAliases, t.id) ? { ...t, mergedInto: integrations.duplicates.canonicalId(t.id) } : t);
+    for (const t of db.todos) { t.kind = 'todo'; if (t.teamId && !db.teams.some(x => x.id === t.teamId)) t.teamId = null; if (t.projectId && !db.projects.some(x => x.id === t.projectId)) t.projectId = null; }
+    for (const p of db.projects) if (p.teamId && !db.teams.some(t => t.id === p.teamId)) p.teamId = null;
+    store.save();
   }
-  send(res, 404, { ok: false, error: 'not found' });
-});
-
-server.listen(PORT, () => {
-  console.log(`할 일 체커 동기화 서버가 포트 ${PORT}에서 실행 중 (저장: ${DATA_DIR})`);
-  if (TOKEN_FROM_ENV) {
-    console.log('토큰: 환경변수 SYNC_TOKEN 사용 중 (로그에 출력하지 않음)');
-  } else {
-    console.log(`토큰: ${TOKEN}`);
-    console.log('데스크톱/모바일 설정의 동기화 섹션에 "http://<이 컴퓨터 IP>:' + PORT + '"와 위 토큰을 입력하세요.');
+  function send(res, status, data) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
+  async function body(req) {
+    let size = 0; const chunks = [];
+    for await (const chunk of req) { size += chunk.length; if (size > 20 * 1024 * 1024) throw new ApiError('요청이 너무 큽니다.', 413); chunks.push(chunk); }
+    try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw new ApiError('잘못된 JSON 요청'); }
   }
-});
-
-// 컨테이너/서비스 매니저가 보내는 종료 신호에 진행 중인 요청을 마치고 내려간다
-for (const sig of ['SIGTERM', 'SIGINT']) {
-  process.on(sig, () => {
-    console.log(`${sig} 수신 — 종료합니다.`);
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    try {
+      if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true, name: 'todo-checker-sync' });
+      if (req.method === 'POST' && url.pathname === '/auth/login') {
+        if (req.headers.origin || !req.headers['content-type']?.startsWith('application/json')) throw new ApiError('앱에서 로그인해 주세요.', 403);
+        const credentials = await body(req);
+        const result = await login.verify(credentials?.password, req.socket.remoteAddress);
+        return result.ok ? send(res, 200, { ok: true, token }) : send(res, result.status, { ok: false, error: result.error });
+      }
+      if (req.method === 'POST' && url.pathname === '/pair') {
+        if (req.headers.origin || !req.headers['content-type']?.startsWith('application/json')) throw new ApiError('앱에서 연결해 주세요.', 403);
+        const p = await body(req);
+        if (!pairing.redeem(p.code, req.socket.remoteAddress)) throw new ApiError('연결 코드가 만료되었거나 일치하지 않습니다.', 403);
+        return send(res, 200, { ok: true, token });
+      }
+      const callback = /^\/oauth\/(google|notion)\/callback$/.exec(url.pathname);
+      if (callback && req.method === 'GET') {
+        let message = '계정이 연결되었습니다. 앱으로 돌아가 목록을 새로고침하세요.';
+        try { await integrations.callback(callback[1], url.searchParams); } catch (e) { message = e.message; }
+        const escaped = message.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+        return res.end('<meta charset="utf-8"><title>계정 연결</title><p>' + escaped + '</p>');
+      }
+      const ip = req.socket.remoteAddress, fail = authFailures.get(ip);
+      if (fail && fail.until > Date.now() && fail.count >= 20) return send(res, 429, { ok: false, error: '잠시 후 다시 시도하세요.' });
+      const got = Buffer.from(req.headers.authorization || ''), want = Buffer.from('Bearer ' + token);
+      if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) {
+        authFailures.set(ip, { count: (fail?.until > Date.now() ? fail.count : 0) + 1, until: Date.now() + 600000 });
+        return send(res, 401, { ok: false, error: '서버 토큰을 확인해 주세요.' });
+      }
+      authFailures.delete(ip);
+      if (req.method === 'POST' && url.pathname === '/pair/create') return send(res, 200, { ok: true, ...pairing.issue(server.address().port) });
+      if (req.method === 'GET' && url.pathname === '/db') return send(res, 200, { ok: true, ...snapshot() });
+      if (req.method === 'POST' && url.pathname === '/sync') { merge(await body(req)); send(res, 200, { ok: true, serverTime: Date.now(), ...snapshot() }); void integrations.cycle().catch(console.error); return; }
+      if (req.method === 'GET' && url.pathname === '/integrations/state') return send(res, 200, { ok: true, ...integrations.state() });
+      if (req.method === 'POST' && url.pathname === '/integrations/action') {
+        const p = await body(req);
+        if (p.action === 'resolve-client') {
+          const todo = db.todos.find(t => t.id === p.todoId); if (!todo?.clientConflict) throw new ApiError('충돌 항목이 없습니다.');
+          if (p.choice === 'incoming') { Object.assign(todo, todo.clientConflict.incoming); todo.revision++; todo.updatedAt = Date.now(); integrations.changed(todo); }
+          else if (p.choice !== 'server') throw new ApiError('유지할 내용을 선택해 주세요.');
+          delete todo.clientConflict; store.save(); return send(res, 200, { ok: true, ...integrations.state() });
+        }
+        return send(res, 200, await integrations.action(p));
+      }
+      send(res, 404, { ok: false, error: '요청 경로가 없습니다.' });
+    } catch (e) { if (!res.headersSent) send(res, e.status >= 400 && e.status < 500 ? e.status : 500, { ok: false, error: e.message || '서버 오류' }); }
   });
+  server.requestTimeout = 120000;
+  const worker = setInterval(() => { void integrations.cycle().catch(console.error); }, 10000);
+  const poller = setInterval(() => { void integrations.cycle({ pull: true }).catch(console.error); }, 5 * 60000);
+  worker.unref(); poller.unref();
+  server.on('close', () => { clearInterval(worker); clearInterval(poller); });
+  return { server, store, integrations, merge, snapshot, token, login };
 }
+if (require.main === module) {
+  if (fs.existsSync(path.join(__dirname, '.env'))) process.loadEnvFile(path.join(__dirname, '.env'));
+  const app = createApp();
+  app.server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? '8787 포트를 이미 사용 중입니다. start-server.cmd로 기존 서버를 사용해 주세요.' : error.message); app.store.close(); process.exitCode = 1; });
+  if (app.login.passwordFile) console.log('모바일 직접 로그인 비밀번호: ' + app.login.passwordFile);
+  app.server.listen(Number(process.env.PORT || 8787), '0.0.0.0', () => { publishLocalConnection(app.token, app.server.address().port); console.log('TODO 서버 실행: 포트 ' + app.server.address().port + ' / 로컬 SQLite 저장'); if (!process.env.SYNC_TOKEN) console.log('서버 토큰은 data/token.txt 파일에서 확인하세요.'); void app.integrations.cycle({ pull: true }).catch(console.error); });
+  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { app.server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 5000).unref(); });
+}
+module.exports = { createApp, configuration };

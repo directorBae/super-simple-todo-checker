@@ -2,9 +2,10 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electr
 const path = require('path');
 const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
-const gcal = require('./gcal.cjs');
+const integrations = require('./integrations.cjs');
 const sync = require('./sync.cjs');
 const updater = require('./updater.cjs');
+const localServer = require('./local-server.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 
@@ -20,13 +21,25 @@ let isQuitting = false;
 let store = null;
 
 function broadcast() {
-  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('db-changed', store.db);
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('db-changed', publicState());
 }
+
+function publicState() {
+  const state = structuredClone(store.db);
+  delete state.settings.gcal;
+  return state;
+}
+
+let syncTimer;
 
 function done() {
   store.save();
   broadcast();
-  return store.db;
+  if (sync.configured(store)) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => sync.syncNow(store).then(r => { if (r.ok) broadcast(); }), 1500);
+  }
+  return publicState();
 }
 
 function createWindow() {
@@ -100,20 +113,32 @@ function clearTodoNotifs(id) {
 }
 
 function registerIpc() {
-  ipcMain.handle('state:get', () => store.db);
+  ipcMain.handle('sync:pair', () => localServer.pairDevice(store));
+  ipcMain.handle('state:get', () => publicState());
+  ipcMain.handle('integrations:request', async (_, payload) => {
+    if (payload && ['route', 'resolve', 'delete-remote', 'resolve-client', 'save-target', 'duplicate-candidates', 'merge-duplicates', 'different-duplicates'].includes(payload.action)) {
+      const result = await sync.syncNow(store);
+      if (!result.ok) return result;
+    }
+    const result = await integrations.request(store, payload);
+    if (result.ok && payload) { await sync.syncNow(store); broadcast(); }
+    return result;
+  });
 
   ipcMain.handle('app:info', () => ({
     userData: app.getPath('userData'),
     version: app.getVersion(),
   }));
 
-  // ---- 할 일 / 콘텐츠 ----
+  // ---- 할 일 ----
   ipcMain.handle('todo:add', (_, p) => {
     const title = String(p.title || '').trim();
-    if (!title) return store.db;
+    if (!title) return publicState();
     store.db.todos.push({
       id: store.id(),
-      kind: p.kind === 'content' ? 'content' : 'todo',
+      kind: 'todo',
+      origin: { type: 'app' },
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
       title,
       notes: p.notes || '',
       date: p.date || null,
@@ -132,10 +157,12 @@ function registerIpc() {
 
   ipcMain.handle('todo:update', (_, { id, patch }) => {
     const t = store.db.todos.find((x) => x.id === id);
-    if (!t) return store.db;
+    if (!t) return publicState();
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
-    Object.assign(t, patch);
-    t.updatedAt = Date.now();
+    const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder'];
+    Object.assign(t, Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k))));
+    t.kind = 'todo';
+    t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1);
     if ('status' in patch) t.completedAt = patch.status === 'done' ? Date.now() : null;
     // 시간이 바뀌거나 다시 활성화되면 알림을 재무장
     if (timeChanged || patch.status === 'todo') clearTodoNotifs(id);
@@ -152,7 +179,7 @@ function registerIpc() {
   // ---- 프로젝트 ----
   ipcMain.handle('project:add', (_, p) => {
     const name = String(p.name || '').trim();
-    if (!name) return store.db;
+    if (!name) return publicState();
     store.db.projects.push({
       id: store.id(),
       name,
@@ -168,7 +195,7 @@ function registerIpc() {
 
   ipcMain.handle('project:update', (_, { id, patch }) => {
     const p = store.db.projects.find((x) => x.id === id);
-    if (!p) return store.db;
+    if (!p) return publicState();
     Object.assign(p, patch);
     p.updatedAt = Date.now();
     return done();
@@ -189,14 +216,14 @@ function registerIpc() {
   // ---- 팀 ----
   ipcMain.handle('team:add', (_, p) => {
     const name = String(p.name || '').trim();
-    if (!name) return store.db;
+    if (!name) return publicState();
     store.db.teams.push({ id: store.id(), name, color: p.color || '#2563eb', createdAt: Date.now(), updatedAt: Date.now() });
     return done();
   });
 
   ipcMain.handle('team:update', (_, { id, patch }) => {
     const t = store.db.teams.find((x) => x.id === id);
-    if (!t) return store.db;
+    if (!t) return publicState();
     Object.assign(t, patch);
     t.updatedAt = Date.now();
     return done();
@@ -223,8 +250,7 @@ function registerIpc() {
   // ---- 설정 ----
   ipcMain.handle('settings:update', (_, patch) => {
     const s = store.db.settings;
-    const { gcal: gcalPatch, sync: syncPatch, ...rest } = patch;
-    if (gcalPatch) Object.assign(s.gcal, gcalPatch);
+    const { sync: syncPatch, ...rest } = patch;
     if (syncPatch) Object.assign(s.sync, syncPatch);
     Object.assign(s, rest);
     if ('autoLaunch' in rest) applyAutoLaunch();
@@ -245,39 +271,11 @@ function registerIpc() {
     return done();
   });
 
-  // ---- 구글 캘린더 ----
-  ipcMain.handle('gcal:connect', async () => {
-    try {
-      await gcal.connect(store);
-      await gcal.sync(store);
-      broadcast();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-  });
-
-  ipcMain.handle('gcal:sync', async () => {
-    try {
-      await gcal.sync(store);
-      broadcast();
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-  });
-
-  ipcMain.handle('gcal:disconnect', () => {
-    store.db.settings.gcal.tokens = null;
-    store.db.settings.gcal.lastSync = null;
-    store.db.gcalEvents = [];
-    done();
-    return { ok: true };
-  });
 }
 
 app.whenReady().then(() => {
   store = new Store();
+  localServer.useLocalServer(store);
   registerIpc();
   createTray();
 
@@ -286,22 +284,20 @@ app.whenReady().then(() => {
 
   scheduler.start(store, broadcast, openView);
 
-  const autoSync = () => {
-    if (store.db.settings.gcal.tokens) gcal.sync(store).then(broadcast).catch(() => {});
-  };
-  autoSync();
-  setInterval(autoSync, 30 * 60 * 1000);
 
-  // 동기화 서버가 설정돼 있으면 시작 시 + 10분마다 조용히 동기화
+
+  // 동기화 서버가 설정돼 있으면 실행 중 15초마다 조용히 동기화
   const autoServerSync = () => {
+    if (!sync.configured(store)) localServer.useLocalServer(store);
     if (sync.configured(store)) {
       sync.syncNow(store).then((r) => {
-        if (r.ok) broadcast();
+        broadcast();
       });
     }
   };
   autoServerSync();
-  setInterval(autoServerSync, 10 * 60 * 1000);
+  setInterval(autoServerSync, 3000);
+  app.on('browser-window-focus', autoServerSync);
 
   // 트레이 상주라 창을 닫아도 안 죽으므로, 설치 전에 종료 플래그를 세워준다
   updater.start({ beforeInstall: () => { isQuitting = true; } });
