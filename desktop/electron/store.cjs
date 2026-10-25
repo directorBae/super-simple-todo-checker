@@ -3,6 +3,7 @@ const path = require('path');
 const { app } = require('electron');
 const { randomUUID } = require('crypto');
 const { migrateTeams } = require('./migrate-teams.cjs');
+const { ensureDates } = require('./ensure-dates.cjs');
 
 /*
  * TODO(roadmap): 데이터 계층 로드맵
@@ -48,6 +49,7 @@ class Store {
   constructor() {
     this.file = path.join(app.getPath('userData'), 'db.json');
     this.db = migrateTeams(this.load());
+    if (ensureDates(this.db)) this.save();
     this._timer = null;
   }
 

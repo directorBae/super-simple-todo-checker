@@ -1,8 +1,20 @@
 const { ApiError, id, hash, fingerprint, editable, content, json, schedule, DateTime } = require('./common');
 const { classify, taskTypes } = require('./router');
 const { Duplicates } = require('./duplicates');
+const { focusAssistant } = require('./focus-assistant');
 const providers = { notion: require('./notion'), google: require('./google'), apple: require('./apple') };
 const safeError = e => String(e.message || '요청 실패').slice(0, 400);
+// App titles are at most 50 characters. Imported records are trimmed before they become the comparison
+// baseline, so a long source title is not written back unless the to-do is actually edited in the app.
+const TITLE_LIMIT = 50;
+function limitTitle(remote) {
+  const title = remote?.data?.title;
+  if (typeof title !== 'string') return remote;
+  const original = title.trim(), chars = Array.from(original.replace(/\s+/g, ' '));
+  if (chars.length <= TITLE_LIMIT) return remote;
+  const source = '원문: ' + original, notes = remote.data.notes || '';
+  return { ...remote, data: { ...remote.data, title: chars.slice(0, TITLE_LIMIT - 1).join('').trimEnd() + '…', ...('notes' in remote.data ? { notes: notes.includes(source) ? notes : [notes, source].filter(Boolean).join('\n\n') } : {}) } };
+}
 
 class Integrations {
   constructor(storage, config, overrides = {}) {
@@ -106,6 +118,7 @@ class Integrations {
     return link;
   }
   importRemote(target, remote) {
+    remote = limitTitle(remote);
     let link = this.db.links.find(l => l.targetId === target.id && l.externalId === remote.externalId);
     if (remote.inScope === false) { if (link) this.exclude(link); return; }
     if (!link) {
@@ -244,6 +257,7 @@ class Integrations {
     Object.assign(c, { accountId: identity.accountId, workspaceId: identity.workspaceId || c.workspaceId || null, label: identity.label, credentials: this.store.seal(credentials), enabled: true }); this.save(); return c.id;
   }
   async action(p) {
+    if (['compress-title', 'create-pet'].includes(p.action)) return focusAssistant(p.action, p.input, this.config);
     if (p.action === 'connect-notion') {
       const credentials = { accessToken: String(p.token || '').trim() };
       if (!credentials.accessToken) throw new ApiError('Notion 토큰을 입력해 주세요.');
@@ -394,4 +408,4 @@ class Integrations {
     }
   }
 }
-module.exports = { Integrations };
+module.exports = { limitTitle, Integrations };

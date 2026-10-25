@@ -8,6 +8,7 @@ const state={ok:true,connections:[{id:'account',provider:'notion',label:'Studio 
 db.todos[0].integration={provider:'notion',sources:[{provider:'notion'},{provider:'google'},{provider:'notion'}]};
 db.todos.push(...['apple','google'].map((provider,i)=>({...db.todos[0],id:'logo-'+provider,title:i?'Client meeting':'Afternoon appointment',integration:{provider,sources:[{provider}]}})));
 db.todos.push({...db.todos[0],id:'local-logo-test',title:'Write a quick note',integration:undefined});
+db.todos.push(...['Buy stamps','Call the bank'].map((title,i)=>({...db.todos[0],id:'loose-'+i,title,teamId:null,integration:undefined,createdAt:now+i})));
 const calls=[];
 const emit=e=>{e.sender.send('smoke:db',db);return db;};
 ipcMain.handle('smoke:state',()=>db);
@@ -22,6 +23,7 @@ ipcMain.handle('smoke:integrations',(_,p)=>{
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
  const win=new BrowserWindow({show:false,width:1180,height:860,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'ui-smoke-preload.cjs')}});
+ win.webContents.setAudioMuted(true);
  const errors=[];win.webContents.on('console-message',(_,level,msg)=>{if(level>=3)errors.push(msg);});
  const js=async s=>{try{return await win.webContents.executeJavaScript(s);}catch(e){console.error('Failed UI action:',s,errors);throw e;}};
  const aria=label=>js('document.querySelector('+JSON.stringify('[aria-label="'+label+'"]')+').click()');
@@ -52,21 +54,55 @@ app.whenReady().then(async()=>{
   if(await js('document.querySelector(".topbar").getBoundingClientRect().height')>70)throw Error('Notebook header is no longer compact');
   if(await js('document.querySelectorAll(".memo-day").length')<7)throw Error('Continuous notebook days missing');
   await pause(300);await snap('desktop-notebook-restored');
+  // Rows drag from anywhere but their text/buttons (no ⠿ handle); Shift picks a range, Ctrl toggles one.
+  if(await js('!!document.querySelector(".memo-day .todo-drag-handle")'))throw Error('Six-dot drag handle must be gone');
+  await js(`document.getElementById('day-${today}').scrollIntoView({block:'center'});
+   window.__row=id=>document.querySelector('.memo-line[data-todo-id="'+id+'"] .memo-line-main');
+   window.__ptr=(type,el,x,y,o={})=>el.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'mouse',button:0,clientX:x,clientY:y,...o}));
+   window.__click=(id,o)=>{const el=__row(id),r=el.getBoundingClientRect();__ptr('pointerdown',el,r.right-30,r.top+r.height/2,o);__ptr('pointerup',el,r.right-30,r.top+r.height/2,o);};
+   window.__drag=async(id,to,dy=0.5)=>{const el=__row(id);el.scrollIntoView({block:'center'});await new Promise(r=>setTimeout(r,50));const t=to().getBoundingClientRect(),x=t.left+40,y=t.top+t.height*dy,r=el.getBoundingClientRect(),sx=r.right-30,sy=r.top+r.height/2;__ptr('pointerdown',el,sx,sy);for(let i=1;i<=4;i++){__ptr('pointermove',document.body,sx+(x-sx)*i/4,sy+(y-sy)*i/4);await new Promise(r=>setTimeout(r,16));}__ptr('pointerup',document.body,x,y);};
+   window.__sel=()=>[...document.querySelectorAll('.memo-line.is-selected')].map(e=>e.dataset.todoId).join(',');0`);await pause(200);
+  await js('__click("loose-0")');await pause(80);
+  await js('__click("a",{shiftKey:true})');await pause(80);
+  if(await js('__sel()')!=='loose-0,loose-1,a')throw Error('Shift-click must select the range: '+await js('__sel()'));
+  if(!await js('!!document.querySelector(".selection-bar")'))throw Error('Selection bar missing for several rows');
+  await js('__click("a",{ctrlKey:true})');await pause(80);
+  await js(`(async()=>{const el=__row('loose-1');el.scrollIntoView({block:'center'});await new Promise(r=>setTimeout(r,50));const t=__row('logo-google').getBoundingClientRect(),r=el.getBoundingClientRect();__ptr('pointerdown',el,r.right-30,r.top+8);for(let i=1;i<=3;i++){__ptr('pointermove',document.body,r.right-30-i*60,r.top+8+(t.top+4-r.top-8)*i/3);await new Promise(r=>setTimeout(r,16));}})()`);await pause(120);await snap('desktop-drag-midway');
+  await js(`__ptr('pointercancel',document.body,0,0);0`);await pause(80);
+  if(await js('__sel()')!=='loose-0,loose-1')throw Error('Ctrl-click must toggle one row: '+await js('__sel()'));
+  await snap('desktop-multi-select');
+  await js(`__drag('loose-1',()=>document.querySelector('#day-${today} .memo-team'))`);await pause(400);
+  if(!['loose-0','loose-1'].every(id=>db.todos.find(t=>t.id===id).teamId==='team'))throw Error('Dragging the selection onto a team must move all of it '+JSON.stringify(db.todos.map(t=>[t.id,t.teamId]))+await js(`(()=>{const h=document.querySelector('#day-${today} .memo-team'),r=h.getBoundingClientRect(),e=document.elementFromPoint(r.left+40,r.top+r.height/2);return JSON.stringify([r.top,r.left,innerHeight,e?.className,e?.outerHTML.slice(0,160)])})()`));
+  await js(`__drag('local-logo-test',()=>__row('a'),0.1)`);await pause(400);
+  const order=await js(`[...document.querySelectorAll('#day-${today} .memo-line')].map(e=>e.dataset.todoId).join(',')`);
+  if(order.indexOf('local-logo-test')>order.indexOf('a,'))throw Error('Dragging a row must reorder the notebook: '+order);
+  await js(`__drag('loose-0',()=>document.querySelector('#day-${today} .memo-head'))`);await pause(400);
+  if(db.todos.find(t=>t.id==='loose-0').teamId!==null)throw Error('Dropping on the day header must take a row out of its team');
+  await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await pause(100);
   await js('document.querySelector(".memo-actions button").click()');await pause(150);
   const editor=await js('document.querySelector(".todo-editor").innerText');
   if(editor.includes('AI')||editor.includes('종료')||editor.includes('목적지'))throw Error('Task editor contains complexity');
+  if(editor.includes('날짜 없음'))throw Error('A to-do can no longer be left without a date');
   await aria('메뉴');await pause(100);
-  await aria('다크 테마');await pause(160);
-  if(await js('document.documentElement.dataset.theme')!=='dark')throw Error('Menu theme failed');
-  await snap('desktop-dark');
-  await aria('메뉴');await click('팀');
-  if((await js('document.body.innerText')).includes('프로젝트'))throw Error('Projects visible');
-  await click('도구 연결 ↗');
-  const text=await js('document.querySelector("main").innerText');
+  if(await js('!!document.querySelector(".menu-pop [aria-label$=\\" 테마\\"]")||document.querySelector(".menu-pop").innerText.includes("테마")'))throw Error('Theme picker must be gone (single theme)');
+  await snap('desktop-menu');
+  await aria('메뉴');await pause(100);
+  await click('월');
+  if(!await js('document.querySelector(".team-side").innerText.includes("내 팀")'))throw Error('My team list must sit next to the calendar');
+  await snap('desktop-month-teams');
+  // Calendar chips drag too: onto another day moves the date.
+  await js(`(async()=>{const chip=document.querySelector('.cal-chip[data-todo-id="local-logo-test"]')||document.querySelector('.cal-cell.today .cal-chip');window.__moved=chip.dataset.todoId;const cell=[...document.querySelectorAll('.cal-cell[data-date]')].find(c=>!c.classList.contains('today')),r=chip.getBoundingClientRect(),t=cell.getBoundingClientRect();__ptr('pointerdown',chip,r.left+10,r.top+5);for(let i=1;i<=4;i++){__ptr('pointermove',document.body,r.left+10+(t.left+20-r.left-10)*i/4,r.top+5+(t.top+t.height/2-r.top-5)*i/4);await new Promise(r=>setTimeout(r,16));}__ptr('pointerup',document.body,t.left+20,t.top+t.height/2);window.__to=cell.dataset.date;})()`);await pause(450);
+  {const id=await js('window.__moved'),to=await js('window.__to');if(db.todos.find(t=>t.id===id).date!==to)throw Error('Dragging a calendar chip onto a day must move it there');}
+  await js('document.querySelector(".team-side .ghost").click()');await pause(600);
+  if(!await js('!!document.querySelector(".manage-dock.is-open")'))throw Error('Team list "관리" must open the teams/buckets room');
+  if((await js('document.querySelector(".manage-dock").innerText')).includes('프로젝트'))throw Error('Projects visible');
+  await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await pause(600);
+  await aria('메뉴');await click('설정');await click('도구 연결');
+  const text=await js('document.querySelector(".settings-pane").innerText');
   for(const hidden of ['OpenAI','개인 메모리','전송 작업','AI 목적지'])if(text.includes(hidden))throw Error('Tool screen leaked '+hidden);
   await snap('desktop-tools');
   if(errors.length)throw Error(errors.join('\n'));
-  console.log('UI UX smoke passed: onboarding/skip, tool-only cards, provider modal + automatic mapping, default month, date-only editor, theme menu, teams.');app.exit(0);
+  console.log('UI UX smoke passed: onboarding/skip, tool-only cards, provider modal + automatic mapping, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), Shift/Ctrl selection, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
 setTimeout(()=>app.exit(1),25000).unref();

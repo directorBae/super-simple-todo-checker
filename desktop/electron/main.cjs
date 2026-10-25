@@ -1,13 +1,22 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, protocol, net, session } = require('electron');
+const { pathToFileURL } = require('node:url');
+const fs = require('node:fs/promises');
+const { wallpaperHtml } = require('./wallpaper.cjs');
+const { titleFields } = require('./todo-title.cjs');
+const { ensureDates, localDate } = require('./ensure-dates.cjs');
 const path = require('path');
 const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
 const integrations = require('./integrations.cjs');
 const sync = require('./sync.cjs');
+const supabase = require('./supabase.cjs');
 const updater = require('./updater.cjs');
 const localServer = require('./local-server.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
+// Uploaded wallpaper lives in userData and is served as checker-media://wallpaper so it works in dev and packaged builds.
+protocol.registerSchemesAsPrivileged([{ scheme: 'checker-media', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+const customWallpaper = () => path.join(app.getPath('userData'), 'wallpaper-custom.jpg');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -16,6 +25,7 @@ if (!app.requestSingleInstanceLock()) {
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 
 let win = null;
+let clockWin = null;
 let tray = null;
 let isQuitting = false;
 let store = null;
@@ -27,14 +37,18 @@ function broadcast() {
 function publicState() {
   const state = structuredClone(store.db);
   delete state.settings.gcal;
+  delete state.supabaseMeta;
   return state;
 }
 
 let syncTimer;
 
+let supabaseTimer;
 function done() {
   store.save();
   broadcast();
+  clearTimeout(supabaseTimer);
+  supabaseTimer = setTimeout(() => supabase.syncNow(store).then((r) => { if (r.changed) broadcast(); }), 700);
   if (sync.configured(store)) {
     clearTimeout(syncTimer);
     syncTimer = setTimeout(() => sync.syncNow(store).then(r => { if (r.ok) broadcast(); }), 1500);
@@ -45,12 +59,13 @@ function done() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1080,
-    height: 740,
+    height: 800,
     minWidth: 800,
     minHeight: 540,
     icon: ICON,
     autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
+    // YouTube music should keep playing from one track to the next without another click.
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), autoplayPolicy: 'no-user-gesture-required' },
   });
   if (process.env.VITE_DEV_SERVER_URL) win.loadURL(process.env.VITE_DEV_SERVER_URL);
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -75,6 +90,20 @@ function showWindow() {
     win.show();
     win.focus();
   }
+}
+
+function showClock(todoId) {
+  const query = { view: 'clock', ...(typeof todoId === 'string' ? { todo: todoId } : {}) };
+  if (clockWin) {
+    if (typeof todoId === 'string') clockWin.webContents.send('open-view', 'clock-task:' + todoId);
+    if (clockWin.isMinimized()) clockWin.restore();
+    clockWin.show(); clockWin.focus(); return { ok: true };
+  }
+  clockWin = new BrowserWindow({ width: 420, height: 700, minWidth: 340, minHeight: 500, title: '시계', icon: ICON, autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, 'preload.cjs') } });
+  if (process.env.VITE_DEV_SERVER_URL) { const url = new URL(process.env.VITE_DEV_SERVER_URL); url.search = new URLSearchParams(query).toString(); clockWin.loadURL(url.href); }
+  else clockWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query });
+  clockWin.on('closed', () => { clockWin = null; });
+  return { ok: true };
 }
 
 function openView(view) {
@@ -113,6 +142,23 @@ function clearTodoNotifs(id) {
 }
 
 function registerIpc() {
+  ipcMain.handle('clock:open', (_, todoId) => showClock(todoId));
+  ipcMain.handle('wallpaper:export', async (_, payload) => {
+    try {
+      const result = await dialog.showSaveDialog(win, { title: '시계 월페이퍼 저장', defaultPath: path.join(app.getPath('documents'), 'checker-wallpaper.html'), filters: [{ name: 'HTML 월페이퍼', extensions: ['html'] }] });
+      if (result.canceled || !result.filePath) return { canceled: true };
+      await fs.writeFile(result.filePath, wallpaperHtml(payload), 'utf8');
+      return { ok: true };
+    } catch { return { ok: false, error: '월페이퍼 파일을 저장할 수 없습니다.' }; }
+  });
+  ipcMain.handle('wallpaper:save', async (_, dataUrl) => {
+    const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+    if (!match || match[1].length > 20 * 1024 * 1024) return { ok: false, error: '사진 형식을 확인해 주세요.' };
+    try {
+      await fs.writeFile(customWallpaper(), Buffer.from(match[1], 'base64'));
+      return { ok: true, src: 'checker-media://wallpaper/custom.jpg?v=' + Date.now() };
+    } catch { return { ok: false, error: '사진을 저장하지 못했습니다.' }; }
+  });
   ipcMain.handle('sync:pair', () => localServer.pairDevice(store));
   ipcMain.handle('state:get', () => publicState());
   ipcMain.handle('integrations:request', async (_, payload) => {
@@ -121,7 +167,7 @@ function registerIpc() {
       if (!result.ok) return result;
     }
     const result = await integrations.request(store, payload);
-    if (result.ok && payload) { await sync.syncNow(store); broadcast(); }
+    if (result.ok && payload && !['compress-title', 'create-pet'].includes(payload.action)) { await sync.syncNow(store); broadcast(); }
     return result;
   });
 
@@ -139,9 +185,8 @@ function registerIpc() {
       kind: 'todo',
       origin: { type: 'app' },
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
-      title,
-      notes: p.notes || '',
-      date: p.date || null,
+      ...titleFields(title, p.notes || ''),
+      date: p.date || (p.status === 'bucket' ? null : localDate()),
       startTime: p.startTime || null,
       endTime: p.endTime || null,
       projectId: p.projectId || null,
@@ -160,8 +205,13 @@ function registerIpc() {
     if (!t) return publicState();
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
     const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder'];
+    if ('title' in patch) {
+      if (!String(patch.title || '').trim()) return publicState();
+      patch = { ...patch, ...titleFields(patch.title, patch.notes ?? t.notes ?? '') };
+    }
     Object.assign(t, Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k))));
     t.kind = 'todo';
+    ensureDates({ todos: [t] });
     t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1);
     if ('status' in patch) t.completedAt = patch.status === 'done' ? Date.now() : null;
     // 시간이 바뀌거나 다시 활성화되면 알림을 재무장
@@ -274,6 +324,12 @@ function registerIpc() {
 }
 
 app.whenReady().then(() => {
+  // file:// pages send no Referer, which YouTube now rejects (player error 153).
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube.com/*', 'https://www.youtube-nocookie.com/*'] }, (details, callback) => {
+    if (!details.requestHeaders.Referer) details.requestHeaders.Referer = 'https://checker.app/';
+    callback({ requestHeaders: details.requestHeaders });
+  });
+  protocol.handle('checker-media', (request) => new URL(request.url).pathname === '/custom.jpg' ? net.fetch(pathToFileURL(customWallpaper()).toString()) : new Response('', { status: 404 }));
   store = new Store();
   localServer.useLocalServer(store);
   registerIpc();
@@ -297,6 +353,12 @@ app.whenReady().then(() => {
   };
   autoServerSync();
   setInterval(autoServerSync, 3000);
+
+  // Supabase가 설정돼 있으면 5초마다, 창으로 돌아올 때마다 가져오고 올린다.
+  const autoSupabase = () => supabase.syncNow(store).then((r) => { if (r.changed) broadcast(); });
+  autoSupabase();
+  setInterval(autoSupabase, 5000);
+  app.on('browser-window-focus', autoSupabase);
   app.on('browser-window-focus', autoServerSync);
 
   // 트레이 상주라 창을 닫아도 안 죽으므로, 설치 전에 종료 플래그를 세워준다

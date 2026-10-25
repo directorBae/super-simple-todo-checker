@@ -3,6 +3,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, AppState } from 'react-native';
 import { mergeResponse } from './sync-merge.js';
 import { migrateTeams } from './migrate-teams.js';
+import supabaseEngine from '../../shared/supabase-sync.cjs';
+
+// Every to-do except bucket items has a date; undated ones get the day they were made.
+const localDate = (ms = Date.now()) => { const t = new Date(ms); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+function ensureDates(d) { for (const t of d.todos || []) if (t.status !== 'bucket' && !t.date) { t.date = localDate(t.createdAt); t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1); } return d; }
+
+// Supabase는 화면에 두지 않는다: mobile/.env 의 EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY (빌드 때 포함)
+const SUPABASE = { url: process.env.EXPO_PUBLIC_SUPABASE_URL, key: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY };
 
 // 데스크톱 db.json과 같은 스키마 — server/를 통한 크로스 플랫폼 동기화(LWW + tombstone)에 사용
 const DEFAULTS = {
@@ -33,6 +41,7 @@ export function DbProvider({ children }) {
   const pushTimer = useRef(null);
   const syncCallback = useRef(null);
   const saveQueue = useRef(Promise.resolve());
+  const supabaseBusy = useRef(false);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
@@ -50,6 +59,7 @@ export function DbProvider({ children }) {
         };
         next.todos = next.todos.map(t => ({ ...t, kind: 'todo', origin: t.origin || { type: 'legacy' } }));
         migrateTeams(next);
+        ensureDates(next);
         dbRef.current = next;
         setDb(next);
       })
@@ -85,7 +95,7 @@ export function DbProvider({ children }) {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul',
             title,
             notes: p.notes || '',
-            date: p.date || null,
+            date: p.date || (p.status === 'bucket' ? null : localDate()),
             startTime: p.startTime || null,
             endTime: p.endTime || null,
             projectId: p.projectId || null,
@@ -107,6 +117,7 @@ export function DbProvider({ children }) {
             Object.assign(t, Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k))));
             t.kind = 'todo';
             t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1);
+            ensureDates({ todos: [t] });
             if ('status' in patch) t.completedAt = patch.status === 'done' ? Date.now() : null;
           }
           return d;
@@ -204,6 +215,25 @@ export function DbProvider({ children }) {
           return d;
         }),
 
+      // Supabase: 가져와서 최신 상태에 합친 뒤(그 사이 고친 내용 보존) 바뀐 것만 올린다.
+      supabaseNow: async () => {
+        if (!supabaseEngine.configured(SUPABASE) || supabaseBusy.current || !dbRef.current) return { ok: false, skipped: true };
+        supabaseBusy.current = true;
+        const meta = supabaseEngine.freshMeta(dbRef.current.supabaseMeta);
+        try {
+          const { remote, newest } = await supabaseEngine.pullRemote(SUPABASE, meta);
+          if (remote.length) update((d) => { if (supabaseEngine.applyRemote(d, remote, meta)) { migrateTeams(d); ensureDates(d); } return d; }, false);
+          await supabaseEngine.pushRemote(SUPABASE, supabaseEngine.collectPush(dbRef.current, meta), meta);
+          meta.pulledAt = newest;
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        } finally {
+          update((d) => { d.supabaseMeta = meta; return d; }, false);
+          supabaseBusy.current = false;
+        }
+      },
+
       // server/index.js와 짝 — 전체 상태를 보내고 병합 결과로 교체
       syncNow: async () => {
         if (syncing.current) return { ok: false, error: '동기화 중입니다. 잠시 후 다시 시도하세요.' };
@@ -229,6 +259,7 @@ export function DbProvider({ children }) {
           update((d) => {
             mergeResponse(d, sent, data);
             migrateTeams(d);
+            ensureDates(d);
             d.settings.sync = { ...d.settings.sync, lastSync: Date.now(), error: null };
             return d;
           }, false);
@@ -280,25 +311,25 @@ export function DbProvider({ children }) {
     }),
     []
   );
-  syncCallback.current = api.syncNow;
+  syncCallback.current = () => { if (dbRef.current?.settings.sync?.url) api.syncNow(); api.supabaseNow(); };
 
   // 서버가 설정돼 있으면 앱 시작 시 한 번 조용히 동기화
   useEffect(() => {
     if (!db || autoSynced.current) return;
     const s = db.settings.sync || {};
-    if (s.url && s.token) {
-      autoSynced.current = true;
-      api.syncNow();
-    }
+    autoSynced.current = true;
+    if (s.url && s.token) api.syncNow();
+    api.supabaseNow();
   }, [db]);
 
   useEffect(() => {
     const timer = setInterval(() => { if (AppState.currentState === 'active' && dbRef.current?.settings.sync?.url) api.syncNow(); }, 3000);
+    const supabaseTimer = setInterval(() => { if (AppState.currentState === 'active') api.supabaseNow(); }, 5000);
     const listener = AppState.addEventListener('change', state => {
-      if (state === 'active') api.syncNow();
+      if (state === 'active') { api.syncNow(); api.supabaseNow(); }
       else if (dbRef.current) { clearTimeout(timerRef.current); saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(KEY, JSON.stringify(dbRef.current))).catch(() => {}); }
     });
-    return () => { clearInterval(timer); listener.remove(); clearTimeout(pushTimer.current); };
+    return () => { clearInterval(timer); clearInterval(supabaseTimer); listener.remove(); clearTimeout(pushTimer.current); };
   }, [api]);
 
   if (!db) return null;

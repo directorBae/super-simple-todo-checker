@@ -1,0 +1,442 @@
+/* =====================================================================
+   iOS Liquid Glass 스타일 — styles.css · focus.css 위에 마지막으로 얹는 재질 레이어.
+   배경은 사진(설정에서 변경), 유리는 index.html의 #lens 필터로 가장자리 굴절 +
+   블러 + 채도를 주고, 빛 받는 테두리와 안쪽 광택으로 두께감을 만든다.
+   ===================================================================== */
+:root {
+  --text: #141a2e;
+  --muted: #4f5670;
+  --placeholder: #8a90a8;
+  --glass-edge: rgba(255, 255, 255, 0.55);
+  --panel: rgba(255, 255, 255, 0.3);
+  --panel-strong: rgba(255, 255, 255, 0.5);
+  --pop: rgba(255, 255, 255, 0.42);
+  --bar: rgba(255, 255, 255, 0.24);
+  --srf-1: rgba(255, 255, 255, 0.2);
+  --srf-2: rgba(255, 255, 255, 0.34);
+  --srf-3: rgba(255, 255, 255, 0.58);
+  --overlay: rgba(10, 14, 30, 0.18);
+
+  /* 재질 */
+  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.16));
+  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.3));
+  --glass-panel: url(#lens) blur(12px) saturate(185%) brightness(1.05);
+  /* 큰 판은 굴절 폭이 크기에 비례해 커지므로 약한 렌즈 + 강한 블러 */
+  --glass-pane: url(#lens-soft) blur(20px) saturate(185%) brightness(1.05);
+  --glass-control: url(#lens) blur(4px) saturate(170%) brightness(1.08);
+  --glass-sheet: blur(30px) saturate(190%) brightness(1.04);
+  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3), inset 0 0 26px rgba(255, 255, 255, 0.22);
+  --glass-drop: 0 16px 44px rgba(8, 14, 40, 0.2), 0 2px 6px rgba(8, 14, 40, 0.08);
+  --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.2) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0.6));
+}
+
+/* ---------- 글꼴: Pretendard (SIL OFL 1.1, assets/fonts/LICENSE-Pretendard.txt) ---------- */
+@font-face {
+  font-family: 'Pretendard Variable';
+  src: url('./assets/fonts/PretendardVariable.woff2') format('woff2-variations');
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+body { letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; font-feature-settings: 'ss06'; }
+button, input, select, textarea { font-family: inherit; }
+
+/* ---------- 배경: 사진 ---------- */
+body {
+  background: #6d7f9c var(--wallpaper, none) center / cover no-repeat fixed;
+}
+body::before,
+body::after { display: none; }
+
+/* ---------- 유리 재질 ---------- */
+.topbar,
+.team-side,
+.cal-cell:not(.blank),
+.popup-panel,
+.menu-pop,
+.provider-dialog,
+.tool-card,
+.welcome-mark,
+.focus-card,
+.time-popup,
+.suggest-pop,
+.drop-time,
+.clock-toast {
+  background: var(--glass-tint);
+  backdrop-filter: var(--glass-panel);
+  -webkit-backdrop-filter: var(--glass-panel);
+  border: 1px solid transparent;
+  box-shadow: var(--glass-light), var(--glass-drop);
+}
+.view-toggle,
+.memo-month,
+.half-switch,
+.clock-window-head button,
+.clock-edge-handle,
+.manage-edge-handle,
+button.ghost,
+.cal-nav button,
+.account-card button:not(.primary),
+.connected-source button:not(.primary) {
+  background: var(--glass-tint);
+  backdrop-filter: var(--glass-control);
+  -webkit-backdrop-filter: var(--glass-control);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.85), 0 3px 10px rgba(8, 14, 40, 0.1);
+}
+button.ghost:hover,
+.cal-nav button:hover,
+.account-card button:not(.primary):hover,
+.connected-source button:not(.primary):hover { background: var(--glass-tint-strong); }
+.account-card button:not(.primary),
+.connected-source button:not(.primary) { border-radius: 10px; padding: 6px 12px; color: var(--text); cursor: pointer; }
+
+/* 빛 받는 테두리: 마스크한 그라데이션 1.5px 링 */
+.team-side,
+.cal-cell:not(.blank),
+.popup-panel,
+.provider-dialog,
+.tool-card,
+.focus-card,
+.clock-dial,
+.view-toggle { position: relative; }
+.team-side::after,
+.cal-cell:not(.blank)::after,
+.popup-panel::after,
+.menu-pop::after,
+.provider-dialog::after,
+.tool-card::after,
+.focus-card::after,
+.clock-dial::after,
+.clock-toast::after,
+.half-switch::after,
+.view-toggle::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.popup-panel,
+.provider-dialog { background: var(--glass-tint-strong); box-shadow: var(--glass-light), 0 30px 80px rgba(8, 14, 40, 0.3); }
+
+/* 선택된 알약 · 액센트 버튼 */
+.main-tab.active,
+.view-toggle .ghost.on,
+.half-switch button[aria-pressed=true],
+.settings-tab.active {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 2px 10px rgba(8, 14, 40, 0.14), inset 0 1px 0 #fff;
+}
+.view-toggle .ghost,
+.view-toggle .ghost:hover { border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.view-toggle .ghost:not(.on) { background: transparent; }
+.view-toggle .ghost:not(.on):hover { background: rgba(255, 255, 255, 0.36); }
+button.primary,
+.fab-today {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(135deg, rgba(99, 102, 241, 0.88), rgba(139, 92, 246, 0.84));
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 8px 24px rgba(79, 70, 229, 0.35);
+  backdrop-filter: var(--glass-control);
+  -webkit-backdrop-filter: var(--glass-control);
+}
+
+/* ---------- 상단바 ---------- */
+.topbar {
+  border-width: 0 0 1px;
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  backdrop-filter: var(--glass-sheet);
+  -webkit-backdrop-filter: var(--glass-sheet);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.2), 0 6px 24px rgba(8, 14, 40, 0.1);
+}
+.top-icons { gap: 4px; }
+.bell-btn { display: grid; place-items: center; width: 36px; height: 34px; padding: 0; color: var(--text); }
+.bell-btn svg { width: 20px; height: 20px; }
+.bell-badge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8); }
+.bell-pop { width: 340px; max-height: 60vh; overflow: auto; padding: 16px; }
+.bell-pop h3 { margin: 2px 4px 8px; font-size: 15px; }
+.bell-pop .todo-row { padding: 8px 4px; }
+
+/* ---------- 메인 칼럼: 큰 유리판 ---------- */
+/* 창 전체를 덮는 두꺼운 유리: 사진은 색과 빛으로만 비치고 원본 그대로 드러나는 곳은 없다. */
+.app-v::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.2));
+  backdrop-filter: blur(44px) saturate(185%) brightness(1.04);
+  -webkit-backdrop-filter: blur(44px) saturate(185%) brightness(1.04);
+}
+.manage-col,
+.popup-panel,
+.provider-dialog { backdrop-filter: var(--glass-pane); -webkit-backdrop-filter: var(--glass-pane); }
+.notebook-content > .memo-wrap { max-width: 900px; padding: 8px 4px 28px; }
+.notebook-content > .memo-wrap.is-month { max-width: 1240px; }
+/* 내 팀은 달력 박스 밖, 왼쪽 */
+.month-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 22px; align-items: start; }
+.cal-cell:not(.blank) { border-radius: 16px; background: linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12)); }
+.cal-cell:not(.blank):hover { background: var(--glass-tint-strong); box-shadow: var(--glass-light), 0 14px 34px rgba(8, 14, 40, 0.18); }
+.cal-cell.today { background: radial-gradient(120% 100% at 0% 0%, rgba(99, 102, 241, 0.2), transparent 60%), var(--glass-tint-strong); box-shadow: var(--glass-light), 0 0 0 3px rgba(99, 102, 241, 0.22), var(--glass-drop); }
+
+/* 내 팀 목록 */
+.team-side { position: sticky; top: 8px; padding: 16px 14px; border-radius: 22px; }
+.team-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.team-side-head h2 { margin: 0; font-size: 15px; letter-spacing: -0.3px; }
+.team-side-head .ghost { padding: 4px 10px; font-size: 12px; border-radius: 10px; }
+.team-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.team-side li { display: flex; align-items: center; gap: 9px; padding: 8px 8px; border-radius: 12px; font-size: 13px; transition: background 0.2s; }
+.team-side li:hover { background: rgba(255, 255, 255, 0.4); }
+.team-side li.hl .team-side-name { font-weight: 700; }
+.team-side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-side-count { min-width: 22px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 255, 255, 0.5); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .month-layout { grid-template-columns: 1fr; } .team-side { position: static; } }
+
+/* ---------- 일별 페이지: 박스 없는 글자, 고칠 때만 유리 ---------- */
+.memo-day input.memo-input,
+.memo-day input.memo-edit {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 4px 0;
+}
+.memo-day .memo-input-row,
+.memo-day .memo-line-main {
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: background 0.25s, box-shadow 0.25s, border-color 0.25s, backdrop-filter 0.25s;
+}
+.memo-day .memo-input-row:hover,
+.memo-day .memo-input-row:focus-within,
+.memo-day .memo-line-main:hover,
+.memo-day .memo-line-main:focus-within {
+  background: var(--glass-tint-strong);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 6px 18px rgba(8, 14, 40, 0.12);
+  backdrop-filter: var(--glass-control);
+  -webkit-backdrop-filter: var(--glass-control);
+}
+.memo-day.is-today { background: transparent; border: 0; box-shadow: none; }
+.memo-day.is-today::after { display: none; }
+
+/* 오늘 요일 · 날짜만 반짝이는 빛 */
+.memo-day.is-today .memo-dow,
+.memo-day.is-today .memo-date {
+  background: linear-gradient(100deg, #4f46e5 0%, #7c3aed 30%, #ffffff 46%, #c4b5fd 54%, #4f46e5 70%, #7c3aed 100%);
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.55));
+  animation: today-shine 3.2s ease-in-out infinite;
+}
+.memo-day.is-today .memo-date { font-weight: 600; font-size: 13px; }
+@keyframes today-shine {
+  0% { background-position: 100% 0; filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4)); }
+  50% { filter: drop-shadow(0 0 10px rgba(196, 181, 253, 0.85)); }
+  100% { background-position: 0% 0; filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4)); }
+}
+@media (prefers-reduced-motion: reduce) { .memo-day.is-today .memo-dow, .memo-day.is-today .memo-date { animation: none; background-position: 30% 0; } }
+
+/* 고정되는 월 알약이 오늘 제목을 가리지 않게 그만큼 띄워서 스크롤한다. */
+.notebook-content .memo-day { scroll-margin-top: 46px; }
+
+/* ---------- 설정 ---------- */
+.settings-panel { width: min(760px, 94vw); max-width: none; }
+.settings-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 18px; min-height: 420px; }
+.settings-tabs { display: flex; flex-direction: column; gap: 4px; }
+.settings-tab { text-align: left; border: 0; background: transparent; padding: 10px 12px; border-radius: 12px; color: var(--text); cursor: pointer; font-size: 13px; transition: background 0.2s; }
+.settings-tab:hover { background: rgba(255, 255, 255, 0.36); }
+.settings-tab.active { color: var(--accent); font-weight: 600; }
+.settings-pane { min-width: 0; }
+.settings-pane .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wallpaper-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.wallpaper-tile { position: relative; aspect-ratio: 16 / 10; border-radius: 14px; border: 2px solid rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.3) center / cover no-repeat; cursor: pointer; overflow: hidden; display: flex; align-items: flex-end; padding: 0; box-shadow: 0 4px 14px rgba(8, 14, 40, 0.15); transition: transform 0.2s var(--ease-spring), box-shadow 0.2s; }
+.wallpaper-tile:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(8, 14, 40, 0.22); }
+.wallpaper-tile.active { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.35), 0 8px 20px rgba(8, 14, 40, 0.2); }
+.wallpaper-tile span { width: 100%; padding: 4px 8px; font-size: 11px; color: #fff; text-align: left; background: linear-gradient(transparent, rgba(0, 0, 0, 0.45)); }
+.wallpaper-tile.upload { align-items: center; justify-content: center; border-style: dashed; background: rgba(255, 255, 255, 0.3); }
+.wallpaper-tile.upload span { background: none; color: var(--text); text-align: center; font-size: 12px; }
+.wallpaper-tile.upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+/* ---------- 팀 · 버킷 방 (왼쪽), 시계 방 (오른쪽): 창 전체를 덮는 유리 시트 ---------- */
+.manage-dock { position: fixed; z-index: 80; inset: 0; visibility: hidden; pointer-events: none; transition: visibility 0s linear 0.45s; }
+.manage-dock.is-open { visibility: visible; pointer-events: auto; transition: none; }
+.manage-popup { position: absolute; inset: 0; overflow: auto; transform: translateX(-100%); transition: transform 0.45s cubic-bezier(0.32, 0.72, 0, 1); }
+.manage-dock.is-open .manage-popup { transform: none; }
+.manage-popup,
+.clock-popup {
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.14));
+  backdrop-filter: var(--glass-sheet);
+  -webkit-backdrop-filter: var(--glass-sheet);
+}
+.clock-popup { border-left: 1px solid rgba(255, 255, 255, 0.7); box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.35), -24px 0 70px rgba(8, 14, 40, 0.18); }
+.manage-popup { border-right: 1px solid rgba(255, 255, 255, 0.7); box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.35), 24px 0 70px rgba(8, 14, 40, 0.18); }
+.manage-window { position: relative; min-height: 100%; padding: 64px 28px 28px; box-sizing: border-box; }
+.manage-head { position: absolute; }
+.manage-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; max-width: 1180px; margin: 0 auto; }
+.manage-col { position: relative; padding: 22px; border-radius: 28px; background: var(--glass-tint); box-shadow: var(--glass-light), var(--glass-drop); }
+.manage-col::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; background: var(--glass-rim); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+.manage-col h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.6px; }
+.manage-col .card,
+.manage-col .todo-row { background: rgba(255, 255, 255, 0.34); border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 16px; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8); }
+@media (max-width: 760px) { .manage-cols { grid-template-columns: 1fr; } }
+.manage-edge-handle { position: fixed; left: 0; top: 46%; z-index: 51; width: 24px; min-height: 64px; padding: 4px 0; border-left: 0 !important; border-radius: 0 10px 10px 0; color: var(--muted); font-size: 19px; cursor: ew-resize; touch-action: none; }
+.manage-edge-handle.is-open,
+.clock-edge-handle.is-open { display: none; }
+@media (pointer: coarse) { .manage-edge-handle { opacity: 0.35; width: 20px; } }
+@media (prefers-reduced-motion: reduce) { .manage-dock, .manage-dock.is-open, .manage-popup { transition: none; } }
+
+/* ---------- 시계 ---------- */
+.clock-dial {
+  background: radial-gradient(circle at 32% 22%, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.12) 70%);
+  backdrop-filter: url(#lens-strong) blur(6px) saturate(180%) brightness(1.06);
+  -webkit-backdrop-filter: url(#lens-strong) blur(6px) saturate(180%) brightness(1.06);
+  border-color: transparent;
+  box-shadow: var(--glass-light), inset 0 -24px 60px rgba(99, 102, 241, 0.08), 0 24px 70px rgba(8, 14, 40, 0.22);
+}
+.clock-dial::after { background: linear-gradient(150deg, #fff, rgba(255, 255, 255, 0.15) 40%, rgba(255, 255, 255, 0.05) 60%, rgba(255, 255, 255, 0.7)); }
+.clock-dial > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* While a time is being picked, the readout sits above the hands and the hands step back. */
+.clock-dial .drop-time { z-index: 5; }
+.clock-dial.drag-over > svg.clock-hands,
+.clock-dial.is-picking > svg.clock-hands { opacity: 0.18; transition: opacity 0.2s; }
+/* Hands always sit above the hover lens, so the lens never refracts them. */
+.clock-dial > svg.clock-hands { z-index: 3; overflow: visible; }
+.dial-num { font-size: 15px; font-weight: 300; fill: var(--text); opacity: 0.8; letter-spacing: -0.02em; }
+.dial-tick.major { stroke-width: 1.6; }
+
+/* 시계판은 화면의 80% — 남는 둘레로 호버 렌즈가 시계 밖까지 크게 뻗는다. */
+.clock-stage { position: relative; width: calc(min(100cqw, 100cqh) * 0.8); }
+/* 호버 렌즈: 시계보다 큰 유리 토러스 조각(둥근 끝). 젖빛 유리 + 테두리 광택 + 안쪽 글로우 위에
+   확대한 분 눈금, 일정 점, 제목을 그린다. 렌즈 층은 시계판의 1.6배 크기로 가운데 맞춤. */
+.clock-lens-layer { position: absolute; inset: -30%; z-index: 6; pointer-events: none; animation: clock-lens-in 0.2s ease-out; }
+.clock-lens { position: absolute; inset: 0; background: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.4) 55%, rgba(255, 255, 255, 0.52)); backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%); }
+.clock-lens-glass { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 18px 34px rgba(8, 14, 40, 0.24)); }
+@keyframes clock-lens-in { from { opacity: 0; transform: scale(0.97); } }
+.lens-tick { stroke: var(--muted); stroke-width: 1; opacity: 0.55; }
+.lens-tick.major { stroke: var(--text); stroke-width: 2; stroke-linecap: round; opacity: 0.8; }
+.lens-track { stroke: rgba(99, 102, 241, 0.25); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
+.lens-lead { stroke: rgba(20, 26, 46, 0.25); stroke-width: 1.2; }
+.lens-dot { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 2px 4px rgba(8, 14, 40, 0.35)); }
+.lens-time,
+.lens-range,
+.clock-lens-task { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; }
+.lens-time { font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lens-range { padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; color: var(--accent); background: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
+.clock-lens-task {
+  display: flex; align-items: center; gap: 7px; max-width: 280px; padding: 6px 12px 6px 9px; border-radius: 12px;
+  font-size: 13px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis;
+  background: rgba(255, 255, 255, 0.92); border-left: 4px solid var(--team); box-shadow: 0 6px 18px rgba(8, 14, 40, 0.16);
+}
+.clock-lens-task time { font-size: 12px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.clock-lens-task.done { opacity: 0.55; text-decoration: line-through; }
+@media (prefers-reduced-motion: reduce) { .clock-lens-layer { animation: none; } }
+
+/* ---------- 음악 (YouTube) ---------- */
+.music-add { display: flex; gap: 6px; margin-bottom: 12px; }
+.music-add input { flex: 1; min-width: 0; }
+.youtube-frame { position: relative; aspect-ratio: 16 / 9; min-height: 200px; border-radius: 16px; overflow: hidden; background: rgba(10, 14, 30, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); margin-bottom: 10px; }
+.youtube-frame > div,
+.youtube-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.music-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; max-height: 180px; overflow: auto; }
+.music-list li { display: flex; align-items: center; border-radius: 10px; }
+.music-list li.active { background: rgba(255, 255, 255, 0.5); }
+.music-item { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 8px 10px; font-size: 12px; color: var(--text); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-list li.active .music-item { color: var(--accent); font-weight: 600; }
+.music-remove { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; cursor: pointer; }
+.music-remove:hover { color: var(--danger); }
+
+/* 팝업 뒤 화면은 흐리게 가라앉혀 창 내용과 섞이지 않게 한다. */
+.popup-overlay,
+.provider-overlay { background: rgba(10, 14, 30, 0.22); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
+/* 게임: 오프라인 페이지처럼 창 전체를 덮고 게임만 크게 */
+.offline-game { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; max-width: none; background: #0b1220; }
+.offline-game .arcade-card { width: min(100%, calc((100vh - 120px) * 500 / 280)); margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.offline-game .arcade-card::after { display: none; }
+.offline-game .arcade-score { border-radius: 14px 14px 0 0; font-size: 13px; }
+.offline-game .arcade-score { display: flex; justify-content: space-between; align-items: center; color: #ff9e9e; }
+.offline-game .arcade-score em { font-style: normal; margin-right: 14px; color: #6f7c94; font: 13px ui-monospace, Consolas, monospace; }
+.offline-game .arcade-score b { font: 13px ui-monospace, Consolas, monospace; color: #e6ecf5; }
+.arcade-start { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.12); color: #e6ecf5; font-size: 24px; cursor: pointer; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 10px 30px rgba(0, 0, 0, 0.35); transition: transform 0.2s var(--ease-spring), background 0.2s; }
+.arcade-start:hover { transform: translate(-50%, -50%) scale(1.08); background: rgba(255, 255, 255, 0.2); }
+.offline-game canvas { cursor: pointer; }
+.offline-game .arcade-screen { border-radius: 0 0 14px 14px; }
+.offline-close { position: fixed; top: 16px; right: 18px; z-index: 1; color: #cfd6e4; }
+@media (pointer: fine) { .offline-game .touch-controls { display: none; } }
+
+/* 음악 창은 흐림 없이 선명하게: 뒤 화면을 흐리지 않고, 창 자체도 유리 굴절·블러 없이 밝은 면 */
+.popup-overlay.music-overlay { background: rgba(10, 14, 30, 0.12); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.popup-panel.music-panel { background: rgba(248, 249, 255, 0.97); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.music-panel .focus-card { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: 0; padding: 4px 0 0; margin-top: 0; }
+.music-panel .focus-card::after { display: none; }
+
+/* 음악 창을 닫아도 재생 중이면 상단바에 보인다 */
+.now-playing { display: flex; align-items: center; max-width: 280px; margin-right: 6px; border-radius: 99px; background: rgba(255, 255, 255, 0.62); border: 1px solid rgba(255, 255, 255, 0.7); box-shadow: inset 0 1px 0 #fff, 0 3px 10px rgba(8, 14, 40, 0.1); }
+.now-playing-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; padding: 5px 4px 5px 12px; font-size: 12px; color: var(--accent); cursor: pointer; }
+.now-playing-pause { flex-shrink: 0; border: 0; background: transparent; padding: 5px 11px 5px 6px; font-size: 11px; color: var(--text); cursor: pointer; }
+
+/* ---------- 할 일 끌기 · 여러 개 선택 ---------- */
+.memo-day .memo-line-main { cursor: grab; -webkit-touch-callout: none; touch-action: pan-y; }
+.memo-day .memo-line-main .memo-title { cursor: text; }
+@media (pointer: coarse) { .memo-day .memo-line-main { -webkit-user-select: none; user-select: none; } }
+.cal-chip { cursor: grab; touch-action: pan-y; -webkit-touch-callout: none; }
+.memo-day .memo-line.is-selected .memo-line-main {
+  background: linear-gradient(160deg, rgba(196, 181, 253, 0.55), rgba(255, 255, 255, 0.32));
+  border-color: rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(124, 58, 237, 0.28), 0 6px 18px rgba(79, 70, 229, 0.16);
+  backdrop-filter: var(--glass-control);
+  -webkit-backdrop-filter: var(--glass-control);
+}
+.memo-line.is-pressing .memo-line-main { transform: scale(0.985); transition: transform 0.45s ease; }
+.memo-line.is-drag-source, .cal-chip.is-drag-source { opacity: 0.42; }
+.todo-dragging, .todo-dragging * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
+.todo-dragging .roaming-pet { pointer-events: none; }
+.todo-drag-ghost {
+  position: fixed; left: 0; top: 0; z-index: 400; pointer-events: none;
+  display: flex; align-items: center; gap: 8px; max-width: 280px; padding: 7px 12px;
+  border-radius: 14px; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--glass-tint-strong); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: blur(14px) saturate(180%); -webkit-backdrop-filter: blur(14px) saturate(180%);
+}
+.todo-drag-ghost b {
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; display: grid; place-items: center;
+  font-size: 11px; color: #fff; background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.todo-drop-line {
+  position: fixed; z-index: 390; height: 3px; pointer-events: none; display: none; border-radius: 2px;
+  background: linear-gradient(90deg, #6366f1, #a78bfa); box-shadow: 0 0 10px rgba(124, 58, 237, 0.6);
+}
+.is-drop-target {
+  outline: 2px solid rgba(124, 58, 237, 0.55); outline-offset: 2px; border-radius: 12px;
+  background: rgba(196, 181, 253, 0.35) !important;
+}
+.selection-bar {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 16px; border-radius: 999px;
+  background: var(--glass-tint-strong); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+  max-width: calc(100vw - 32px);
+}
+.selection-count { font-weight: 700; font-size: 13px; margin-right: 6px; white-space: nowrap; }
+.selection-teams {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; min-width: 180px; padding: 6px; border-radius: 16px;
+  background: var(--pop); border: 1px solid var(--glass-edge); box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+}
+.selection-teams button { display: flex; align-items: center; gap: 8px; justify-content: flex-start; text-align: left; }

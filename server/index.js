@@ -7,6 +7,7 @@ const { Integrations } = require('./lib/integrations');
 const { ApiError, editable } = require('./lib/common');
 const { createPairing, publishLocalConnection } = require('./lib/pairing');
 const { createLogin } = require('./lib/login');
+const { createSupabaseSync } = require('./lib/supabase');
 
 function configuration(env = process.env) {
   const publicUrl = (env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
@@ -16,7 +17,7 @@ function configuration(env = process.env) {
   }
   return { publicUrl, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET, notionClientId: env.NOTION_CLIENT_ID, notionClientSecret: env.NOTION_CLIENT_SECRET, openaiKey: env.OPENAI_API_KEY, openaiModel: env.OPENAI_MODEL || 'gpt-4.1-mini', timeZone: env.TIME_ZONE || 'Asia/Seoul' };
 }
-function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'), token = process.env.SYNC_TOKEN, config = configuration(), overrides, loginPassword = process.env.PERSONAL_PASSWORD } = {}) {
+function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'), token = process.env.SYNC_TOKEN, config = configuration(), overrides, loginPassword = process.env.PERSONAL_PASSWORD, supabaseEnv = process.env, supabaseFetch } = {}) {
   const store = new Storage(dir), db = store.data;
   const tokenPath = path.join(dir, 'token.txt');
   if (!token) {
@@ -96,6 +97,7 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
     for await (const chunk of req) { size += chunk.length; if (size > 20 * 1024 * 1024) throw new ApiError('요청이 너무 큽니다.', 413); chunks.push(chunk); }
     try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { throw new ApiError('잘못된 JSON 요청'); }
   }
+  const supabase = createSupabaseSync({ dir, env: supabaseEnv, merge, snapshot, fetch: supabaseFetch });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
@@ -130,7 +132,7 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
       authFailures.delete(ip);
       if (req.method === 'POST' && url.pathname === '/pair/create') return send(res, 200, { ok: true, ...pairing.issue(server.address().port) });
       if (req.method === 'GET' && url.pathname === '/db') return send(res, 200, { ok: true, ...snapshot() });
-      if (req.method === 'POST' && url.pathname === '/sync') { merge(await body(req)); send(res, 200, { ok: true, serverTime: Date.now(), ...snapshot() }); void integrations.cycle().catch(console.error); return; }
+      if (req.method === 'POST' && url.pathname === '/sync') { merge(await body(req)); send(res, 200, { ok: true, serverTime: Date.now(), ...snapshot() }); void integrations.cycle().catch(console.error); void supabase?.sync(); return; }
       if (req.method === 'GET' && url.pathname === '/integrations/state') return send(res, 200, { ok: true, ...integrations.state() });
       if (req.method === 'POST' && url.pathname === '/integrations/action') {
         const p = await body(req);
@@ -148,9 +150,11 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
   server.requestTimeout = 120000;
   const worker = setInterval(() => { void integrations.cycle().catch(console.error); }, 10000);
   const poller = setInterval(() => { void integrations.cycle({ pull: true }).catch(console.error); }, 5 * 60000);
-  worker.unref(); poller.unref();
-  server.on('close', () => { clearInterval(worker); clearInterval(poller); });
-  return { server, store, integrations, merge, snapshot, token, login };
+  // Supabase가 설정돼 있으면 5초마다 서로의 변경을 주고받는다.
+  const supabaseTimer = supabase && setInterval(() => { void supabase.sync(); }, 5000);
+  worker.unref(); poller.unref(); supabaseTimer?.unref();
+  server.on('close', () => { clearInterval(worker); clearInterval(poller); clearInterval(supabaseTimer); });
+  return { server, store, integrations, merge, snapshot, token, login, supabase };
 }
 if (require.main === module) {
   if (fs.existsSync(path.join(__dirname, '.env'))) process.loadEnvFile(path.join(__dirname, '.env'));

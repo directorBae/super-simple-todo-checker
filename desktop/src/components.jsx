@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { fmtDate, importantHighlight } from './util.js';
+import { compactTitle } from './focus-utils.mjs';
 
 export function ChipPicker({ label, options, value, onChange }) {
   if (!options.length) return null;
@@ -331,7 +332,8 @@ export function TodoForm({ initial = {}, kind = 'todo', projects = [], teams = [
 
 /* 기존 항목 편집기 — 버튼 없이 모든 변경이 즉시 저장됨 */
 export function TodoEditor({ todo }) {
-  return <div className="todo-editor date-only"><label>날짜 <input aria-label="할 일 날짜" type="date" value={todo.date || ''} onChange={e => window.api.updateTodo(todo.id, { date: e.target.value || null, endDate: null })} /></label><button className="ghost" onClick={() => window.api.updateTodo(todo.id, { date: null, endDate: null, startTime: null, endTime: null })}>날짜 없음</button></div>;
+  // Every to-do keeps a date; a scheduled time can be cleared instead.
+  return <div className="todo-editor date-only"><label>날짜 <input aria-label="할 일 날짜" type="date" required value={todo.date || ''} onChange={e => { if (e.target.value) window.api.updateTodo(todo.id, { date: e.target.value, endDate: null }); }} /></label>{todo.startTime && <button className="ghost" onClick={() => window.api.updateTodo(todo.id, { startTime: null, endTime: null, endDate: null })}>시간 없애기 ({todo.startTime})</button>}</div>;
 }
 
 export function TodoRow({ todo, db, showDate = false }) {
@@ -349,7 +351,7 @@ export function TodoRow({ todo, db, showDate = false }) {
           onChange={() => window.api.updateTodo(todo.id, { status: isDone ? 'todo' : 'done' })}
         />
         <span className="title" onClick={() => setEditing(!editing)} title="클릭하여 편집">
-          {todo.title}
+          {compactTitle(todo.title)}
         </span>
 
         {project && <span className="badge">{project.name}</span>}

@@ -2,6 +2,7 @@ import { SourceIcons } from '../icons.jsx';
 import React, { useState } from 'react';
 import { Section, Empty } from '../components.jsx';
 import { todayStr } from '../util.js';
+import { compactTitle } from '../focus-utils.mjs';
 
 function BucketTodoRow({ todo, db }) {
   const [date, setDate] = useState('');
@@ -9,7 +10,7 @@ function BucketTodoRow({ todo, db }) {
   return (
     <div className="todo-row">
       <div className="todo-line">
-        <SourceIcons todo={todo}/><span className="title">{todo.title}</span>
+        <SourceIcons todo={todo}/><span className="title" title={todo.title}>{compactTitle(todo.title)}</span>
 
         {project && <span className="badge">{project.name}</span>}
         <span className="row-actions">
@@ -63,6 +64,7 @@ export default function Buckets({ db }) {
           <input
             className="grow"
             placeholder="언젠가 할 일"
+            maxLength={50}
             value={todoTitle}
             onChange={(e) => setTodoTitle(e.target.value)}
           />

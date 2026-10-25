@@ -1,35 +1,60 @@
-import React, { createContext, useContext, useRef } from 'react';
-import { Modal, Pressable, View, Text, StyleSheet, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
+import React, { createContext, useContext, useEffect, useRef } from 'react';
+import { AccessibilityInfo, Animated, Image, Modal, Pressable, View, Text, StyleSheet, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { BlurView, BlurTargetView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Rect, Circle, Text as SvgText } from 'react-native-svg';
 
-export const THEMES = [
-  { id: 'light', name: '클리어', colors: ['#f2f3fd', '#eef1fb', '#f6effa'], accent: '#6366f1' },
-  { id: 'dark', name: '미드나이트', colors: ['#101e38', '#302851', '#152d42'], accent: '#a8c6ff', dark: true },
-  { id: 'aurora', name: '오로라', colors: ['#bcebdc', '#c2dafa', '#e0d5ff'], accent: '#217964' },
-  { id: 'sunset', name: '선셋', colors: ['#ffe7ce', '#f4cadf', '#dbd9ff'], accent: '#ab4c60' },
+// Single theme: iOS-style glass over a photo wallpaper (Unsplash License, see docs/wallpaper-credits.md).
+const THEME = { id: 'light', colors: ['#6d7f9c'], accent: '#6366f1' };
+export const WALLPAPERS = [
+  { id: 'fjord', name: '피오르', source: require('../assets/wallpapers/fjord.jpg') },
+  { id: 'valley', name: '계곡', source: require('../assets/wallpapers/valley.jpg') },
+  { id: 'canyon', name: '협곡', source: require('../assets/wallpapers/canyon.jpg') },
+  { id: 'summit', name: '설산', source: require('../assets/wallpapers/summit.jpg') },
+  { id: 'aurora', name: '오로라', source: require('../assets/wallpapers/aurora.jpg') },
+  { id: 'coast', name: '해안', source: require('../assets/wallpapers/coast.jpg') },
+  { id: 'highland', name: '고원', source: require('../assets/wallpapers/highland.jpg') },
 ];
+export function wallpaperSource(setting) {
+  if (setting?.id === 'custom' && setting.uri) return { uri: setting.uri };
+  return (WALLPAPERS.find((w) => w.id === setting?.id) || WALLPAPERS[0]).source;
+}
 const DesignContext = createContext(null);
 export function useDesign() { return useContext(DesignContext); }
-export function DesignProvider({ theme = 'light', children }) {
+export function DesignProvider({ wallpaper, children }) {
   const target = useRef(null);
-  const selected = THEMES.find(t => t.id === theme) || THEMES[0];
-  const d = { ...selected, target, text: selected.dark ? '#f0f5ff' : '#172842', muted: selected.dark ? '#b4c3d9' : '#586a82', edge: selected.dark ? '#ffffff35' : '#ffffffb8', fill: selected.dark ? '#15243a70' : '#ffffff40', input: selected.dark ? '#ffffff14' : '#ffffff60' };
+  const selected = THEME;
+  const d = { ...selected, target, text: '#141a2e', muted: '#4f5670', edge: '#ffffffb3', fill: '#ffffff52', input: '#ffffff80' };
+  // The photo is the blur target so every glass surface frosts the wallpaper behind it.
   return <DesignContext.Provider value={d}><View style={{ flex: 1, backgroundColor: selected.colors[0] }}>
     <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>
-      <LinearGradient colors={selected.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-      <View style={{ position: 'absolute', top: -110, left: -90, width: 340, height: 340, borderRadius: 170, backgroundColor: selected.dark ? '#548cdd12' : '#c7d2fe20' }} />
-      <View style={{ position: 'absolute', bottom: -120, right: -120, width: 390, height: 390, borderRadius: 195, backgroundColor: selected.dark ? '#ba83ff10' : '#fbcfe820' }} />
-    </BlurTargetView>{children}
+      <Image source={wallpaperSource(wallpaper)} resizeMode="cover" style={StyleSheet.absoluteFill} />
+    </BlurTargetView>
+    {/* One thick frosted layer covers the whole screen; the photo only comes through as colour and light. */}
+    <BlurView blurTarget={target} blurMethod="dimezisBlurViewSdk31Plus" intensity={70} tint="systemUltraThinMaterialLight" style={StyleSheet.absoluteFill} />
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff47' }]} />
+    {children}
   </View></DesignContext.Provider>;
+}
+// Today's weekday and date shimmer: the colour sweeps through a bright highlight and the glow breathes.
+export function GlowText({ style, children }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    let loop;
+    AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+      if (reduced) return;
+      loop = Animated.loop(Animated.sequence([Animated.timing(pulse, { toValue: 1, duration: 1600, useNativeDriver: false }), Animated.timing(pulse, { toValue: 0, duration: 1600, useNativeDriver: false })]));
+      loop.start();
+    });
+    return () => loop?.stop();
+  }, []);
+  return <Animated.Text style={[style, { color: pulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['#4f46e5', '#a78bfa', '#ffffff'] }), textShadowColor: '#c4b5fd', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: pulse.interpolate({ inputRange: [0, 1], outputRange: [3, 12] }) }]}>{children}</Animated.Text>;
 }
 export function Surface({ children, style, contentStyle, native = false }) {
   const d = useDesign();
   const edge = { borderRadius: 24, borderWidth: 1, borderColor: d.edge, overflow: 'hidden' };
-  if (native && Platform.OS === 'ios' && isLiquidGlassAvailable()) return <GlassView glassEffectStyle="regular" colorScheme={d.dark ? 'dark' : 'light'} style={[edge, style]}><View style={contentStyle}>{children}</View></GlassView>;
-  return <View style={[edge, style]}><BlurView blurTarget={d.target} blurMethod="dimezisBlurViewSdk31Plus" intensity={35} tint={d.dark ? 'systemThinMaterialDark' : 'systemUltraThinMaterialLight'} style={StyleSheet.absoluteFill} /><View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: d.fill }]} /><View style={contentStyle}>{children}</View></View>;
+  if (native && Platform.OS === 'ios' && isLiquidGlassAvailable()) return <GlassView glassEffectStyle="regular" colorScheme={'light'} style={[edge, style]}><View style={contentStyle}>{children}</View></GlassView>;
+  return <View style={[edge, style]}><BlurView blurTarget={d.target} blurMethod="dimezisBlurViewSdk31Plus" intensity={35} tint={'systemUltraThinMaterialLight'} style={StyleSheet.absoluteFill} /><View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: d.fill }]} /><View style={contentStyle}>{children}</View></View>;
 }
 const paths = {
   calendar: 'M7 3v4M17 3v4M3 10h18M5 5h14a2 2 0 0 1 2 2v13H3V7a2 2 0 0 1 2-2Z',
@@ -50,9 +75,9 @@ export function Icon({ name, size = 22, color }) {
 export { ProviderIcon } from './SourceIcons.js';
 export function Button({ title, onPress, primary, disabled, style }) {
   const d = useDesign();
-  return <Pressable accessibilityRole="button" accessibilityLabel={title} disabled={disabled} onPress={onPress} style={({ pressed }) => [{ paddingHorizontal: 17, paddingVertical: 12, borderRadius: 16, alignItems: 'center', backgroundColor: primary ? d.accent : d.input, borderWidth: 1, borderColor: primary ? 'transparent' : d.edge, opacity: disabled ? .4 : pressed ? .65 : 1 }, style]}><Text style={{ color: primary ? (d.dark ? '#14233b' : '#fff') : d.text, fontSize: 14, fontWeight: '600' }}>{title}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} disabled={disabled} onPress={onPress} style={({ pressed }) => [{ paddingHorizontal: 17, paddingVertical: 12, borderRadius: 16, alignItems: 'center', backgroundColor: primary ? d.accent : d.input, borderWidth: 1, borderColor: primary ? 'transparent' : d.edge, opacity: disabled ? .4 : pressed ? .65 : 1 }, style]}><Text style={{ color: primary ? ('#fff') : d.text, fontSize: 14, fontWeight: '600' }}>{title}</Text></Pressable>;
 }
 export function Sheet({ title, children, onClose }) {
   const d = useDesign();
-  return <Modal transparent animationType="slide" onRequestClose={onClose}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#10234066' }}><Pressable accessibilityLabel="닫기" style={StyleSheet.absoluteFill} onPress={onClose} /><Surface native style={{ margin: 12, marginBottom: Platform.OS === 'ios' ? 32 : 16, maxHeight: '88%', backgroundColor: d.dark ? '#18243deb' : '#eaf1ffeb' }}><View style={{ padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ fontSize: 20, fontWeight: '700', color: d.text }}>{title}</Text><Pressable accessibilityLabel="닫기" hitSlop={12} onPress={onClose}><Icon name="close" /></Pressable></View><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingTop: 0, gap: 14 }}>{children}</ScrollView></Surface></KeyboardAvoidingView></Modal>;
+  return <Modal transparent animationType="slide" onRequestClose={onClose}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#10234066' }}><Pressable accessibilityLabel="닫기" style={StyleSheet.absoluteFill} onPress={onClose} /><Surface native style={{ margin: 12, marginBottom: Platform.OS === 'ios' ? 32 : 16, maxHeight: '88%', backgroundColor: '#eaf1ffeb' }}><View style={{ padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={{ fontSize: 20, fontWeight: '700', color: d.text }}>{title}</Text><Pressable accessibilityLabel="닫기" hitSlop={12} onPress={onClose}><Icon name="close" /></Pressable></View><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingTop: 0, gap: 14 }}>{children}</ScrollView></Surface></KeyboardAvoidingView></Modal>;
 }

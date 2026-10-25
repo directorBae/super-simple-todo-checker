@@ -1,35 +1,42 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import MemoBoard from './views/Todos.jsx';
-import Teams from './views/Teams.jsx';
-import Buckets from './views/Buckets.jsx';
-import Missed from './views/Missed.jsx';
 import Settings from './views/Settings.jsx';
 import Integrations from './views/Integrations.jsx';
-import { THEMES } from './themes.js';
+import Bell from './views/Bell.jsx';
+import ClockWindow from './focus/ClockWindow.jsx';
+import RoomDock from './focus/RoomDock.jsx';
+import RoamingPet from './focus/RoamingPet.jsx';
+import OfflineEgg from './focus/OfflineEgg.jsx';
+import MusicPlayer from './focus/MusicPlayer.jsx';
+import { wallpaperSrc } from './wallpapers.js';
+import './focus/focus.css';
 export default function App() {
- const [db,setDb] = useState(null), [tab,setTab] = useState('todos'), [popup,setPopup] = useState(null), [menu,setMenu] = useState(false), [pair,setPair] = useState(null);
- useEffect(() => { window.api.getState().then(setDb); window.api.onDbChanged(setDb); window.api.onOpenView(view => setPopup(view)); }, []);
- useEffect(() => { document.documentElement.dataset.theme = db?.settings.theme || 'light'; }, [db?.settings.theme]);
- useEffect(() => { const key = e => { if(e.key === 'Escape') { setPopup(null); setMenu(false); } }; window.addEventListener('keydown',key); return () => window.removeEventListener('keydown',key); }, []);
+ const [db,setDb] = useState(null), [popup,setPopup] = useState(null), [menu,setMenu] = useState(false), [bell,setBell] = useState(false), [room,setRoom] = useState(0);
+ const [nowPlaying,setNowPlaying] = useState(null), music = useRef(null);
+ const open = view => { setMenu(false); setBell(false); if(view === 'missed') setBell(true); else if(view === 'today') { setPopup(null); setRoom(0); } else setPopup(view); };
+ useEffect(() => { window.api.getState().then(setDb); window.api.onDbChanged(setDb); window.api.onOpenView(open); }, []);
+ useEffect(() => { const key = e => { if(e.key === 'Escape') { setPopup(null); setMenu(false); setBell(false); } }; window.addEventListener('keydown',key); return () => window.removeEventListener('keydown',key); }, []);
+ const wallpaper = wallpaperSrc(db?.settings.wallpaper);
+ useEffect(() => { if(db) document.body.style.setProperty('--wallpaper', `url("${wallpaper}")`); }, [wallpaper, !!db]);
  if(!db) return null;
  const onboarding = !db.settings.onboardingDone;
- const finish = () => { window.api.updateSettings({ onboardingDone:true }).then(setDb); setTab('todos'); };
- const tabs = [['teams','팀'],['buckets','버킷']];
- const pairing = async () => { setMenu(false); setPopup('pair'); setPair(await window.api.pairDevice()); };
- const sync = db.settings.sync || {};
+ const finish = () => { window.api.updateSettings({ onboardingDone:true }).then(setDb); };
+ if(new URLSearchParams(window.location.search).get('view') === 'clock') return <ClockWindow db={db} />;
+ const close = () => setPopup(null);
  return <div className="app-v">
-  <header className="topbar"><button className="logo" onClick={() => setTab('todos')}>✓ 체커</button>
-   {!onboarding && <nav className="main-tabs">{tabs.map(([key,label]) => <button key={key} className={'main-tab' + (tab === key ? ' active' : '')} onClick={() => setTab(key)}>{label}</button>)}</nav>}
-   <div className="top-icons">{!onboarding && <><button className={'sync-indicator' + (sync.error ? ' offline' : '')} onClick={pairing} title={sync.error || '휴대폰 연결'}>{sync.error ? '연결 확인' : sync.lastSync ? '동기화됨' : 'PC 연결'}</button><button className={'connect-nav' + (tab === 'integrations' ? ' active' : '')} onClick={() => setTab('integrations')}>도구 연결 <span>↗</span></button></>}
-    <div className="menu-wrap"><button className="icon-btn" aria-label="메뉴" onClick={() => setMenu(!menu)}>☰</button>{menu && <div className="menu-pop"><span className="menu-label">테마</span><div className="menu-themes">{THEMES.map(t => <button key={t.id} title={t.name} aria-label={t.name + ' 테마'} className={db.settings.theme === t.id ? 'selected' : ''} style={{ background:t.swatch }} onClick={() => window.api.updateSettings({ theme:t.id })} />)}</div><button onClick={pairing}>휴대폰 연결</button><button onClick={() => { setMenu(false); setPopup('settings'); }}>설정 · 알림</button><button onClick={() => { setMenu(false); setPopup('missed'); }}>지난 알림</button></div>}</div>
+  <header className="topbar"><button className="logo" onClick={() => setRoom(0)}>✓ 체커</button>
+   <div className="top-icons">
+    {nowPlaying && popup !== 'music' && <div className="now-playing"><button className="now-playing-title" title="음악 창 열기" onClick={() => open('music')}>♪ {nowPlaying}</button><button className="now-playing-pause" aria-label="음악 일시정지" onClick={() => music.current?.pause()}>Ⅱ</button></div>}
+    {!onboarding && <Bell db={db} open={bell} setOpen={v => { setMenu(false); setBell(v); }} />}
+    <div className="menu-wrap"><button className="icon-btn" aria-label="메뉴" aria-expanded={menu} onClick={() => { setBell(false); setMenu(!menu); }}>☰</button>{menu && <div className="menu-pop"><button onClick={() => open('music')}>음악</button><button onClick={() => open('settings')}>설정</button><button onClick={() => { setMenu(false); window.dispatchEvent(new Event('checker:open-game')); }}>게임 (테스트)</button></div>}</div>
    </div>
   </header>
   {onboarding ? <main className="onboarding"><div className="welcome-mark">✓</div><p className="eyebrow">WELCOME TO CHECKER</p><h1>흩어진 일들을 한곳으로.</h1><p className="welcome-desc">쓰고 있는 도구를 연결해 시작하세요.<br />이제 할 일만 적으면 됩니다.</p><Integrations db={db} /><div className="welcome-actions"><button className="primary" onClick={finish}>시작하기 →</button><button className="ghost" onClick={finish}>지금은 건너뛰기</button></div></main> :
-   <main className={'content' + (tab !== 'todos' ? ' padded-content' : '')}>
-    {tab === 'todos' ? <MemoBoard db={db} /> : tab === 'teams' ? <><div className="page-heading"><h1>팀</h1><p>함께하는 팀별로 일과 도구를 모아 보세요.</p></div><Teams db={db} /></> : tab === 'buckets' ? <><div className="page-heading"><h1>버킷</h1><p>준비되면 다시 꺼내 볼 일들.</p></div><Buckets db={db} /></> : <><div className="page-heading"><h1>도구 연결</h1><p>쓰고 있는 도구를 선택하세요.</p></div><Integrations db={db} /></>}
-   </main>}
-  {popup && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) setPopup(null); }}><section className="popup-panel" role="dialog" aria-modal="true"><div className="popup-head"><h2>{popup === 'pair' ? '휴대폰 연결' : popup === 'settings' ? '설정' : '지난 알림'}</h2><button className="icon-btn" aria-label="닫기" onClick={() => setPopup(null)}>✕</button></div><div className="popup-body">
-   {popup === 'pair' ? <div className="pair-panel">{!pair ? <p>연결 코드 준비 중…</p> : pair.ok ? <><p>휴대폰 메뉴 → <strong>PC 연결</strong>에서 아래 주소와 코드를 입력하세요.</p><p className="desc">두 기기를 같은 Wi-Fi에 연결해 주세요. 코드는 10분 동안 한 번 사용할 수 있습니다.</p>{pair.urls.map(url => <div key={url} className="pair-address">{url}</div>)}<div className="pair-code">{pair.code}</div><button onClick={pairing}>새 코드 만들기</button></> : <><p role="alert">{pair.error}</p><button onClick={pairing}>다시 시도</button></>}</div> : popup === 'settings' ? <Settings db={db} /> : <Missed db={db} />}
-  </div></section></div>}
+   <main className="content notebook-content"><MemoBoard db={db} onOpenTeams={() => setRoom(-1)} /></main>}
+  <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
+  {!onboarding && <OfflineEgg db={db} />}
+  <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />
+  {!onboarding && <RoamingPet db={db} room={room} />}
+  {popup === 'settings' && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel settings-panel" role="dialog" aria-modal="true" aria-label="설정"><div className="popup-head"><h2>설정</h2><button className="icon-btn" aria-label="닫기" onClick={close}>✕</button></div><div className="popup-body"><Settings db={db} /></div></section></div>}
  </div>;
 }

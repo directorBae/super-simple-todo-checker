@@ -53,7 +53,7 @@ export default function Teams({ db }) {
         const todoCount = db.todos.filter((t) => effectiveTeamId(t, db) === team.id && t.status === 'todo').length;
         const hl = team.important;
         return (
-          <div className={'card' + (hl ? ' hl' : '')} style={hl ? { '--hl': team.color } : undefined} key={team.id}>
+          <div className={'card' + (hl ? ' hl' : '')} style={hl ? { '--hl': team.color } : undefined} key={team.id} data-drop-team={team.id}>
             <div className="card-head">
               <button
                 type="button"

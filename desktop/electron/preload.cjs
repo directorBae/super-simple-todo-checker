@@ -5,6 +5,9 @@ const invoke = (ch, ...args) => ipcRenderer.invoke(ch, ...args);
 contextBridge.exposeInMainWorld('api', {
   getState: () => invoke('state:get'),
   getInfo: () => invoke('app:info'),
+  openClock: todoId => invoke('clock:open', todoId),
+  exportWallpaper: payload => invoke('wallpaper:export', payload),
+  saveWallpaper: dataUrl => invoke('wallpaper:save', dataUrl),
 
   addTodo: (p) => invoke('todo:add', p),
   updateTodo: (id, patch) => invoke('todo:update', { id, patch }),

@@ -2,6 +2,7 @@
 
 const { mergeResponse } = require('./sync-merge.cjs');
 const { migrateTeams } = require('./migrate-teams.cjs');
+const { ensureDates } = require('./ensure-dates.cjs');
 let inFlight = null;
 async function performSync(store) {
   const s = store.db.settings.sync || {};
@@ -20,6 +21,7 @@ async function performSync(store) {
     if (!data.ok) return { ok: false, error: data.error || '서버 오류' };
     mergeResponse(store.db, sent, data);
     migrateTeams(store.db);
+    ensureDates(store.db);
     // 원격에서 삭제된 할 일의 알림 로그 정리
     const alive = new Set(store.db.todos.map((t) => t.id));
     store.db.notifLog = store.db.notifLog.filter((n) => !n.todoId || alive.has(n.todoId));

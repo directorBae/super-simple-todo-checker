@@ -72,6 +72,16 @@ test('repeated imports retain a single TODO and never start a create pipeline', 
   assert.equal(f.store.data.todos.length, 1); assert.equal(f.store.data.todos[0].origin.type, 'external');
   await f.integration.cycle(); assert.equal(f.counts().creates, 0);
 });
+test('imported titles are trimmed to 50 characters without writing back to the source', async t => {
+  const f = fixture(t); f.store.data.todos = [];
+  const long = '다음 분기 제품 로드맵 초안을 정리하고 디자인팀·개발팀과 일정 및 우선순위를 맞춘 뒤 리뷰 회의 안건으로 올리기';
+  const r = { externalId: 'notion-long', version: '1', data: { title: long, notes: '' } };
+  f.integration.importRemote(f.target, r); f.integration.importRemote(f.target, r);
+  const todo = f.store.data.todos[0];
+  assert.equal(Array.from(todo.title).length, 50); assert.ok(todo.title.endsWith('…'));
+  assert.ok(todo.notes.includes('원문: ' + long));
+  await f.integration.cycle(); assert.deepEqual(f.counts(), { creates: 0, updates: 0 });
+});
 test('lost create response is recovered by stable identity, never title', async t => {
   const f = fixture(t); const create = f.adapter.create;
   f.adapter.create = async (...args) => { await create(...args); throw new Error('connection lost'); };

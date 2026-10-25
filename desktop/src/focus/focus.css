@@ -1,0 +1,132 @@
+.focus-card { background:var(--panel); border:1px solid var(--glass-edge); border-radius:18px; padding:20px; margin-top:16px; box-shadow:inset 0 1px 1px var(--inner-glow),var(--shadow-sm); backdrop-filter:blur(24px) saturate(160%); -webkit-backdrop-filter:blur(24px) saturate(160%); }
+.focus-card h3 { font-size:16px; font-weight:650; margin:7px 0 0; letter-spacing:-.5px; }
+.focus-card button,.file-button { border:1px solid var(--border); border-radius:8px; background:var(--srf-2); color:var(--text); padding:7px 10px; font-size:11px; cursor:pointer; }
+.focus-card button:hover,.file-button:hover { background:var(--srf-3); }
+.focus-card button:disabled { opacity:.4; cursor:default; }
+.focus-card-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; }
+.focus-card input:not([type=range]):not([type=file]),.focus-card select,.focus-card textarea { min-width:0; max-width:100%; border:1px solid var(--border); border-radius:7px; color:var(--text); background:var(--srf-2); padding:8px; font:inherit; font-size:12px; box-sizing:border-box; }
+.focus-card select { text-overflow:ellipsis; }
+.focus-card label { font-size:12px; }
+.focus-description,.focus-empty { color:var(--muted); font-size:12px; line-height:1.8; }
+.focus-error { display:block; color:var(--danger); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.music-card .file-button { flex-shrink:0; }
+.file-button input { display:none; }
+.track-row { display:flex; gap:14px; align-items:center; margin:18px 0 12px; }
+.record { display:grid; place-items:center; width:48px; height:48px; flex-shrink:0; border-radius:50%; background:repeating-radial-gradient(circle,#263d39 0 3px,#354b44 4px 5px); }
+.record span { display:grid; place-items:center; background:#aacbb9; width:21px; height:21px; border-radius:50%; font-size:11px; color:#244637; }
+.record.spinning { animation:record-spin 8s linear infinite; }
+@keyframes record-spin { to { transform:rotate(360deg); } }
+.track-info { min-width:0; }
+.track-info strong { display:block; font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.track-info small { display:block; font-size:10px; color:var(--muted); margin-top:5px; }
+.music-seek { width:100%; height:3px; accent-color:var(--accent); margin:7px 0; }
+.player-controls { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.player-controls > small { font-size:9px; color:var(--muted); min-width:65px; }
+.player-controls > div { display:flex; gap:8px; align-items:center; }
+.player-controls button { border:0; padding:4px 7px; background:transparent; font-size:18px; }
+.player-controls .play-button { width:31px; height:31px; border-radius:50%; font-size:12px; background:var(--accent-soft); color:var(--accent); }
+.volume-control { display:flex; align-items:center; gap:4px; color:var(--muted); }
+.volume-control input { width:48px; height:3px; accent-color:var(--accent); }
+.music-card > select { width:100%; margin-top:10px; }
+.sound-buttons { display:flex; gap:6px; margin-top:14px; }
+.sound-buttons button { flex:1; font-size:10px; }
+.sound-buttons button[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
+.arcade-card { padding:18px; }
+.arcade-best { font-size:9px; color:var(--muted); white-space:nowrap; }
+.arcade-score { display:flex; justify-content:space-between; gap:8px; background:#111c2d; padding:12px; border-radius:10px 10px 0 0; font-size:11px; }
+.arcade-score > span { color:#ffaaa6; font-size:10px; white-space:nowrap; }
+.arcade-score b { font:13px monospace; color:#ecf2ee; margin-left:8px; }
+.arcade-screen { position:relative; background:#111c2d; border-radius:0 0 10px 10px; overflow:hidden; }
+.arcade-screen canvas { display:block; width:100%; image-rendering:pixelated; outline-offset:-3px; }
+.arcade-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; background:#111c2dbb; color:#dde8e1; }
+.arcade-overlay strong { font-size:13px; font-weight:500; }
+.arcade-overlay button { background:#98ddc5; color:#193b30; border:0; padding:9px 15px; }
+.arcade-actions { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; }
+.arcade-actions small,.next-mode { font-size:10px; color:var(--muted); line-height:1.6; }
+.arcade-actions button { font-size:9px; flex-shrink:0; padding:5px 7px; }
+.touch-controls { display:flex; justify-content:center; gap:5px; margin:12px 0; }
+.touch-controls button { touch-action:none; user-select:none; }
+.arcade-progress { height:3px; border-radius:5px; background:var(--sep); overflow:hidden; margin:10px 0 5px; }
+.arcade-progress i { display:block; height:100%; transition:width .1s; }
+.genre-list { font-size:10px; color:var(--muted); margin-top:12px; }
+.genre-list summary { cursor:pointer; }
+.genre-list span,.genre-list small { display:block; margin-top:6px; }
+.pet-editor { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding-top:10px; }
+.pet-editor label { display:flex; flex-direction:column; gap:5px; }
+.pet-editor label:has(input[aria-label="펫 인사말"]),.pet-editor > button { grid-column:1/-1; }
+.pet-preview { grid-column:1/-1; width:100px; margin:auto; }
+.pet-colors { display:flex; gap:10px; align-items:center; }
+.pet-colors button { width:24px; height:24px; border-radius:50%; border:2px solid transparent; padding:0; }
+.pet-colors button[aria-pressed=true] { outline:2px solid var(--accent); outline-offset:3px; }
+.assistant-settings { border-top:1px solid var(--sep); margin-top:16px; padding-top:14px; font-size:11px; }
+.assistant-settings summary { color:var(--muted); cursor:pointer; }
+.assistant-settings label { display:flex; flex-direction:column; gap:6px; margin:16px 0 8px; }
+.assistant-settings textarea { resize:vertical; min-height:65px; }
+.assistant-status { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:14px; font-size:10px; }
+.assistant-status button { padding:4px 7px; flex-shrink:0; }
+.summary-preview { background:var(--accent-soft); padding:12px; border-radius:9px; margin-top:10px; }
+.summary-preview small { display:block; color:var(--muted); margin:10px 0; }
+.summary-preview button { margin-right:5px; }
+@media (prefers-reduced-motion:reduce) { .pet-sprite,.pet-sprite.happy,.record.spinning { animation:none; } }
+.content.notebook-content { min-height:0; padding:24px 32px 60px; }
+.notebook-content > .memo-wrap { max-width:860px; margin:0 auto; }
+.notebook-content .memo-toolbar { position:relative; top:auto; z-index:auto; padding:0 0 10px; border:0; border-radius:0; background:transparent; box-shadow:none; backdrop-filter:none; align-items:center; }
+.notebook-content .memo-toolbar h1 { line-height:1.2; padding:0; margin:0 6px 0 0; }
+.notebook-content .memo-month { top:6px; }
+.notebook-content .memo-day { scroll-margin-top:12px; }
+.popup-overlay[hidden] { display:none; }
+.offline-egg { position:fixed; left:24px; bottom:24px; border:0; padding:6px; border-radius:8px; background:transparent; opacity:.55; font-size:22px; cursor:pointer; }
+.offline-egg:hover { opacity:1; background:var(--srf-2); }
+.companion-settings { margin-top:24px; color:var(--muted); font-size:13px; }
+.companion-settings > summary { cursor:pointer; }
+@media (max-width:600px) { .content.notebook-content { padding:18px 14px 50px; } }
+.clock-edge-handle { position:fixed; right:0; top:46%; z-index:51; width:24px; min-height:64px; padding:4px 0; border:1px solid var(--border); border-right:0; border-radius:10px 0 0 10px; background:var(--panel); backdrop-filter:blur(20px) saturate(160%); -webkit-backdrop-filter:blur(20px) saturate(160%); box-shadow:inset 0 1px 1px var(--inner-glow),var(--shadow-sm); color:var(--muted); font-size:19px; cursor:ew-resize; touch-action:none; }
+.clock-edge-handle.is-open { display:none; }
+.clock-dock { position:fixed; z-index:80; inset:0; visibility:hidden; pointer-events:none; transition:visibility 0s linear .45s; }
+.clock-dock.is-open { visibility:visible; pointer-events:auto; transition:none; }
+/* The clock is a full-window glass sheet that slides over the whole main screen, like a phone's pull-down shade. */
+.clock-popup { position:absolute; inset:0; transform:translateX(100%); transition:transform .45s cubic-bezier(.32,.72,0,1); }
+.clock-dock.is-open .clock-popup { transform:none; }
+.clock-task-dragging,.clock-task-dragging * { user-select:none!important; cursor:grabbing!important; }
+@media (pointer:coarse) { .clock-edge-handle { opacity:.35; width:20px; touch-action:none; } .clock-dock { touch-action:pan-y; } }
+@media (prefers-reduced-motion:reduce) { .clock-dock,.clock-dock.is-open,.clock-popup { transition:none; } }
+.pixel-pet-sprite { width:100%; height:100%; display:block; image-rendering:pixelated; shape-rendering:crispEdges; }
+.pet-world { display:contents; }
+.roaming-pet { position:fixed; z-index:120; left:0; top:0; width:72px; height:72px; padding:0; background:transparent; border:0; cursor:grab; pointer-events:auto; touch-action:none; will-change:transform; }
+.roaming-pet:active { cursor:grabbing; }
+.pet-call-button { position:fixed; z-index:120; left:22px; bottom:24px; width:27px; height:27px; padding:5px; background:transparent; border:0; color:var(--muted); opacity:.6; cursor:pointer; pointer-events:auto; }
+.pet-call-button:hover { opacity:1; }
+.pet-call-button svg { width:100%; height:100%; }
+.offline-egg { left:62px; }
+.clock-task-dragging .roaming-pet { pointer-events:none; }
+.pet-card-actions { display:flex; gap:6px; }
+
+/* ---------- 시계 방: 테마 배경 위의 유리 ---------- */
+.clock-window { position:relative; height:100%; box-sizing:border-box; overflow:hidden; color:var(--text); container-type:size; }
+:root[data-clock=true] .clock-window { height:100vh; }
+.clock-window-head { position:absolute; z-index:2; top:22px; left:30px; right:22px; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:11px; letter-spacing:.5px; pointer-events:none; }
+.clock-window-head button { pointer-events:auto; width:34px; height:34px; border-radius:50%; color:var(--muted); background:var(--srf-1); border:1px solid var(--glass-edge); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); font-size:18px; line-height:1; cursor:pointer; transition:background .2s,transform .3s var(--ease-spring); }
+.clock-window-head button:hover { background:var(--srf-3); transform:scale(1.08); }
+.clock-card { height:100%; display:grid; place-items:center; }
+/* The dial fills the room: the largest circle that fits, with a small margin. */
+.clock-stage { width:calc(min(100cqw, 100cqh) - 24px); aspect-ratio:1; }
+.clock-dial { position:relative; width:100%; height:100%; border-radius:50%; container-type:size; background:radial-gradient(circle at 30% 22%,var(--srf-2),var(--srf-1) 62%); border:1px solid var(--glass-edge); box-shadow:inset 0 2px 2px var(--inner-glow),inset 0 -18px 50px rgba(99,102,241,.06),var(--shadow-lg); backdrop-filter:blur(28px) saturate(170%); -webkit-backdrop-filter:blur(28px) saturate(170%); transition:box-shadow .25s,outline-color .25s; }
+.clock-dial.is-picking { cursor:crosshair; }
+.clock-dial.drag-over { outline:2px dashed var(--accent); outline-offset:6px; }
+.clock-dial svg { position:relative; z-index:1; width:100%; height:100%; display:block; pointer-events:none; }
+.dial-tick { stroke:var(--muted); stroke-width:1; opacity:.35; }
+.dial-tick.major { stroke:var(--text); stroke-width:2; stroke-linecap:round; opacity:.55; }
+.dial-num { fill:var(--muted); font-size:12px; font-weight:500; }
+/* Glass lettering: translucent fill, bright rim and soft shadow, sitting under the hands. */
+.drop-time { position:absolute; z-index:2; left:50%; top:50%; transform:translate(-50%,-50%); padding:12px 18px; border-radius:16px; text-align:center; font-size:24px; font-variant-numeric:tabular-nums; color:var(--text); background:var(--pop); border:1px solid var(--glass-edge); box-shadow:inset 0 1px 1px var(--inner-glow),var(--shadow-md); backdrop-filter:blur(20px) saturate(170%); -webkit-backdrop-filter:blur(20px) saturate(170%); pointer-events:none; }
+.drop-time small { display:block; white-space:nowrap; font-size:10px; color:var(--accent); margin-top:5px; }
+.half-switch { position:absolute; z-index:2; right:26px; bottom:26px; display:flex; gap:2px; padding:3px; border-radius:12px; background:var(--srf-1); border:1px solid var(--glass-edge); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); }
+.half-switch button { background:transparent; border:0; color:var(--muted); border-radius:9px; padding:6px 11px; font-size:11px; cursor:pointer; transition:background .2s; }
+.half-switch button[aria-pressed=true] { background:var(--srf-4); color:var(--accent); box-shadow:var(--shadow-sm); }
+.clock-toast { position:absolute; z-index:3; left:50%; bottom:22px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100% - 220px); padding:9px 10px 9px 16px; border-radius:16px; font-size:12px; color:var(--text); background:var(--pop); border:1px solid var(--glass-edge); box-shadow:inset 0 1px 1px var(--inner-glow),var(--shadow-md); backdrop-filter:blur(24px) saturate(170%); -webkit-backdrop-filter:blur(24px) saturate(170%); animation:clock-toast-in .35s var(--ease-spring); }
+.clock-toast span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clock-toast small { color:var(--accent); white-space:nowrap; }
+.clock-toast button { flex-shrink:0; border:0; border-radius:9px; padding:5px 9px; background:var(--accent-soft); color:var(--accent); font-size:11px; cursor:pointer; }
+@keyframes clock-toast-in { from { opacity:0; transform:translate(-50%,10px); } }
+@media (max-width:600px) { .half-switch { right:50%; transform:translateX(50%); bottom:14px; } .clock-toast { max-width:calc(100% - 32px); bottom:62px; } }
+@media (prefers-reduced-motion:reduce) { .clock-toast { animation:none; } }

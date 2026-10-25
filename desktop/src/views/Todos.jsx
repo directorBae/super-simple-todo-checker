@@ -1,6 +1,10 @@
+import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TodoEditor, TeamControl } from '../components.jsx';
 import { SourceIcons } from '../icons.jsx';
+import { compactTitle } from '../focus-utils.mjs';
+import { dropPatches, lineSort } from '../../../shared/todo-drop.js';
+import { useTodoDrag } from './useTodoDrag.js';
 import {
   todayStr,
   addDays,
@@ -23,13 +27,6 @@ function offsetFromToday(dateStr, today) {
   const b = dateParts(dateStr);
   return Math.round((new Date(b.y, b.m - 1, b.d) - new Date(a.y, a.m - 1, a.d)) / 864e5);
 }
-
-const lineSort = (a, b) => {
-  const ka = a.startTime || '99:99';
-  const kb = b.startTime || '99:99';
-  if (ka !== kb) return ka < kb ? -1 : 1;
-  return (a.sortOrder ?? a.createdAt ?? 0) - (b.sortOrder ?? b.createdAt ?? 0);
-};
 
 /* 입력한 한 줄이 팀/프로젝트 이름이면 그룹 컨텍스트를 돌려준다 */
 function resolveGroup(v, kind, db) {
@@ -110,7 +107,7 @@ function pasteLines(text, { date, kind, db, ctx, firstPrefix = '' }) {
 }
 
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
-function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape, indent, kind }) {
+function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
   const inputRef = useRef(null);
   const project = db.projects.find((p) => p.id === todo.projectId);
@@ -152,7 +149,9 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
 
   return (
     <div
-      className={'memo-line' + (isDone ? ' is-done' : '') + (indent ? ' indent' : '') + (hl ? ' hl' : '')}
+      className={'memo-line' + (isDone ? ' is-done' : '') + (indent ? ' indent' : '') + (hl ? ' hl' : '') + (selected ? ' is-selected' : '')}
+      aria-selected={selected || undefined}
+      data-todo-id={todo.id}
       style={hl ? { '--hl': hl } : undefined}
     >
       <div className="memo-line-main">
@@ -165,7 +164,7 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
         {editing ? (
           <input
             ref={inputRef}
-            className="memo-edit"
+            className="memo-edit" maxLength={50}
             defaultValue={todo.title}
             onKeyDown={onKeyDown}
             onBlur={save}
@@ -188,8 +187,8 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
             }}
           />
         ) : (
-          <span className="memo-title" onClick={onStartEdit}>
-            {todo.title}
+          <span className="memo-title" title={todo.title} onClick={onStartEdit}>
+            {compactTitle(todo.title)}
           </span>
         )}
 
@@ -290,7 +289,7 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
     <div className={'memo-input-row is-draft' + (indent ? ' indent' : '')}>
       <input
         ref={ref}
-        className="memo-input"
+        className="memo-input" maxLength={50}
         value={text}
         placeholder="계속 입력"
         onChange={(e) => {
@@ -394,7 +393,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
       )}
       <input
         ref={ref}
-        className="memo-input"
+        className="memo-input" maxLength={50}
         placeholder={'할 일 입력'}
         value={text}
         onChange={(e) => {
@@ -418,7 +417,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
   );
 }
 
-function DaySection({ date, kind, db, isToday, registerInput, focusDay }) {
+function DaySection({ date, kind, db, isToday, registerInput, focusDay, selection }) {
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(null); // { key, teamId, projectId, channel }
   const [ctx, setCtx] = useState(null);
@@ -466,6 +465,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay }) {
       kind={kind}
       indent={indent}
       editing={editingId === t.id}
+      selected={selection.has(t.id)}
       onStartEdit={() => setEditingId(t.id)}
       onEndEdit={() => setEditingId(null)}
       onEnter={continueFrom}
@@ -510,6 +510,8 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay }) {
         <div key={team.id}>
           <div
             className={'memo-team' + (team.important ? ' hl' : '')}
+            data-drop-team={team.id}
+            data-drop-date={date}
             style={team.important ? { color: team.color, '--hl': team.color } : undefined}
           >
             <span className="team-dot" style={{ background: team.color }} />
@@ -534,30 +536,6 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay }) {
         }}
       />
     </section>
-  );
-}
-
-function UndatedSection({ db, kind }) {
-  const [editingId, setEditingId] = useState(null);
-  const items = [...db.todos.filter((t) => !t.date && t.status !== 'bucket' && t.kind === kind)].sort(
-    (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
-  );
-  if (!items.length) return <p className="empty">날짜 미정 항목이 없습니다.</p>;
-  return (
-    <div className="memo-undated">
-      {items.map((t) => (
-        <MemoLine
-          key={t.id}
-          todo={t}
-          db={db}
-          editing={editingId === t.id}
-          onStartEdit={() => setEditingId(t.id)}
-          onEndEdit={() => setEditingId(null)}
-          onEnter={() => setEditingId(null)}
-          onEscape={() => {}}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -593,10 +571,11 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
       <div
         key={t.id}
         className={'cal-chip' + (t.status === 'done' ? ' chip-done' : '') + (hl ? ' chip-hl' : '')}
+        data-todo-id={t.id}
         style={hl ? { borderLeftColor: edge, '--hl': hl } : { borderLeftColor: edge }}
         title={t.title}
       >
-        <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{t.title}</span>
+        <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{compactTitle(t.title)}</span>
       </div>
     );
   };
@@ -649,11 +628,63 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
   );
 }
 
+/* 캘린더 왼쪽 내 팀 목록 — 관리(추가·색·삭제)는 왼쪽 방에서 */
+function TeamSidebar({ db, onOpenTeams }) {
+  const open = (teamId) => db.todos.filter((t) => t.status === 'todo' && effectiveTeamId(t, db) === teamId).length;
+  return (
+    <aside className="team-side" aria-label="내 팀">
+      <div className="team-side-head">
+        <h2>내 팀</h2>
+        {onOpenTeams && <button className="ghost" title="Ctrl + ←" onClick={onOpenTeams}>관리</button>}
+      </div>
+      {db.teams.length === 0 ? <p className="desc">아직 팀이 없어요.</p> : (
+        <ul>
+          {db.teams.map((team) => (
+            <li key={team.id} className={team.important ? 'hl' : ''} data-drop-team={team.id}>
+              <span className="team-dot" style={{ background: team.color }} />
+              <span className="team-side-name">{team.name}</span>
+              <span className="team-side-count" title="남은 할 일">{open(team.id)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
+  );
+}
+
+/* 여러 줄을 골랐을 때 뜨는 막대 — 휴대폰에서는 길게 눌러 선택 모드로 들어온다 */
+function SelectionBar({ db, selection, onDone }) {
+  const [teams, setTeams] = useState(false);
+  const ids = [...selection].filter((id) => db.todos.some((t) => t.id === id));
+  const moveTo = async (teamId) => {
+    await Promise.all(dropPatches(db, ids, { kind: 'team', teamId }).map(({ id, patch }) => window.api.updateTodo(id, patch)));
+    setTeams(false);
+    onDone();
+  };
+  return (
+    <div className="selection-bar" role="toolbar" aria-label="선택한 할 일">
+      <span className="selection-count">{ids.length}개 선택</span>
+      <button className="ghost" aria-expanded={teams} onClick={() => setTeams(!teams)}>팀으로 이동</button>
+      <button className="ghost" onClick={onDone}>취소</button>
+      {teams && (
+        <div className="selection-teams">
+          {db.teams.map((team) => (
+            <button key={team.id} className="ghost" onClick={() => moveTo(team.id)}>
+              <span className="team-dot" style={{ background: team.color }} />
+              {team.name}
+            </button>
+          ))}
+          <button className="ghost" onClick={() => moveTo(null)}>팀 없음</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* 할 일 보드 */
-export default function MemoBoard({ db, kind = 'todo' }) {
+export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
   const today = todayStr();
   const [range, setRange] = useState({ start: -7, end: 35 });
-  const [showUndated, setShowUndated] = useState(false);
   // 기본은 일별 목록
   const [view, setView] = useState('month');
   const [ym, setYm] = useState(() => {
@@ -667,10 +698,14 @@ export default function MemoBoard({ db, kind = 'todo' }) {
   const pendingFocusRef = useRef(null);
   const pendingScrollRef = useRef(null);
   const wheelGateRef = useRef(0);
+  const [fabHost, setFabHost] = useState(null);
+  useEffect(() => { setFabHost(rootRef.current?.closest('.app-v') || document.body); }, []);
   const viewRef = useRef(view);
   viewRef.current = view;
+  const [selection, setSelection] = useState(() => new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  useTodoDrag({ rootRef, db, selection, setSelection, selectMode, setSelectMode });
 
-  const undatedCount = db.todos.filter((t) => !t.date && t.status !== 'bucket' && t.kind === kind).length;
 
   const scroller = () => (rootRef.current ? rootRef.current.parentElement : null);
 
@@ -696,7 +731,7 @@ export default function MemoBoard({ db, kind = 'todo' }) {
     const sc = scroller();
     const el = document.getElementById('day-' + today);
     if (sc && el) {
-      sc.scrollTop = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 12;
+      sc.scrollTop = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - parseFloat(getComputedStyle(el).scrollMarginTop || 0);
     }
   }, []);
 
@@ -710,9 +745,10 @@ export default function MemoBoard({ db, kind = 'todo' }) {
   const openDayRef = useRef(openDay);
   openDayRef.current = openDay;
 
-  // Ctrl+휠(핀치 줌)으로 리스트 ↔ 월 뷰 전환, 월 뷰에서는 휠로 월 이동
+  // Ctrl+휠(핀치 줌)으로 리스트 ↔ 월 뷰 전환, 월 뷰에서는 휠로 월 이동.
+  // 가운데 열 바깥 여백에서도 동작하도록 스크롤 영역 전체에서 받는다.
   useEffect(() => {
-    const el = rootRef.current;
+    const el = scroller();
     if (!el) return;
     const onWheel = (e) => {
       if (e.ctrlKey) {
@@ -807,31 +843,28 @@ export default function MemoBoard({ db, kind = 'todo' }) {
   for (let i = range.start; i <= range.end; i++) dates.push(addDays(today, i));
 
   return (
-    <div ref={rootRef} className="memo-wrap">
+    <div ref={rootRef} className={'memo-wrap' + (view === 'month' ? ' is-month' : '')}>
       <div className="memo-toolbar">
         <h1 className={''}>
           {'할 일'}
         </h1>
 
         <div className="view-toggle">
-          <button className={'ghost' + (view === 'list' ? ' on' : '')} onClick={() => setView('list')}>
+          <button className={'ghost' + (view === 'list' ? ' on' : '')} onClick={() => openDay(today)}>
             일
           </button>
           <button className={'ghost' + (view === 'month' ? ' on' : '')} onClick={() => setView('month')}>
             월
           </button>
         </div>
-        {view === 'list' && undatedCount > 0 && (
-          <button className={'ghost' + (showUndated ? ' on' : '')} onClick={() => setShowUndated(!showUndated)}>
-            날짜 미정 {undatedCount}
-          </button>
-        )}
       </div>
       {view === 'month' ? (
-        <MonthView db={db} kind={kind} ym={ym} setYm={setYm} openDay={openDay} />
+        <div className="month-layout">
+          <TeamSidebar db={db} onOpenTeams={onOpenTeams} />
+          <MonthView db={db} kind={kind} ym={ym} setYm={setYm} openDay={openDay} />
+        </div>
       ) : (
         <>
-          {showUndated && <UndatedSection db={db} kind={kind} />}
           {dates.map((date, i) => {
             const p = dateParts(date);
             const showMonth = i === 0 || p.d === 1;
@@ -849,14 +882,17 @@ export default function MemoBoard({ db, kind = 'todo' }) {
                   isToday={date === today}
                   registerInput={registerInput}
                   focusDay={focusDay}
+                  selection={selection}
                 />
               </React.Fragment>
             );
           })}
         </>
       )}
-      {/* 오늘로 점프 — 항상 우측 하단 고정 */}
-      <button
+      {fabHost && selection.size > 0 && (selectMode || selection.size > 1) && createPortal(
+        <SelectionBar db={db} selection={selection} onDone={() => { setSelection(new Set()); setSelectMode(false); }} />, fabHost)}
+      {/* 오늘로 점프 — 항상 우측 하단 고정. 유리판(backdrop-filter)이 fixed 기준이 되지 않게 앱 루트에 띄운다. */}
+      {fabHost && createPortal(<button
         className="fab-today"
         title="오늘로 이동"
         onClick={() => {
@@ -869,7 +905,7 @@ export default function MemoBoard({ db, kind = 'todo' }) {
         }}
       >
         ◎ 오늘
-      </button>
+      </button>, fabHost)}
     </div>
   );
 }
