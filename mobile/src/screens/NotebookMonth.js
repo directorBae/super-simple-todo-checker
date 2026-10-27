@@ -1,4 +1,4 @@
-import { SourceIcons } from '../SourceIcons.js';
+import { SourceMark } from '../SourceIcons.js';
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../text.js';
@@ -39,13 +39,13 @@ export default function MonthView({ db, ym, setYm, openDay, toggle }) {
     }
     return (
       <View key={t.id} style={[styles.calChip, { borderLeftColor: edge }, hl && { backgroundColor: hl + '22' }]}>
-        <SourceIcons todo={t} size={9}/>
         <Text
           numberOfLines={1}
           style={[styles.calChipText, t.status === 'done' && { color: T.muted, textDecorationLine: 'line-through' }]}
         >
           {t.title}
         </Text>
+        <SourceMark todo={t} size={9} hitSlop={4} />
       </View>
     );
   };

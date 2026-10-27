@@ -1,75 +1,120 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, View, Switch } from 'react-native';
+import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { Text, TextInput } from '../text.js';
-import { useDb } from '../store.js';
 import { useDesign, Surface, Sheet, Button, ProviderIcon } from '../design.js';
-import { ServerLoginForm } from './Settings.js';
-const PROVIDERS = { notion: 'Notion', google: 'Google Calendar', apple: 'Apple Calendar' };
+import { useTools } from '../tools.js';
+import { subscriptionLine } from '../tool-jobs.js';
+
+// 도구 연결: each person connects their own Notion and Google Calendar (OAuth in the browser), then picks the Notion
+// pages or databases to watch; every Google calendar is watched. New and changed to-dos come in by themselves.
+const PROVIDERS = [['notion', '노션'], ['google', '구글 캘린더']];
+const SIGN_IN = /^https:\/\/(api\.notion\.com|accounts\.google\.com)\//;
+const RED = '#cc4057';
+
+// Alert has no buttons on the web, so the browser asks there.
+function confirm(title, message, action, onYes) {
+  if (Platform.OS === 'web') { if (window.confirm(message ? `${title}\n${message}` : title)) onYes(); return; }
+  Alert.alert(title, message, [{ text: '취소', style: 'cancel' }, { text: action, style: 'destructive', onPress: onYes }]);
+}
+
+function Link({ title, onPress, color, disabled }) {
+  const d = useDesign();
+  return <Pressable accessibilityRole="button" accessibilityLabel={title} hitSlop={8} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ opacity: disabled ? .4 : pressed ? .55 : 1 })}><Text style={{ fontSize: 13, fontWeight: '600', color: color || d.accent }}>{title}</Text></Pressable>;
+}
+
+function Watched({ sub, busy, act }) {
+  const d = useDesign(), { client } = useTools(), line = subscriptionLine(sub);
+  const icon = sub.resource_type === 'calendar' ? '📅' : sub.resource_type === 'database' ? '🗂️' : '📄';
+  const stop = () => {
+    const go = () => act('stop:' + sub.id, () => client.unsubscribe(sub.id));
+    if (sub.provider === 'google') confirm(`"${sub.title}" 그만 볼까요?`, '다시 보려면 구글 캘린더를 다시 연결해야 해요.', '그만 보기', go); else go();
+  };
+  return <View style={{ gap: 6, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#ffffff99' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Text style={{ fontSize: 15 }}>{icon}</Text>
+      <Text numberOfLines={1} style={{ flex: 1, fontSize: 14, fontWeight: '600', color: d.text }}>{sub.title || '제목 없음'}</Text>
+    </View>
+    <Text numberOfLines={2} style={{ fontSize: 12, color: line.error ? RED : d.muted }}>{line.text}</Text>
+    <View style={{ flexDirection: 'row', gap: 16 }}>
+      <Link title="지금 다시 읽기" disabled={!!busy || sub.state === 'syncing'} onPress={() => act('sync:' + sub.id, () => client.syncNow(sub.id))} />
+      <Link title="그만 보기" color={d.muted} disabled={!!busy} onPress={stop} />
+    </View>
+  </View>;
+}
+
+// Notion pages and databases this connection may read, newest first; a tap starts watching one.
+function PagePicker({ onClose }) {
+  const d = useDesign(), { client, state, refresh } = useTools();
+  const [q, setQ] = useState(''), [list, setList] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState('');
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => client.pages(q.trim()).then((p) => { if (live) { setList(p || []); setError(''); } }, (e) => { if (live) { setList([]); setError(e.message); } }), q ? 350 : 0);
+    return () => { live = false; clearTimeout(t); };
+  }, [q]);
+  const watched = new Set((state?.subscriptions || []).filter((s) => s.provider === 'notion').map((s) => s.resource_id));
+  const pick = async (item) => {
+    if (watched.has(item.id) || busy) return;
+    setBusy(item.id); setError('');
+    try { await client.subscribe(item.id, item.type); await refresh(); } catch (e) { setError(e.message); } finally { setBusy(''); }
+  };
+  return <Sheet title="지켜볼 페이지 고르기" onClose={onClose}>
+    <TextInput accessibilityLabel="노션 페이지 검색" placeholder="페이지나 DB 이름으로 찾기" placeholderTextColor={d.muted} value={q} onChangeText={setQ} autoCapitalize="none" autoCorrect={false} returnKeyType="search" style={{ padding: 13, borderRadius: 14, color: d.text, backgroundColor: d.input, fontSize: 15 }} />
+    {!!error && <Text accessibilityRole="alert" style={{ color: RED }}>{error}</Text>}
+    {list === null ? <Text style={{ color: d.muted }}>불러오는 중…</Text>
+      : !list.length && !error ? <Text style={{ color: d.muted }}>찾은 페이지가 없어요. 노션 연결 때 허용한 페이지만 보여요.</Text>
+      : list.map((item) => {
+        const on = watched.has(item.id);
+        return <Pressable key={item.id} accessibilityRole="button" accessibilityState={{ selected: on, busy: busy === item.id }} accessibilityLabel={(item.title || '제목 없음') + (on ? ', 지켜보는 중' : '')} onPress={() => pick(item)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 11, borderRadius: 14, backgroundColor: on ? '#ffffffcc' : d.input, opacity: pressed ? .6 : 1 })}>
+          <Text style={{ fontSize: 17, width: 24, textAlign: 'center' }}>{item.icon || (item.type === 'database' ? '🗂️' : '📄')}</Text>
+          <Text numberOfLines={1} style={{ flex: 1, fontSize: 14, color: d.text }}>{item.title || '제목 없음'}</Text>
+          <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: item.type === 'database' ? '#e0e7ff' : '#ffffffb3' }}><Text style={{ fontSize: 10.5, fontWeight: '700', color: item.type === 'database' ? d.accent : d.muted }}>{item.type === 'database' ? 'DB' : '페이지'}</Text></View>
+          <Text style={{ width: 18, textAlign: 'center', fontSize: 14, fontWeight: '700', color: on ? d.accent : d.muted }}>{busy === item.id ? '…' : on ? '✓' : '+'}</Text>
+        </Pressable>;
+      })}
+  </Sheet>;
+}
+
 export default function Integrations() {
-  const { db, api } = useDb(), d = useDesign();
-  const [state, setState] = useState(null), [provider, setProvider] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const [token, setToken] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState('');
-  const [connectionId, setConnection] = useState(''), [containers, setContainers] = useState([]), [containerId, setContainer] = useState(''), [teamId, setTeam] = useState('');
-  const [mapping, setMapping] = useState({}), [write, setWrite] = useState(true), [showProps, setShowProps] = useState(false);
-  const [onlyMine, setOnlyMine] = useState(true), [assigneeProperty, setAssigneeProperty] = useState(''), [assigneeUser, setAssigneeUser] = useState(''), [users, setUsers] = useState([]);
-  const refresh = async () => { const r = await api.integrations(); if (r.ok) setState(r); };
-  useEffect(() => { refresh(); const timer = setInterval(refresh, 4000); return () => clearInterval(timer); }, [db.settings.sync.url, db.settings.sync.token]);
-  const run = async p => { setBusy(true); setError(''); try {
-    if (p.action === 'oauth-start' && /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(state?.configured.publicUrl || '')) throw new Error('이 서버의 Google 인증 주소가 localhost로 설정되어 있습니다. 모바일 로그인을 사용하려면 서버의 PUBLIC_URL과 Google 리디렉션 URI를 휴대폰에서 접근 가능한 HTTPS 주소로 설정해 주세요.');
-    if (p.action === 'save-target') { const r = await api.syncNow(); if (!r.ok) throw new Error(r.error); }
-    const r = await api.integrations(p); if (!r.ok) throw new Error(r.error); await refresh(); await api.syncNow(); return r;
-  } catch(e) { setError(e.message); return null; } finally { setBusy(false); } };
-  const open = key => { setProvider(key); setError(''); setToken(''); setPassword(''); setConnection(''); setContainer(''); setContainers([]); setUsers([]); setTeam(db.teams[0]?.id || ''); };
-  const choose = value => {
-    const c = containers.find(c => c.id === value), old = state?.targets.find(t => t.connectionId === connectionId && t.containerId === value);
-    const m = old?.mapping || { title: c?.properties?.find(p => p.type === 'title')?.id, date: c?.properties?.find(p => p.type === 'date')?.id, status: c?.properties?.find(p => p.type === 'checkbox')?.id, appId: c?.properties?.find(p => p.type === 'rich_text' && /app.?id|앱.?id/i.test(p.name))?.id };
-    setContainer(value); setTeam(old?.teamId || db.teams[0]?.id || ''); setMapping(m); setShowProps(!m.appId); setWrite(old ? old.writeEnabled : !!c?.writable);
-    setOnlyMine(old ? !!old.assigneeFilter : true); setAssigneeProperty(old?.assigneeFilter?.propertyId || c?.properties?.find(p => p.type === 'people')?.id || ''); setAssigneeUser(old?.assigneeFilter?.userId || '');
+  const d = useDesign(), { client, state, error, waiting, refresh, waitFor } = useTools();
+  const [busy, setBusy] = useState(''), [problem, setProblem] = useState(''), [picker, setPicker] = useState(false);
+  if (!client) return <Text style={{ color: d.muted }}>로그인하면 노션과 구글 캘린더를 연결할 수 있어요.</Text>;
+  const act = async (key, fn) => {
+    setBusy(key); setProblem('');
+    try { await fn(); await refresh(); return true; } catch (e) { setProblem(e.message); return false; } finally { setBusy(''); }
   };
-  const container = containers.find(c => c.id === containerId);
-  const field = (label, value, onChangeText, secure = false) => <View style={{ gap: 6 }}><Text style={{ color: d.muted, fontSize: 12 }}>{label}</Text><TextInput accessibilityLabel={label} style={{ padding: 14, borderRadius: 14, color: d.text, backgroundColor: d.input }} value={value || ''} onChangeText={onChangeText} secureTextEntry={secure} autoCapitalize="none" autoCorrect={false} /></View>;
-  const choices = (label, value, options, onPick) => <View style={{ gap: 8 }}><Text style={{ color: d.muted, fontSize: 12 }}>{label}</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{options.map(o => <Button key={o.id} title={o.label} primary={value === o.id} onPress={() => onPick(o.id)} />)}</View></View>;
-  const prop = (key, label, types) => choices(label, mapping[key] || '', [{ id: '', label: '없음' }, ...(container?.properties || []).filter(p => types.includes(p.type)).map(p => ({ id: p.id, label: p.name }))], value => setMapping({ ...mapping, [key]: value }));
-  const save = async () => {
-    let team = teamId;
-    if (!team) { const next = api.addTeam({ name: '개인', color: '#6685e8' }); team = next.teams.find(t => t.name === '개인')?.id; }
-    const types = provider === 'notion' ? ['task', 'deadline'] : ['meeting', 'personal'];
-    const old = state?.targets.find(t => t.connectionId === connectionId && t.containerId === containerId);
-    const existing = state?.targets.some(t => t.teamId === team && t.isDefault && t.taskTypes?.some(k => types.includes(k)));
-    if (await run({ action: 'save-target', connectionId, containerId, teamId: team, mapping, ...(provider === 'notion' ? { assigneeFilter: onlyMine ? { propertyId: assigneeProperty, userId: assigneeUser.trim() } : null } : {}), writeEnabled: write && container.writable, autoRoute: write && container.writable, isDefault: old?.isDefault || !existing, taskTypes: types, timeZone: container.timeZone || 'Asia/Seoul', defaultMinutes: 60 })) { setContainer(''); await run({ action: 'run' }); }
+  // The browser opens the tool's sign-in page; back in the app, the connection shows up by itself.
+  const connect = (provider) => {
+    const tab = Platform.OS === 'web' ? window.open('', '_blank') : null; // opened during the tap, or the browser blocks it
+    act('connect:' + provider, async () => {
+      const url = await client.start(provider);
+      if (!SIGN_IN.test(url || '')) throw new Error('연결 주소가 올바르지 않아요.');
+      waitFor(provider);
+      if (tab) tab.location.href = url; else await Linking.openURL(url);
+    }).then((ok) => { if (!ok) tab?.close(); });
   };
-  return <><ScrollView contentContainerStyle={{ padding: 22, paddingBottom: 110, gap: 14 }}>
-    {Object.entries(PROVIDERS).map(([key, label]) => {
-      const count = state?.connections.filter(c => c.enabled && c.provider === key).length || 0;
-      return <Pressable accessibilityRole="button" accessibilityLabel={label + ' 연결'} key={key} onPress={() => open(key)}><Surface native contentStyle={{ padding: 22, flexDirection: 'row', alignItems: 'center', gap: 17 }}><ProviderIcon provider={key} /><View style={{ flex: 1, gap: 6 }}><Text style={{ color: d.text, fontWeight: '700', fontSize: 17 }}>{label}</Text><Text style={{ color: count ? d.accent : d.muted, fontSize: 12 }}>{count ? count + '개 계정 연결됨' : '연결하기'}</Text></View><Text style={{ color: d.muted, fontSize: 22 }}>↗</Text></Surface></Pressable>;
+  const disconnect = (provider, name) => confirm(`${name} 연결을 끊을까요?`, '더 이상 새 할 일을 가져오지 않아요.', '연결 끊기', () => act('disconnect:' + provider, () => client.disconnect(provider)));
+  return <View style={{ gap: 12 }}>
+    <Text style={{ color: d.muted, fontSize: 12 }}>연결해 두면 새로 생긴 할 일을 알아서 가져와요.</Text>
+    {!!(problem || (error && !state)) && <Text accessibilityRole="alert" style={{ color: RED, fontSize: 13 }}>{problem || error}</Text>}
+    {PROVIDERS.map(([provider, name]) => {
+      const conn = state?.connections.find((c) => c.provider === provider);
+      const subs = (state?.subscriptions || []).filter((s) => s.provider === provider);
+      const wait = waiting === provider && !conn;
+      return <Surface key={provider} native contentStyle={{ padding: 16, gap: 12 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <ProviderIcon provider={provider} size={38} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={{ color: d.text, fontWeight: '700', fontSize: 16 }}>{name}</Text>
+            <Text numberOfLines={1} style={{ color: conn ? d.accent : d.muted, fontSize: 12 }}>{!state && !error ? '확인하는 중…' : conn ? (conn.account || '연결됨') : wait ? '브라우저에서 연결을 마쳐 주세요' : '연결 안 됨'}</Text>
+          </View>
+          {!!conn && <Link title="연결 끊기" color={RED} disabled={!!busy} onPress={() => disconnect(provider, name)} />}
+        </View>
+        {!!(state || error) && !conn && <Button title={wait ? '연결 기다리는 중…' : '연결하기'} primary={!wait} disabled={!!busy} onPress={() => connect(provider)} />}
+        {!!conn && provider === 'notion' && <Button title="지켜볼 페이지 고르기" onPress={() => setPicker(true)} />}
+        {!!conn && !subs.length && <Text style={{ color: d.muted, fontSize: 12 }}>{provider === 'notion' ? '아직 고른 페이지가 없어요.' : '캘린더를 찾는 중이에요.'}</Text>}
+        {!!conn && subs.map((sub) => <Watched key={sub.id} sub={sub} busy={busy} act={act} />)}
+      </Surface>;
     })}
-  </ScrollView>{provider && <Sheet title={PROVIDERS[provider]} onClose={() => setProvider(null)}>
-    {!db.settings.sync.token ? <ServerLoginForm onDone={refresh} /> : <>
-      {!!error && <Text accessibilityRole="alert" style={{ color: '#cc4057' }}>{error}</Text>}
-      {!state && <Text style={{ color: d.muted }}>서버 연결을 확인하고 다시 열어 주세요.</Text>}
-      {provider === 'google' && <Button title="Google 계정으로 로그인" primary disabled={busy || !state?.configured.google} onPress={() => run({ action: 'oauth-start', provider })} />}
-      {provider === 'notion' && <>{field('Notion 연결 토큰', token, setToken, true)}<Text style={{ color: d.muted, lineHeight: 20 }}>Notion에서 사용할 데이터베이스에 이 연결을 추가하세요.</Text><Button title="Notion 연결" primary disabled={busy || !token} onPress={async () => { if (await run({ action: 'connect-notion', token })) setToken(''); }} /></>}
-      {provider === 'apple' && <>{field('Apple 계정 이메일', username, setUsername)}{field('Apple 앱 암호', password, setPassword, true)}<Button title="iCloud 연결" primary disabled={busy || !username || !password} onPress={async () => { if (await run({ action: 'connect-apple', username, password })) setPassword(''); }} /></>}
-      {state?.connections.filter(c => c.enabled && c.provider === provider).map(c => <Surface key={c.id} contentStyle={{ padding: 16, gap: 12 }}><Text style={{ color: d.text, fontWeight: '600' }}>{c.label}</Text><Button title="위치 선택" disabled={busy} onPress={async () => { const r = await run({ action: 'containers', connectionId: c.id }); if (r) { setConnection(c.id); setUsers([]); setContainers(r.containers); setContainer(''); } }} /><Button title="연결 해제" disabled={busy} onPress={() => run({ action: 'disconnect', connectionId: c.id })} /></Surface>)}
-      {!!connectionId && choices(provider === 'notion' ? '데이터베이스' : '캘린더', containerId, containers.map(c => ({ id: c.id, label: c.label })), choose)}
-      {!!connectionId && !containers.length && <Text style={{ color: d.muted }}>공유된 위치가 없습니다. 계정의 접근 권한을 확인해 주세요.</Text>}
-      {container && <>
-        {choices('팀', teamId, [{ id: '', label: '개인' }, ...db.teams.map(t => ({ id: t.id, label: t.name }))], setTeam)}
-        {provider === 'notion' && <View style={{gap:10}}><View style={{flexDirection:'row',alignItems:'center',gap:10}}><Switch value={onlyMine} onValueChange={setOnlyMine}/><Text style={{color:d.text,flex:1}}>내가 담당자인 업무만 가져오기</Text></View>{onlyMine && <>
-          {choices('담당자 속성', assigneeProperty, (container.properties || []).filter(p => p.type === 'people').map(p => ({id:p.id,label:p.name})), setAssigneeProperty)}
-          {!container.properties?.some(p => p.type === 'people') && <Text style={{color:d.muted}}>Notion DB에 사람 유형의 담당자 속성을 추가해 주세요.</Text>}
-          <Button title="담당자 목록 불러오기" disabled={busy} onPress={async()=>{const r=await run({action:'notion-users',connectionId});if(r)setUsers(r.users);}}/>
-          {choices('내 Notion 계정', assigneeUser, [...(assigneeUser && !users.some(u=>u.id===assigneeUser) ? [{id:assigneeUser,label:state?.targets.find(t=>t.connectionId===connectionId&&t.containerId===containerId)?.assigneeFilter?.userName||assigneeUser}] : []), ...users.map(u=>({id:u.id,label:u.label+(u.email?' · '+u.email:'')}))], setAssigneeUser)}
-          {!users.length && <Text style={{color:d.muted,fontSize:12}}>목록을 불러와 본인을 선택하세요. 게스트는 Notion 사용자 ID로 지정할 수 있습니다.</Text>}
-          {!users.length && field('Notion 사용자 ID (목록에 없는 경우)', assigneeUser, setAssigneeUser)}
-          {!!users.length && <Button title="목록에 없는 계정: 사용자 ID로 입력" onPress={()=>setUsers([])}/>}
-          <Text style={{color:d.muted,fontSize:12,lineHeight:18}}>공동 담당자에 내가 포함된 업무도 가져옵니다. 새 업무를 Notion에 만들 때도 이 계정을 담당자로 지정합니다.</Text>
-        </>}</View>}
-        {provider === 'notion' && <><Button title="데이터베이스 속성" onPress={() => setShowProps(!showProps)} />{showProps && <>{prop('title', '제목', ['title'])}{prop('date', '날짜', ['date'])}{prop('status', '완료', ['checkbox', 'status', 'select'])}{prop('appId', '앱 ID', ['rich_text'])}{prop('notes', '메모', ['rich_text'])}{['status', 'select'].includes(container.properties?.find(p => p.id === mapping.status)?.type) && ['todoValue', 'doneValue'].map((key, i) => <View key={key}>{choices(i ? '완료 값' : '미완료 값', mapping[key], (container.properties.find(p => p.id === mapping.status)?.options || []).map(o => ({ id: o.name, label: o.name })), v => setMapping({ ...mapping, [key]: v }))}</View>)}<Text style={{ color: d.muted, fontSize: 12 }}>양방향 연결에는 메모와 별개의 텍스트 속성 ‘앱 ID’가 필요합니다.</Text></>}</>}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}><Switch value={write} disabled={!container.writable} onValueChange={setWrite} /><Text style={{ flex: 1, color: d.text }}>앱에서 작성한 할 일도 이 도구에 반영</Text></View>
-        <Button title="저장하고 가져오기" primary disabled={busy || (provider === 'notion' && ((write && !mapping.appId) || (onlyMine && (!assigneeProperty || !assigneeUser.trim()))))} onPress={save} />
-      </>}
-      {state?.targets.filter(t => t.provider === provider).map(t => <Surface key={t.id} contentStyle={{ padding: 16, gap: 8 }}><Text style={{ color: d.text, fontWeight: '600' }}>{t.label}</Text><Text style={{ color: d.muted }}>{db.teams.find(team => team.id === t.teamId)?.name || '팀 선택 필요'}</Text><Button title={t.readEnabled ? '연결 중지' : '다시 연결'} disabled={busy} onPress={() => run({ action: 'target-toggle', targetId: t.id, enabled: !t.readEnabled })} />{!!t.error && <Text style={{ color: '#cc4057' }}>{t.error}</Text>}</Surface>)}
-    </>}
-  </Sheet>}</>;
+    {picker && <PagePicker onClose={() => setPicker(false)} />}
+  </View>;
 }

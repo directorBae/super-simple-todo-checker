@@ -31,6 +31,15 @@ if (!window.api) {
     syncNow: async () => { emit(await request('state')); return { ok: true }; },
     pairDevice: () => request('pair', {}),
     integrations: p => p ? request('integrations', p).then(async r => { if (r.ok && !['compress-title', 'create-pet'].includes(p.action)) emit(await request('state')); return r; }) : request('integrations'),
+    // 노션 · 구글 캘린더 (desktop: preload.cjs). The OAuth tab opens on the click, before the answer, so no popup blocker stops it.
+    tools: (action, payload = {}) => {
+      const tab = action === 'start' ? window.open('', '_blank') : null;
+      return request('tools', { ...payload, action }).then(r => {
+        if (r.ok && r.url) { if (tab) { tab.opener = null; tab.location.href = r.url; } else window.open(r.url, '_blank', 'noopener'); } else tab?.close();
+        return r;
+      }, e => { tab?.close(); return { ok: false, error: e.message }; });
+    },
+    openExternal: url => { const ok = /^https?:\/\//i.test(String(url)); if (ok) window.open(url, '_blank', 'noopener,noreferrer'); return Promise.resolve({ ok }); },
     saveWallpaper: dataUrl => request('wallpaper-upload', { dataUrl }),
     signIn: (email, password) => request('auth/signin', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
     signUp: (email, password) => request('auth/signup', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),

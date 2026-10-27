@@ -9,6 +9,8 @@ import RoomDock from './focus/RoomDock.jsx';
 import RoamingPet from './focus/RoamingPet.jsx';
 import OfflineEgg from './focus/OfflineEgg.jsx';
 import MusicPlayer from './focus/MusicPlayer.jsx';
+import { PetToast } from './focus/PetWork.jsx';
+import { usePetJobs } from './tools-state.js';
 import { wallpaperSrc } from './wallpapers.js';
 import { startWebReminders } from './web-notify.js';
 import './focus/focus.css';
@@ -24,6 +26,9 @@ export default function App() {
  // The web version reminds through the browser (the desktop app uses its own system notifications).
  const latestDb = useRef(null); latestDb.current = db;
  useEffect(() => (window.api.platform === 'web' ? startWebReminders(() => latestDb.current) : undefined), []);
+ // The pet's work for the tool connections (노션 · 구글 캘린더): polled while someone is signed in.
+ const signedIn = !!db?.auth?.email && new URLSearchParams(window.location.search).get('view') !== 'clock';
+ const petJobs = usePetJobs(signedIn);
  const wallpaper = wallpaperSrc(db?.settings.wallpaper);
  useEffect(() => { if(db) document.body.style.setProperty('--wallpaper', `url("${wallpaper}")`); }, [wallpaper, !!db]);
  if(!db || db.auth?.loading) return null;
@@ -47,7 +52,8 @@ export default function App() {
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />
-  {!onboarding && !phone && <RoamingPet db={db} room={room} />}
+  {!onboarding && !phone && <RoamingPet db={db} room={room} working={petJobs.working} bubble={petJobs.bubble} />}
+  {!onboarding && phone && <PetToast working={petJobs.working} bubble={petJobs.bubble} />}
   {popup === 'settings' && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel settings-panel" role="dialog" aria-modal="true" aria-label="설정"><div className="popup-head"><h2>설정</h2><button className="icon-btn" aria-label="닫기" onClick={close}>✕</button></div><div className="popup-body"><Settings db={db} /></div></section></div>}
  </div>;
 }

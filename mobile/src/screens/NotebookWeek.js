@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../text.js';
 import { useDesign } from '../design.js';
+import { SourceMark } from '../SourceIcons.js';
 import { addDays, todayStr, effectiveTeamId } from '../util.js';
 import { teamSort } from '../../../shared/todo-drop.js';
 
@@ -41,6 +42,7 @@ export default function WeekView({ db, weekOf, setWeekOf, openDay, toggle }) {
               return <View key={t.id} style={[styles.chip, { borderLeftColor: team?.color || '#cbd5e1', backgroundColor: T.input }]}>
                 {!!t.startTime && <Text style={{ fontSize: 10.5, fontWeight: '700', color: T.accent }}>{t.startTime}</Text>}
                 <Text style={{ fontSize: 12, color: done ? T.muted : T.text, textDecorationLine: done ? 'line-through' : 'none', flexShrink: 1 }}>{t.title}</Text>
+                <SourceMark todo={t} size={12} hitSlop={6} style={{ alignSelf: 'center' }} />
               </View>;
             })}
           </View>

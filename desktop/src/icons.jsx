@@ -1,1 +1,1 @@
-export { ProviderIcon, SourceIcons } from './SourceIcons.jsx';
+export { ProviderIcon, SourceIcons, SourceMark } from './SourceIcons.jsx';

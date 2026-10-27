@@ -19,3 +19,5 @@ build/
 **/release/**
 
 secret/
+# Supabase CLI working files
+supabase/.temp/

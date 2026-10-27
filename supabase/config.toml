@@ -1,0 +1,5 @@
+# Supabase CLI settings for deploying the Edge Function (project: see docs/supabase.md).
+[functions.integrations]
+# The function checks the person's login itself (app routes) and signatures (webhooks), so the gateway lets
+# OAuth callbacks and webhooks — which carry no Supabase token — through.
+verify_jwt = false

@@ -1,35 +1,46 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createGame, stepGame, paintStage, blendAmount } from './game-engine.mjs';
+import { createGame, stepGame, paintStage, worldOffsets, crossingPose, stageTitle } from './game-engine.mjs';
 import { DEFAULT_PET } from './Pet.jsx';
-import { drawPet } from './pet-sprite.mjs';
+import { drawPet, drawGear } from './pet-sprite.mjs';
 
-// Paints a stage into its own buffer so two stages can cross-fade cleanly.
-function paintInto(buffer, stage, state, g, pet) {
+// One scene: each world is painted into its own buffer (without the pet), and the pet is drawn last on top, so
+// while the camera crosses from one game into the next the pet stays a single figure moving between them.
+function paintWorld(buffer, stage, state, g, onPet) {
   const ctx = buffer.getContext('2d');
   ctx.save(); ctx.clearRect(0, 0, 500, 280);
-  const runner = (x, bottom, options) => {
-    // Blinks for a moment after a hit.
-    if (g.runner.invincible > 0 && Math.floor(g.elapsed * 12) % 2 === 0 && !g.transition) return;
-    drawPet(ctx, pet, x, bottom, options, g.runner.big, g.elapsed);
-  };
-  paintStage(ctx, stage, state, g, runner);
+  paintStage(ctx, stage, state, g, onPet);
   ctx.restore();
 }
-function paint(ctx, g, pet, buffers) {
-  ctx.globalAlpha = 1;
-  if (g.transition) {
-    paintInto(buffers[0], g.transition.stage, g.transition.state, g, pet);
-    ctx.drawImage(buffers[0], 0, 0);
-  }
-  paintInto(buffers[1], g.stage, g.state, g, pet);
-  ctx.globalAlpha = blendAmount(g);
-  ctx.drawImage(buffers[1], 0, 0);
-  ctx.globalAlpha = 1;
+function drawRunner(ctx, g, pet, x, bottom, options = {}) {
+  // Blinks for a moment after a hit.
+  if (g.runner.invincible > 0 && Math.floor(g.elapsed * 12) % 2 === 0 && !g.transition) return;
+  const opts = { ...options, fire: g.runner.fire };
+  drawPet(ctx, pet, x, bottom, opts, g.runner.big, g.elapsed);
+  drawGear(ctx, x, bottom, { cell: options.cell ?? (g.runner.big ? 2.1 : 1.5), flip: options.flip, swing: options.swing }, g.runner, g.elapsed);
 }
+function paint(ctx, g, pet, buffers) {
+  ctx.clearRect(0, 0, 500, 280);
+  if (!g.transition) {
+    // The stage draws the pet in its own place in the scene (between its layers).
+    paintWorld(buffers[1], g.stage, g.state, g, (x, bottom, options) => drawRunner(buffers[1].getContext('2d'), g, pet, x, bottom, options));
+    ctx.drawImage(buffers[1], 0, 0);
+    return;
+  }
+  const { from, to } = worldOffsets(g), none = () => {};
+  paintWorld(buffers[0], g.transition.stage, g.transition.state, g, none);
+  paintWorld(buffers[1], g.stage, g.state, g, none);
+  ctx.drawImage(buffers[0], Math.round(from.x), Math.round(from.y));
+  ctx.drawImage(buffers[1], Math.round(to.x), Math.round(to.y));
+  const p = crossingPose(g);
+  drawRunner(ctx, g, pet, p.x, p.bottom, p);
+}
+
+// What the pet carries, for the score strip.
+const gearOf = (r) => [r.fire && '🔥', r.wings && '🪽', r.shield && '🛡', r.hammer > 0 && '🔨' + r.hammer].filter(Boolean).join(' ');
 
 export default function Arcade({ db, active = true }) {
   const canvas = useRef(null), game = useRef(createGame()), keys = useRef(new Set());
-  const [running, setRunning] = useState(false), [stats, setStats] = useState({ score: 0, lives: 3, over: false }), [best, setBest] = useState(db.settings.arcadeBest || 0);
+  const [running, setRunning] = useState(false), [stats, setStats] = useState({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }), [best, setBest] = useState(db.settings.arcadeBest || 0);
   const bestRef = useRef(best); bestRef.current = best;
   const pet = { ...DEFAULT_PET, ...db.settings.focusPet };
   const buffers = useRef(null);
@@ -41,7 +52,7 @@ export default function Arcade({ db, active = true }) {
     const draw = time => {
       if (running && last) {
         stepGame(game.current, (time - last) / 1000, keys.current);
-        if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver }); }
+        if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver, title: stageTitle(game.current), gear: gearOf(game.current.runner) }); }
         if (game.current.gameOver) { setRunning(false); const value = Math.floor(game.current.score); if (value > bestRef.current) { setBest(value); window.api.updateSettings({ arcadeBest: value }); } }
       }
       last = time; paint(ctx, game.current, pet, buffers.current); frame = requestAnimationFrame(draw);
@@ -54,7 +65,7 @@ export default function Arcade({ db, active = true }) {
     window.addEventListener('blur', pause); document.addEventListener('visibilitychange', pause);
     return () => { window.removeEventListener('blur', pause); document.removeEventListener('visibilitychange', pause); };
   }, []);
-  const start = () => { if (game.current.gameOver) { game.current = createGame(); setStats({ score: 0, lives: 3, over: false }); } setRunning(true); canvas.current.focus(); };
+  const start = () => { if (game.current.gameOver) { game.current = createGame(); setStats({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }); } setRunning(true); canvas.current.focus(); };
   // Like Chrome's dino: Space / ↑ (or a tap) starts and restarts the run.
   useEffect(() => { canvas.current?.focus(); }, []);
   const key = (e, down) => {
@@ -64,7 +75,7 @@ export default function Arcade({ db, active = true }) {
   };
   // Just the game: the HUD sits on the score strip, controls are keyboard (touch buttons only on touch screens).
   return <section className="arcade-card" aria-label="오프라인 게임">
-    <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}</span><span><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
+    <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}{stats.gear && <i className="arcade-gear">{stats.gear}</i>}</span><span className="arcade-stage">{stats.title}</span><span><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
     <div className="arcade-screen"><canvas ref={canvas} width="500" height="280" tabIndex="0" aria-label="게임" onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onBlur={() => { keys.current.clear(); }}
       onPointerDown={e => { if (!running) { start(); return; } keys.current.add('Space'); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={() => keys.current.delete('Space')} onPointerCancel={() => keys.current.delete('Space')} />
       {!running && <button className="arcade-start" aria-label={stats.over || stats.score ? '다시 시작' : '게임 시작'} onClick={start}>{stats.over ? '↻' : '▶'}</button>}

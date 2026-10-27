@@ -1,4 +1,4 @@
-import { SourceIcons } from '../icons.jsx';
+import { SourceMark } from '../icons.jsx';
 import React, { useState } from 'react';
 import { Section, Empty, DateCalendar } from '../components.jsx';
 import { todayStr } from '../util.js';
@@ -11,7 +11,7 @@ function BucketTodoRow({ todo, db }) {
   return (
     <div className="todo-row">
       <div className="todo-line">
-        <SourceIcons todo={todo}/><span className="title" title={todo.title}>{compactTitle(todo.title)}</span>
+        <span className="title" title={todo.title}>{compactTitle(todo.title)}</span>
 
         {project && <span className="badge">{project.name}</span>}
         <span className="row-actions">
@@ -22,6 +22,7 @@ function BucketTodoRow({ todo, db }) {
             ✕
           </button>
         </span>
+        <SourceMark todo={todo} />
       </div>
       {picking && (
         <div className="todo-editor date-only bucket-date">

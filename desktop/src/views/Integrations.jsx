@@ -1,59 +1,115 @@
-import React, { useEffect, useState } from 'react';
-import { ProviderIcon } from '../icons.jsx';
-export const PROVIDERS = { notion: 'Notion', google: 'Google Calendar', apple: 'Apple Calendar' };
-export const STATES = { local: '저장됨', pending: '동기화 중', synced: '동기화됨', error: '연결 확인' };
-export default function Integrations({ db }) {
-  const [state, setState] = useState(null), [provider, setProvider] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const [token, setToken] = useState(''), [username, setUsername] = useState(''), [password, setPassword] = useState('');
-  const [connectionId, setConnection] = useState(''), [containers, setContainers] = useState([]), [containerId, setContainer] = useState(''), [teamId, setTeam] = useState('');
-  const [mapping, setMapping] = useState({}), [write, setWrite] = useState(true);
-  const [onlyMine, setOnlyMine] = useState(true), [assigneeProperty, setAssigneeProperty] = useState(''), [assigneeUser, setAssigneeUser] = useState(''), [users, setUsers] = useState([]);
-  const refresh = async () => { const r = await window.api.integrations(); if (r.ok) setState(r); };
-  useEffect(() => { refresh(); const timer = setInterval(refresh, 4000); return () => clearInterval(timer); }, []);
-  const run = async p => { setBusy(true); setError(''); try { const r = await window.api.integrations(p); if (!r.ok) throw new Error(r.error); await refresh(); return r; } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
-  const open = key => { setProvider(key); setError(''); setToken(''); setPassword(''); setConnection(''); setContainer(''); setContainers([]); setUsers([]); setTeam(db.teams[0]?.id || ''); };
-  const select = value => {
-    setContainer(value); const c = containers.find(c => c.id === value), old = state?.targets.find(t => t.connectionId === connectionId && t.containerId === value);
-    setTeam(old?.teamId || db.teams[0]?.id || '');
-    setMapping(old?.mapping || { title: c?.properties?.find(p => p.type === 'title')?.id, date: c?.properties?.find(p => p.type === 'date')?.id, status: c?.properties?.find(p => p.type === 'checkbox')?.id, appId: c?.properties?.find(p => p.type === 'rich_text' && /app.?id|앱.?id/i.test(p.name))?.id });
-    setWrite(old ? old.writeEnabled : !!c?.writable);
-    setOnlyMine(old ? !!old.assigneeFilter : true); setAssigneeProperty(old?.assigneeFilter?.propertyId || c?.properties?.find(p => p.type === 'people')?.id || ''); setAssigneeUser(old?.assigneeFilter?.userId || '');
-  };
-  const container = containers.find(c => c.id === containerId);
-  const property = (key, label, types) => <label className="integration-field">{label}<select value={mapping[key] || ''} onChange={e => setMapping({ ...mapping, [key]: e.target.value })}><option value="">선택 안 함</option>{container?.properties?.filter(p => types.includes(p.type)).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>;
-  const save = async () => {
-    let team = teamId;
-    if (!team) { const next = await window.api.addTeam({ name: '개인', color: '#6685e8' }); team = next.teams.find(t => t.name === '개인')?.id; }
-    const types = provider === 'notion' ? ['task', 'deadline'] : ['meeting', 'personal'];
-    const old = state?.targets.find(t => t.connectionId === connectionId && t.containerId === containerId);
-    const existingDefault = state?.targets.some(t => t.teamId === team && t.isDefault && t.taskTypes?.some(k => types.includes(k)));
-    if (await run({ action: 'save-target', connectionId, containerId, teamId: team, mapping, ...(provider === 'notion' ? { assigneeFilter: onlyMine ? { propertyId: assigneeProperty, userId: assigneeUser.trim() } : null } : {}), writeEnabled: write && container.writable, autoRoute: write && container.writable, isDefault: old?.isDefault || !existingDefault, taskTypes: types, timeZone: container.timeZone || 'Asia/Seoul', defaultMinutes: 60 })) { setContainer(''); await run({ action: 'run' }); }
-  };
-  return <div className="tool-grid">{Object.entries(PROVIDERS).map(([key, label]) => {
-    const count = state?.connections.filter(c => c.enabled && c.provider === key).length || 0;
-    return <button className="tool-card" key={key} onClick={() => open(key)}><ProviderIcon provider={key} /><strong>{label}</strong><span className={count ? 'connected-label' : 'meta'}>{count ? count + '개 계정 연결됨' : '연결하기'} ↗</span></button>;
-  })}{provider && <div className="provider-overlay" onMouseDown={e => { if (e.target === e.currentTarget) setProvider(null); }}><section className="provider-dialog" role="dialog" aria-modal="true" aria-label={PROVIDERS[provider]} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setProvider(null); } }}>
-    <div className="popup-head"><div className="provider-heading"><ProviderIcon provider={provider} size={36} /><h2>{PROVIDERS[provider]}</h2></div><button className="icon-btn" aria-label="연결 창 닫기" onClick={() => setProvider(null)}>✕</button></div>
-    <div className="popup-body provider-body">
-      {error && <p role="alert" className="integration-error">{error}</p>}
-      {!state && <p className="desc">PC 동기화 서버를 실행한 후 다시 시도해 주세요.</p>}
-      {provider === 'google' && <button className="primary" disabled={busy || !state?.configured.google} onClick={() => run({ action: 'oauth-start', provider })}>Google 계정으로 로그인</button>}
-      {provider === 'notion' && <><label className="integration-field">연결 토큰<input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} placeholder="Notion 연결 토큰" /></label><p className="desc">Notion에서 사용할 데이터베이스에 이 연결을 추가하세요.</p><button className="primary" disabled={busy || !token} onClick={async () => { if (await run({ action: 'connect-notion', token })) setToken(''); }}>Notion 연결</button></>}
-      {provider === 'apple' && <><label className="integration-field">Apple 계정<input value={username} onChange={e => setUsername(e.target.value)} placeholder="이메일" /></label><label className="integration-field">앱 암호<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="off" placeholder="Apple 계정에서 발급한 앱 암호" /></label><button className="primary" disabled={busy || !username || !password} onClick={async () => { if (await run({ action: 'connect-apple', username, password })) setPassword(''); }}>iCloud 연결</button></>}
-      {state?.connections.filter(c => c.enabled && c.provider === provider).map(c => <div className="account-card" key={c.id}><strong>{c.label}</strong><div className="btn-row"><button disabled={busy} onClick={async () => { const r = await run({ action: 'containers', connectionId: c.id }); if (r) { setConnection(c.id); setUsers([]); setContainers(r.containers); setContainer(''); } }}>위치 선택</button><button className="ghost" disabled={busy} onClick={() => run({ action: 'disconnect', connectionId: c.id })}>연결 해제</button></div></div>)}
-      {connectionId && <div className="integration-form"><label className="integration-field">{provider === 'notion' ? '데이터베이스' : '캘린더'}<select value={containerId} onChange={e => select(e.target.value)}><option value="">선택하세요</option>{containers.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select></label>{!containers.length && <p className="desc">공유된 위치가 없습니다. 계정의 접근 권한을 확인해 주세요.</p>}
-        {container && <><label className="integration-field">팀<select value={teamId} onChange={e => setTeam(e.target.value)}><option value="">개인</option>{db.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-          {provider === 'notion' && <div className="integration-form"><label className="setting-row"><input type="checkbox" checked={onlyMine} onChange={e => setOnlyMine(e.target.checked)} />내가 담당자인 업무만 가져오기</label>{onlyMine && <>
-            <label className="integration-field">담당자 속성<select value={assigneeProperty} onChange={e => setAssigneeProperty(e.target.value)}><option value="">사람 속성을 선택하세요</option>{container.properties?.filter(p => p.type === 'people').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-            <button disabled={busy} onClick={async () => { const r = await run({ action: 'notion-users', connectionId }); if (r) setUsers(r.users); }}>담당자 목록 불러오기</button>
-            <label className="integration-field">내 Notion 계정<select value={assigneeUser} onChange={e => setAssigneeUser(e.target.value)}><option value="">본인을 선택하세요</option>{assigneeUser && !users.some(u => u.id === assigneeUser) && <option value={assigneeUser}>{state?.targets.find(t => t.connectionId === connectionId && t.containerId === containerId)?.assigneeFilter?.userName || assigneeUser}</option>}{users.map(u => <option key={u.id} value={u.id}>{u.label}{u.email ? ' · ' + u.email : ''}</option>)}</select></label>
-            <details><summary>목록에 없는 게스트 계정</summary><label className="integration-field">Notion 사용자 ID<input value={assigneeUser} onChange={e => setAssigneeUser(e.target.value)} placeholder="Notion 사용자 UUID" /></label></details>
-            <p className="desc">공동 담당자에 내가 포함된 업무도 가져옵니다. 새 업무를 Notion에 만들 때도 이 계정을 담당자로 지정합니다.</p>
-          </>}</div>}
-          {provider === 'notion' && <details open={!mapping.appId && write}><summary>데이터베이스 속성</summary><div className="integration-grid">{property('title', '제목', ['title'])}{property('date', '날짜', ['date'])}{property('status', '완료', ['checkbox', 'status', 'select'])}{property('appId', '앱 ID', ['rich_text'])}{property('notes', '메모', ['rich_text'])}</div>{['status', 'select'].includes(container.properties?.find(p => p.id === mapping.status)?.type) && <div className="integration-grid">{['todoValue', 'doneValue'].map((key, index) => <label className="integration-field" key={key}>{index ? '완료 값' : '미완료 값'}<select value={mapping[key] || ''} onChange={e => setMapping({ ...mapping, [key]: e.target.value })}><option value="">선택</option>{container.properties.find(p => p.id === mapping.status)?.options?.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></label>)}</div>}<p className="desc">양방향 연결에는 메모와 별개의 텍스트 속성 ‘앱 ID’가 필요합니다.</p></details>}
-          <label className="setting-row"><input type="checkbox" checked={write} disabled={!container.writable} onChange={e => setWrite(e.target.checked)} />앱에서 작성한 할 일도 이 도구에 반영</label><button className="primary" disabled={busy || (provider === 'notion' && ((write && !mapping.appId) || (onlyMine && (!assigneeProperty || !assigneeUser.trim()))))} onClick={save}>저장하고 가져오기</button></>}
-      </div>}
-      {state?.targets.filter(t => t.provider === provider).map(t => <div className="connected-source" key={t.id}><span><strong>{t.label}</strong><small>{db.teams.find(team => team.id === t.teamId)?.name || '팀 선택 필요'}</small></span><button className="ghost" disabled={busy} onClick={() => run({ action: 'target-toggle', targetId: t.id, enabled: !t.readEnabled })}>{t.readEnabled ? '연결 중지' : '다시 연결'}</button>{t.error && <p role="alert">{t.error}</p>}</div>)}
+import React, { useEffect, useRef, useState } from 'react';
+import { ProviderIcon, PROVIDER_NAMES } from '../SourceIcons.jsx';
+import { useToolsState, refreshTools, toolAction } from '../tools-state.js';
+
+// 노션 · 구글 캘린더 — 각자 자기 계정으로 연결하고, 펫이 고른 페이지 · 캘린더를 지켜보며 할 일로 옮긴다.
+const TOOLS = ['notion', 'google'];
+const WAIT_MS = 2 * 60_000; // how long we look for a connection made in the browser
+
+// "방금 읽음", "5분 전 읽음", "10월 27일 14:05 읽음"
+export function readAgo(iso, now = Date.now()) {
+  const t = Date.parse(iso);
+  if (!t) return '아직 안 읽음';
+  const m = Math.floor((now - t) / 60_000);
+  if (m < 1) return '방금 읽음';
+  if (m < 60) return `${m}분 전 읽음`;
+  if (m < 24 * 60) return `${Math.floor(m / 60)}시간 전 읽음`;
+  const d = new Date(t);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 읽음`;
+}
+const subState = s => s.state === 'syncing' ? '읽는 중…' : s.state === 'error' ? '오류: ' + (s.last_error || '읽지 못했어요') : '지켜보는 중';
+const KIND = { page: '페이지', database: 'DB', calendar: '캘린더' };
+
+function Subscription({ sub, busy, run }) {
+  return <div className={'tool-sub' + (sub.state === 'error' ? ' is-error' : '')}>
+    <span className="tool-sub-kind">{KIND[sub.resource_type] || '페이지'}</span>
+    <div className="tool-sub-text">
+      {sub.url ? <button className="tool-sub-title" title="원본 열기" onClick={() => window.api.openExternal(sub.url)}>{sub.title || '제목 없음'}</button> : <strong className="tool-sub-title">{sub.title || '제목 없음'}</strong>}
+      <small><span className={'tool-sub-state ' + (sub.state || 'idle')}>{subState(sub)}</span> · {readAgo(sub.last_synced_at)}</small>
     </div>
-  </section></div>}</div>;
+    <div className="tool-sub-actions">
+      <button className="ghost" disabled={busy || sub.state === 'syncing'} onClick={() => run('sync', { id: sub.id })}>지금 다시 읽기</button>
+      <button className="ghost" disabled={busy} onClick={() => run('unsubscribe', { id: sub.id })}>그만 보기</button>
+    </div>
+  </div>;
+}
+
+// Notion pages and databases the person shared with the app; a click subscribes.
+function PagePicker({ subs, busy, run, onClose }) {
+  const [q, setQ] = useState(''), [pages, setPages] = useState(null), [error, setError] = useState(''), input = useRef(null);
+  useEffect(() => { input.current?.focus(); }, []);
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(async () => {
+      const r = await window.api.tools('pages', { q: q.trim() }).catch(e => ({ ok: false, error: e.message }));
+      if (!live) return;
+      if (r.ok) { setPages(r.pages || []); setError(''); } else setError(r.error);
+    }, q ? 300 : 0);
+    return () => { live = false; clearTimeout(t); };
+  }, [q]);
+  const watched = new Set(subs.map(s => s.resource_id.replace(/-/g, '')));
+  return <div className="tool-picker">
+    <div className="tool-picker-head"><input ref={input} type="search" value={q} placeholder="페이지나 DB 검색" aria-label="노션 페이지 검색" onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }} /><button className="ghost" onClick={onClose}>닫기</button></div>
+    {error && <p role="alert" className="integration-error">{error}</p>}
+    <div className="tool-pages" role="list">
+      {!pages && !error && <p className="meta tool-empty">불러오는 중…</p>}
+      {pages && !pages.length && <p className="meta tool-empty">{q ? '찾는 페이지가 없어요.' : '노션에서 이 앱에 공유한 페이지가 없어요.'}</p>}
+      {pages?.map(p => { const on = watched.has(String(p.id).replace(/-/g, '')); return <button key={p.id} role="listitem" className={'tool-page' + (on ? ' on' : '')} disabled={busy || on} onClick={() => run('subscribe', { resourceId: p.id, type: p.type })}>
+        <span className="tool-page-icon" aria-hidden="true">{p.icon || (p.type === 'database' ? '🗂️' : '📄')}</span>
+        <span className="tool-page-title">{p.title || '제목 없음'}</span>
+        <span className={'tool-badge' + (p.type === 'database' ? ' db' : '')}>{p.type === 'database' ? 'DB' : '페이지'}</span>
+        {on && <span className="meta">지켜보는 중</span>}
+      </button>; })}
+    </div>
+  </div>;
+}
+
+function ToolCard({ provider, state, waiting, busy, run, connect }) {
+  const conn = state?.connections?.find(c => c.provider === provider), subs = (state?.subscriptions || []).filter(s => s.provider === provider);
+  const [picking, setPicking] = useState(false);
+  const leave = () => { if (window.confirm(`${PROVIDER_NAMES[provider]} 연결을 끊을까요? 가져온 할 일은 그대로 남아요.`)) run('disconnect', { provider }); };
+  return <section className={'tool-card tool-row' + (conn ? ' is-connected' : '')} aria-label={PROVIDER_NAMES[provider]}>
+    <div className="tool-head">
+      <ProviderIcon provider={provider} size={40} />
+      <div className="tool-name"><strong>{PROVIDER_NAMES[provider]}</strong>
+        <span className={conn ? 'connected-label' : 'meta'}>{!state ? '확인하는 중…' : conn ? (conn.account || '연결됨') : waiting ? '브라우저에서 연결을 마쳐 주세요' : '연결 안 됨'}</span></div>
+      {conn ? <button className="ghost" disabled={busy} onClick={leave}>연결 끊기</button>
+        : <button className="primary" disabled={busy || !!waiting} onClick={() => connect(provider)}>{waiting ? '기다리는 중…' : '연결하기'}</button>}
+    </div>
+    {conn && <div className="tool-body">
+      {subs.map(s => <Subscription key={s.id} sub={s} busy={busy} run={run} />)}
+      {provider === 'google' && !subs.length && <p className="meta tool-empty">캘린더를 불러오는 중…</p>}
+      {provider === 'notion' && (picking ? <PagePicker subs={subs} busy={busy} run={run} onClose={() => setPicking(false)} />
+        : <button className="ghost tool-pick" onClick={() => setPicking(true)}>+ 지켜볼 페이지 고르기</button>)}
+    </div>}
+  </section>;
+}
+
+export default function Integrations() {
+  const state = useToolsState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [waiting, setWaiting] = useState({});
+  const run = async (action, payload) => {
+    setBusy(true); setError('');
+    try { const r = await toolAction(action, payload); if (!r.ok) setError(r.error); return r; } finally { setBusy(false); }
+  };
+  // After "연결하기" the browser finishes the sign-in: look every 2 s (for up to 2 minutes) until the connection shows up.
+  const pending = Object.keys(waiting).length > 0;
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = setInterval(refreshTools, 2000);
+    return () => clearInterval(timer);
+  }, [pending]);
+  useEffect(() => {
+    const now = Date.now(), still = Object.fromEntries(Object.entries(waiting).filter(([p, at]) => now - at < WAIT_MS && !state?.connections?.some(c => c.provider === p)));
+    if (Object.keys(still).length !== Object.keys(waiting).length) setWaiting(still);
+    if (!pending) return undefined;
+    const t = setTimeout(() => setWaiting(w => ({ ...w })), 2500); // re-check the 2-minute limit
+    return () => clearTimeout(t);
+  }, [state, waiting]);
+  const connect = async provider => { const r = await run('start', { provider }); if (r.ok) setWaiting(w => ({ ...w, [provider]: Date.now() })); };
+  const problem = error || (state && !state.ok ? state.error : '');
+  return <div className="tools-list">
+    {TOOLS.map(p => <ToolCard key={p} provider={p} state={state?.ok ? state : state && { connections: [], subscriptions: [] }} waiting={waiting[p]} busy={busy} run={run} connect={connect} />)}
+    {problem && <p role="alert" className="integration-error">{problem}</p>}
+    <p className="desc tools-hint">연결한 곳이 바뀌면 펫이 읽고 할 일로 옮겨 적어요.</p>
+  </div>;
 }

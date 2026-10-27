@@ -6,7 +6,6 @@ import { File, Paths } from 'expo-file-system';
 import { useDb } from '../store.js';
 import { useDesign, WALLPAPERS, wallpaperSource } from '../design.js';
 import Integrations from './Integrations.js';
-import ServerSettings from './Settings.js';
 import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
 import { notificationPermission } from '../notifications.js';
 
@@ -65,13 +64,13 @@ function Account() {
   </View>;
 }
 
-export default function AppSettings() {
-  const d = useDesign(), [tab, setTab] = useState('notify');
+export default function AppSettings({ initialTab = 'notify' }) {
+  const d = useDesign(), [tab, setTab] = useState(initialTab);
   return <View style={{ gap: 16 }}>
     <Account />
     <View style={{ flexDirection: 'row', padding: 3, borderRadius: 14, backgroundColor: d.input }}>
-      {[['notify', '알림'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['pc', 'PC 연결']].map(([key, label]) => <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }} onPress={() => setTab(key)} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 11, backgroundColor: tab === key ? '#ffffffd9' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? d.accent : d.muted }}>{label}</Text></Pressable>)}
+      {[['notify', '알림'], ['wallpaper', '배경 화면'], ['tools', '도구 연결']].map(([key, label]) => <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }} onPress={() => setTab(key)} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 11, backgroundColor: tab === key ? '#ffffffd9' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? d.accent : d.muted }}>{label}</Text></Pressable>)}
     </View>
-    {tab === 'notify' ? <Reminders /> : tab === 'wallpaper' ? <Wallpapers /> : tab === 'tools' ? <Integrations /> : <ServerSettings />}
+    {tab === 'notify' ? <Reminders /> : tab === 'wallpaper' ? <Wallpapers /> : <Integrations />}
   </View>;
 }

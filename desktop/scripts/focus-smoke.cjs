@@ -26,6 +26,8 @@ ipcMain.handle('smoke:integrations', (_, p) => {
   if (p?.action === 'create-pet') return { ok: true, name: '구름', species: 'bunny', color: 'lavender', personality: '조용한 응원 친구', greeting: '오늘도 한 걸음씩.' };
   return { ok: true, configured: { openai: true, model: 'test-model' }, connections: [], targets: [], jobs: [] };
 });
+ipcMain.handle('smoke:tools', () => ({ ok: true, connections: [], subscriptions: [], jobs: [] }));
+ipcMain.handle('smoke:open', () => ({ ok: true }));
 ipcMain.handle('smoke:wallpaper', (_, p) => { fs.writeFileSync(path.join(dir, 'checker-wallpaper.html'), wallpaperHtml(p)); return { ok: true }; });
 const pause = ms => new Promise(r => setTimeout(r, ms));
 let clockWindow;
@@ -204,11 +206,11 @@ await snap('clock-drag-calendar');await js(`window.dispatchEvent(new PointerEven
     await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`);await pause(80);assert.ok(await js(`!document.querySelector('.offline-game')`));
     await js(`document.querySelector('[aria-label="메뉴"]').click()`);await pause(50);
     await click('설정');
-    assert.deepEqual(await js(`[...document.querySelectorAll('.settings-tab')].map(b=>b.textContent)`),['일반','배경 화면','도구 연결','휴대폰 연결','정보']);
+    assert.deepEqual(await js(`[...document.querySelectorAll('.settings-tab')].map(b=>b.textContent)`),['일반','배경 화면','도구 연결','정보']);
     assert.ok(await js(`!/펫|LLM/.test(document.querySelector('.settings-panel').innerText)`),'pet/LLM settings are gone');
     await snap('settings-popup');
-    await click('도구 연결');assert.ok(await js(`document.querySelectorAll('.settings-pane .tool-card').length===3`));
-    await click('휴대폰 연결');await click('연결 코드 만들기');assert.equal(await js(`document.querySelector('.pair-code').textContent`),'123456');
+    await click('도구 연결');assert.ok(await js(`document.querySelectorAll('.settings-pane .tool-card').length===2`));
+    assert.ok(await js(`!/휴대폰 연결|연결 코드/.test(document.querySelector('.settings-panel').innerText)`),'phone pairing is gone (login replaces it)');
     await click('배경 화면');
     await js(`document.querySelector('[aria-label="협곡 배경"]').click()`);await pause(150);
     assert.equal(db.settings.wallpaper.id,'canyon');assert.ok(await js(`document.body.style.getPropertyValue('--wallpaper').includes('canyon')`));

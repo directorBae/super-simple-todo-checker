@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compactTitle, clockTimeAt, schedulePatch, titleSource } from '../src/focus-utils.mjs';
-import { createGame, stepGame, STAGES, DINO_GOAL, RUNNER_X } from '../src/focus/game-engine.mjs';
+import { createGame, stepGame, stopAt, GAMES, DINO_GOAL, RUNNER_X, CROSSING, crossingPose, worldOffsets } from '../src/focus/game-engine.mjs';
 import * as dino from '../src/focus/dino.mjs';
 import * as mario from '../src/focus/mario.mjs';
 import * as galaga from '../src/focus/galaga.mjs';
@@ -76,20 +76,35 @@ test('rescheduling clears previous end fields to prevent inverted intervals', ()
 const seeded = (seed = 7) => () => ((seed = seed * 16807 % 2147483647) / 2147483647);
 const run = (step, seconds, keys = () => new Set()) => { let r = null; for (let i = 0; i < seconds * 60 && !r; i++) r = step(keys(i), i); return r; };
 
-test('the run strings the games together and pushes the runner back to the left between them', () => {
-  assert.deepEqual(STAGES, ['dino', 'mario', 'dino', 'galaga', 'dino', 'pacman']);
+test('the run: dino 1000 → a game → dino …, three stages per game by lap, and the pet crosses over without a cut', () => {
+  assert.deepEqual([1, 3, 5, 7, 9, 11, 13].map((i) => stopAt(i).name), GAMES);
+  assert.deepEqual([stopAt(0).name, stopAt(2).name], ['dino', 'dino']);
+  assert.deepEqual(stopAt(15), { name: 'mario', stage: 1, lap: 1 }); assert.deepEqual(stopAt(29), { name: 'mario', stage: 2, lap: 2 });
+  assert.deepEqual(stopAt(43), { name: 'mario', stage: 0, lap: 3 }, 'after three laps the stages come round again (harder)');
   const g = createGame(); assert.equal(g.stage, 'dino'); assert.equal(g.runner.invincible, 0);
   g.state.obstacles = [{ kind: 'small', x: 480, y: dino.FLOOR - 26, w: 16, h: 26 }]; g.score = DINO_GOAL;
   stepGame(g, 1 / 60, new Set(), () => 0.5); assert.equal(g.stage, 'dino'); assert.equal(g.state.ending, true);
-  g.state.obstacles = []; stepGame(g, 1 / 60, new Set()); assert.equal(g.stage, 'mario'); assert.ok(g.transition);
-  for (let i = 0; i < 60; i++) stepGame(g, 1 / 60, new Set());
+  g.state.obstacles = []; stepGame(g, 1 / 60, new Set()); assert.equal(g.stage, 'mario'); assert.equal(g.transition.way, 'right');
+  // Halfway across: both worlds on screen, the pet in the air between its last dino spot and its first Mario spot.
+  const from = g.transition.pose, to = g.transition.to;
+  for (let i = 0; i < Math.round(CROSSING * 30); i++) stepGame(g, 1 / 60, new Set());
+  const mid = crossingPose(g), off = worldOffsets(g);
+  assert.ok(off.from.x < -100 && off.to.x > 100, 'old world leaving, new one arriving');
+  assert.ok(mid.bottom < Math.min(from.bottom, to.bottom) - 20, 'the pet hops across: ' + mid.bottom);
+  for (let i = 0; i < 80; i++) stepGame(g, 1 / 60, new Set());
   assert.equal(g.transition, null); assert.equal(g.state.player.x, RUNNER_X);
-  // Mario ends at the castle door; the next dino run starts there and slides back to its spot.
+  // Mario ends at the castle door; the road comes back the same way (right).
   g.state.player.x = 4083; g.state.level.cam = 3740; g.state.outro = { phase: 'inside', t: 1 };
-  stepGame(g, 1 / 60, new Set()); assert.equal(g.stage, 'dino'); assert.ok(g.state.player.x > 300);
-  stepGame(g, 0.3, new Set()); const mid = g.state.player.x; assert.ok(mid < 300 && mid > RUNNER_X, String(mid));
-  for (let i = 0; i < 60; i++) stepGame(g, 1 / 60, new Set());
+  stepGame(g, 1 / 60, new Set()); assert.equal(g.stage, 'dino'); assert.equal(g.transition.way, 'right');
+  for (let i = 0; i < 80; i++) stepGame(g, 1 / 60, new Set());
   assert.equal(g.state.player.x, RUNNER_X);
+  // Galaga goes up into space and comes back down.
+  g.state.obstacles = []; g.score = g.stageStart + DINO_GOAL; stepGame(g, 1 / 60, new Set()); stepGame(g, 1 / 60, new Set());
+  assert.equal(g.stage, 'galaga'); assert.equal(g.transition.way, 'up');
+  for (let i = 0; i < Math.round(CROSSING * 30); i++) stepGame(g, 1 / 60, new Set());
+  assert.ok(worldOffsets(g).from.y > 100 && worldOffsets(g).to.y < -100, 'the road drops away as space comes down');
+  for (let i = 0; i < 80; i++) stepGame(g, 1 / 60, new Set());
+  assert.equal(g.transition, null);
 });
 test('lives: a hit costs one life with a grace period, zero lives ends the run', () => {
   const tree = () => [{ kind: 'small', x: RUNNER_X, y: dino.FLOOR - 26, w: 16, h: 26 }];
@@ -158,7 +173,7 @@ test('the pet is one object across games: a mushroom makes it big and adds a hea
   // Big carries into the next game: a big pet in Mario is a tall pet back in the dino run.
   const g = createGame(); g.runner.big = true; g.state.obstacles = []; g.score = DINO_GOAL; stepGame(g, 1 / 60, new Set());
   assert.equal(g.stage, 'mario'); assert.ok(g.state.player.h > 30);
-  for (let i = 0; i < 60; i++) stepGame(g, 1 / 60, new Set());
+  for (let i = 0; i < 80; i++) stepGame(g, 1 / 60, new Set());
   g.state.player.x = 4083; g.state.level.cam = 3740; g.state.outro = { phase: 'inside', t: 1 }; stepGame(g, 1 / 60, new Set());
   assert.equal(g.stage, 'dino'); assert.ok(g.state.player.h > 30, 'still big in the dino run');
   g.transition = null; g.state.player.x = RUNNER_X; g.runner.invincible = 0; g.state.obstacles = [{ kind: 'small', x: RUNNER_X, y: dino.FLOOR - 26, w: 16, h: 26 }];
@@ -193,10 +208,11 @@ test('pac-man: dots 10, energizer 50 and frightened ghosts worth 200 then 400; a
   st.fright = 0; st.ghosts.forEach((g) => { g.frightened = false; }); Object.assign(st.ghosts[2], { x: st.pac.x, y: st.pac.y }); st.pause = 0;
   assert.equal(pacman.step(st, 1 / 120, new Set(), game, seeded()), 'hurt');
   assert.equal(pacman.MAZE.length, 31); assert.ok(pacman.MAZE.every((row) => row.length === 28));
-  // 70% of the dots eaten moves on to the next game.
-  const st2 = pacman.create(); st2.pause = 0; const keep = [...st2.dots].slice(0, Math.floor(st2.total * 0.3) + 1);
-  st2.dots = new Set(keep); assert.equal(pacman.step(st2, 1 / 120, new Set(), game, seeded()), null);
-  st2.dots = new Set(keep.slice(1)); st2.pause = 0; assert.equal(pacman.step(st2, 1 / 120, new Set(), game, seeded()), 'done');
+  // The stage ends at its score target (1800 in the first maze), not before.
+  const g2 = { score: 0, runner: createRunner() }, st2 = pacman.create(g2); st2.pause = 0;
+  st2.ghosts.forEach((g) => { Object.assign(g, { x: 14, y: 14.5, state: 'house', timer: 99 }); });
+  g2.score = 1790; assert.equal(pacman.step(st2, 1 / 120, new Set(), g2, seeded()), null);
+  g2.score = 1800; st2.pause = 0; assert.equal(pacman.step(st2, 1 / 120, new Set(), g2, seeded()), 'done');
 });
 test('wallpaper is standalone and safely embeds untrusted pet names', () => {
   const html = wallpaper.wallpaperHtml({ pet: { name: '</script><script>alert(1)</script>', greeting: '<img src=x>', color: 'evil' } });

@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, SafeAreaView, Platform, StatusBar as NativeStatusBar, Pressable, PanResponder, Animated, StyleSheet, useWindowDimensions } from 'react-native';
+import { View, SafeAreaView, Platform, StatusBar as NativeStatusBar, Pressable, PanResponder, Animated, StyleSheet, useWindowDimensions, Linking, ScrollView } from 'react-native';
 import { Text } from './src/text.js';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BlurView } from 'expo-blur';
 import { DbProvider, useDb } from './src/store.js';
+import { ToolsProvider } from './src/tools.js';
+import JobToast from './src/JobToast.js';
 import { DesignProvider, useDesign, Surface, Button, Sheet, Icon } from './src/design.js';
 import Board from './src/screens/Board.js';
 import Integrations from './src/screens/Integrations.js';
@@ -17,7 +19,7 @@ import { outsideTap } from './src/gesture.js';
 import { notificationPermission, rescheduleReminders } from './src/notifications.js';
 
 function Shell() {
- const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false);
+ const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
  const [music, setMusic] = useState(false), [musicMounted, setMusicMounted] = useState(false), [nowPlaying, setNowPlaying] = useState(null), musicControls = useRef(null);
  const onboarding = !db.settings.onboardingDone;
  // Rooms side by side: teams/buckets (-1) ← main (0) → clock (1). The phone app has no pet.
@@ -45,6 +47,14 @@ function Shell() {
  // Reminders: ask once after onboarding, then keep the device's schedule in step with the to-dos.
  useEffect(() => { if (!onboarding) notificationPermission().then(() => rescheduleReminders(db)).catch(() => {}); }, [onboarding]);
  useEffect(() => { const t = setTimeout(() => rescheduleReminders(db).catch(() => {}), 1500); return () => clearTimeout(t); }, [db.todos, db.settings]);
+ // The tool sign-in page ends with a todochecker://settings/tools link: back in the app, open 설정 → 도구 연결.
+ useEffect(() => {
+  if (Platform.OS === 'web') return undefined;
+  const open = url => { if (/^todochecker:\/\/settings\/tools/.test(url || '') && !latest.current.onboarding) { setMenu(false); setSettingsTab('tools'); setSettings(true); } };
+  Linking.getInitialURL().then(open).catch(() => {});
+  const sub = Linking.addEventListener('url', e => open(e.url));
+  return () => sub.remove();
+ }, []);
  const finish = () => { api.updateSettings({ onboardingDone:true }); };
  const openMusic = () => { setMenu(false); setMusicMounted(true); setMusic(true); };
  // A tap anywhere closes open pop-overs such as the "내 팀 전부 넣기" pill.
@@ -61,15 +71,16 @@ function Shell() {
     </View>}
     <Pressable accessibilityLabel="메뉴" onPress={() => setMenu(true)} hitSlop={12}><View style={{padding:5}}><Icon name="menu" size={19} /></View></Pressable>
    </Surface>
-   {onboarding ? <View style={{ flex:1 }}><View style={{ paddingHorizontal:28, paddingTop:32, paddingBottom:12 }}><Text style={{ color:'#fff', fontSize:12, fontWeight:'700', letterSpacing:2 }}>WELCOME TO CHECKER</Text><Text style={{ color:'#fff', fontSize:32, lineHeight:42, fontWeight:'700', letterSpacing:-1, marginTop:14, textShadowColor:'#0006', textShadowRadius:8 }}>흩어진 일들을{ '\n' }한곳으로.</Text></View><Integrations /><View style={{ padding:22, paddingTop:0, gap:8 }}><Button title="시작하기" primary onPress={finish} /><Button title="지금은 건너뛰기" onPress={finish} /></View></View> :
+   {onboarding ? <View style={{ flex:1 }}><View style={{ paddingHorizontal:28, paddingTop:32, paddingBottom:12 }}><Text style={{ color:'#fff', fontSize:12, fontWeight:'700', letterSpacing:2 }}>WELCOME TO CHECKER</Text><Text style={{ color:'#fff', fontSize:32, lineHeight:42, fontWeight:'700', letterSpacing:-1, marginTop:14, textShadowColor:'#0006', textShadowRadius:8 }}>흩어진 일들을{ '\n' }한곳으로.</Text></View><ScrollView style={{ flex:1 }} contentContainerStyle={{ padding:22, paddingTop:8 }}><Integrations /></ScrollView><View style={{ padding:22, paddingTop:0, gap:8 }}><Button title="시작하기" primary onPress={finish} /><Button title="지금은 건너뛰기" onPress={finish} /></View></View> :
     <View style={{ flex:1 }}><Board clockOpen={room===1} clockLeft={0} onClockReveal={todo=>{setClockTodo(todo);setRoom(1);}} onClockClose={()=>setRoom(0)} onClockDrop={(todo,x,y)=>clock.current?.drop(todo,x,y)} onClockHover={(x,y,todo)=>clock.current?.hover(x,y,todo)} /></View>}
-   {menu && <Sheet title="메뉴" onClose={() => setMenu(false)}><Button title="음악" onPress={openMusic} /><Button title="설정" onPress={() => { setMenu(false); setSettings(true); }} /></Sheet>}
-   {settings && <Sheet title="설정" onClose={() => setSettings(false)}><AppSettings /></Sheet>}
+   {menu && <Sheet title="메뉴" onClose={() => setMenu(false)}><Button title="음악" onPress={openMusic} /><Button title="설정" onPress={() => { setMenu(false); setSettingsTab('notify'); setSettings(true); }} /></Sheet>}
+   {settings && <Sheet title="설정" onClose={() => setSettings(false)}><AppSettings key={settingsTab} initialTab={settingsTab} /></Sheet>}
    {!onboarding&&<Animated.View pointerEvents={room===-1?'auto':'none'} style={[StyleSheet.absoluteFill,{zIndex:60,borderRightWidth:1,borderRightColor:'#ffffffb3',transform:[{translateX:camera.interpolate({inputRange:[-1,0],outputRange:[0,-width],extrapolate:'clamp'})}]}]}>
     <BlurView blurTarget={d.target} blurMethod="dimezisBlurViewSdk31Plus" intensity={60} tint="systemUltraThinMaterialLight" style={StyleSheet.absoluteFill}/><View pointerEvents="none" style={[StyleSheet.absoluteFill,{backgroundColor:'#ffffff59'}]}/>
     <Manage onClose={()=>setRoom(0)}/>
    </Animated.View>}
    {!onboarding&&<ClockDrawer ref={clock} visible={room===1} camera={camera} db={db} api={api} pending={clockTodo} onAssigned={()=>setClockTodo(null)} onClose={()=>setRoom(0)}/>}
+   <JobToast />
    {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} />}
    <StatusBar style="dark" />
  </View></SafeAreaView>;
@@ -77,6 +88,6 @@ function Shell() {
 // With Supabase on, nothing shows until someone is signed in (blank while the saved session is read).
 function Themed() {
  const { db, account, loginRequired } = useDb();
- return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <Shell /> : account === null ? <Login /> : null}</DesignProvider>;
+ return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <ToolsProvider key={account?.id || account?.email || 'local'}><Shell /></ToolsProvider> : account === null ? <Login /> : null}</DesignProvider>;
 }
 export default function App() { return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }

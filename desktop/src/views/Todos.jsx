@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TodoEditor, TeamControl } from '../components.jsx';
-import { SourceIcons } from '../icons.jsx';
+import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
 import { lineSort, teamSort, teamGroups } from '../../../shared/todo-drop.js';
 import { useTodoDrag } from './useTodoDrag.js';
@@ -179,7 +179,6 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
           checked={isDone}
           onChange={() => window.api.updateTodo(todo.id, { status: isDone ? 'todo' : 'done' })}
         />
-        <SourceIcons todo={todo}/>
         {editing ? (
           <textarea
             ref={inputRef}
@@ -236,6 +235,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
             </button>
           </span>
         </span>
+        <SourceMark todo={todo} />
       </div>
       {detail && <TodoEditor todo={todo} db={db} onClose={() => setDetail(false)} />}
     </div>
@@ -764,7 +764,7 @@ function calChip(t, db, showTime = false) {
       title={t.title}
     >
       {showTime && t.startTime && <span className="cal-chip-time">{t.startTime}</span>}
-      <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{compactTitle(t.title)}</span>
+      <span className="cal-chip-title">{compactTitle(t.title)}</span><SourceMark todo={t} size={12} />
     </div>
   );
 }

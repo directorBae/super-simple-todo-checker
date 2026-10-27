@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('api', {
   syncNow: () => invoke('sync:now'),
   pairDevice: () => invoke('sync:pair'),
   integrations: (payload) => invoke('integrations:request', payload),
+  // 노션 · 구글 캘린더: state | start | pages | subscribe | unsubscribe | disconnect | sync → { ok, ... }
+  tools: (action, payload) => invoke('tools:request', { action, payload }),
+  openExternal: (url) => invoke('shell:open', url),
 
   signIn: (email, password) => invoke('auth:signin', { email, password }),
   signUp: (email, password) => invoke('auth:signup', { email, password }),

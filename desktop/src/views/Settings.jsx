@@ -6,7 +6,7 @@ import { DEFAULT_PET } from '../focus/Pet.jsx';
 import { petPixels } from '../../../shared/pixel-pet.js';
 import { webNotifyState, askWebNotify } from '../web-notify.js';
 
-const TABS = [['general', '일반'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['phone', '휴대폰 연결'], ['about', '정보']];
+const TABS = [['general', '일반'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['about', '정보']];
 
 // Web only: the browser has to be allowed to show notifications.
 function BrowserNotify() {
@@ -84,17 +84,6 @@ function Wallpaper({ db }) {
   </>;
 }
 
-function Phone() {
-  const [pair, setPair] = useState(null);
-  const make = async () => { setPair(null); setPair(await window.api.pairDevice()); };
-  return <Section title="휴대폰 연결">
-    <p className="desc">휴대폰 앱의 메뉴 → <strong>PC 연결</strong>에서 아래 주소와 코드를 입력하세요. 두 기기를 같은 Wi-Fi에 연결해 주세요. 코드는 10분 동안 한 번 사용할 수 있습니다.</p>
-    {!pair ? <button className="primary" onClick={make}>연결 코드 만들기</button>
-      : pair.ok ? <div className="pair-panel">{pair.urls.map((url) => <div key={url} className="pair-address">{url}</div>)}<div className="pair-code">{pair.code}</div><button className="ghost" onClick={make}>새 코드 만들기</button></div>
-      : <><p role="alert">{pair.error}</p><button className="ghost" onClick={make}>다시 시도</button></>}
-  </Section>;
-}
-
 function About() {
   const [info, setInfo] = useState(null);
   useEffect(() => { window.api.getInfo().then(setInfo); }, []);
@@ -108,7 +97,7 @@ export default function Settings({ db, initialTab = 'general' }) {
       {TABS.map(([key, label]) => <button key={key} className={'settings-tab' + (tab === key ? ' active' : '')} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}>{label}</button>)}
     </nav>
     <div className="settings-pane">
-      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} /> : tab === 'phone' ? <Phone /> : <About />}
+      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} /> : <About />}
     </div>
   </div>;
 }

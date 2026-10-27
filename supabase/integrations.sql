@@ -1,0 +1,127 @@
+-- 사람별 도구 연동(노션 · 구글 캘린더). auth.sql 다음에 SQL Editor에서 한 번 실행합니다. 여러 번 실행해도 안전합니다.
+--
+-- 흐름: 각자 앱에서 노션/구글을 연결(OAuth) → 노션은 페이지·DB를 골라 구독, 구글은 캘린더 전체 → 원본이 바뀌면
+-- 웹훅이 Edge Function(sync-source)을 깨우고, GPT가 원본 전체와 이번 주 할 일을 비교해 할 일을 만들고 고친다.
+-- 앱에서 날짜·시간을 바꾸면 todos 트리거가 Edge Function(push-back)을 불러 원본에도 반영한다(양방향).
+--
+-- 표
+--   connections    사람별 연결. 토큰(secret)은 Edge Function만 읽는다 — 앱은 secret 열을 볼 수 없다.
+--   subscriptions  구독한 노션 페이지·DB, 구글 캘린더. 웹훅 채널과 마지막 동기화 정보.
+--   pet_jobs       펫이 하는 일(읽는 중 → 생각 중 → 적는 중 → 끝). 앱이 이걸 보고 펫 애니메이션을 띄운다.
+--   webhook_keys   노션 웹훅 검증 토큰(서명 확인용). Edge Function만 쓴다.
+
+create extension if not exists pg_net;
+
+create table if not exists public.connections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  provider text not null check (provider in ('notion', 'google')),
+  account text,                                 -- 노션 워크스페이스 이름 / 구글 이메일 (앱에 표시)
+  meta jsonb not null default '{}'::jsonb,      -- 노션 workspace_id 등
+  secret jsonb not null default '{}'::jsonb,    -- access/refresh token — 앱에는 안 보임
+  created_at timestamptz not null default now(),
+  unique (user_id, provider)
+);
+
+create table if not exists public.subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  connection_id uuid not null references public.connections(id) on delete cascade,
+  provider text not null check (provider in ('notion', 'google')),
+  resource_type text not null check (resource_type in ('page', 'database', 'calendar')),
+  resource_id text not null,
+  title text not null default '',
+  url text,
+  meta jsonb not null default '{}'::jsonb,      -- 노션 DB의 제목·날짜 속성 이름, 구글 채널(id, resourceId, 만료)
+  state text not null default 'idle',           -- idle | syncing | error
+  last_error text,
+  last_synced_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (user_id, provider, resource_id)
+);
+create index if not exists subscriptions_resource_idx on public.subscriptions (provider, resource_id);
+
+create table if not exists public.pet_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  subscription_id uuid references public.subscriptions(id) on delete set null,
+  provider text not null,
+  kind text not null default 'import' check (kind in ('import', 'push')),
+  state text not null default 'reading' check (state in ('reading', 'thinking', 'writing', 'done', 'error')),
+  summary text not null default '',
+  counts jsonb not null default '{}'::jsonb,    -- { created, updated, deleted }
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists pet_jobs_user_idx on public.pet_jobs (user_id, updated_at desc);
+
+create table if not exists public.webhook_keys (
+  provider text primary key,
+  token text not null,
+  created_at timestamptz not null default now()
+);
+
+-- 권한: 앱(로그인한 사람)은 자기 연결·구독·펫 작업을 읽고, 연결·구독을 지울 수 있다. 쓰기는 Edge Function(service role)만.
+alter table public.connections enable row level security;
+alter table public.subscriptions enable row level security;
+alter table public.pet_jobs enable row level security;
+alter table public.webhook_keys enable row level security;
+do $$
+declare t text;
+begin
+  foreach t in array array['connections', 'subscriptions', 'pet_jobs'] loop
+    execute format('drop policy if exists "own read" on public.%I', t);
+    execute format('drop policy if exists "own delete" on public.%I', t);
+    execute format('create policy "own read" on public.%I for select to authenticated using (user_id = auth.uid())', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
+  end loop;
+  foreach t in array array['connections', 'subscriptions'] loop
+    execute format('create policy "own delete" on public.%I for delete to authenticated using (user_id = auth.uid())', t);
+    execute format('grant delete on public.%I to authenticated', t);
+  end loop;
+end $$;
+grant select (id, user_id, provider, account, meta, created_at) on public.connections to authenticated;
+grant select on public.subscriptions, public.pet_jobs to authenticated;
+revoke all on public.webhook_keys from anon, authenticated;
+
+-- 양방향: 원본에서 온 할 일의 날짜·시간·제목·완료가 앱에서 바뀌면 push-back 함수를 부른다.
+-- 함수 주소와 비밀값은 아래 설정 표에 둔다(대시보드에서 보이지 않게 Vault 대신 단순 표; service role만 읽음).
+create table if not exists public.function_settings (key text primary key, value text not null);
+alter table public.function_settings enable row level security;
+revoke all on public.function_settings from anon, authenticated;
+
+create or replace function public.todo_push_back() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare base text; hook text;
+begin
+  if new.origin is null or new.origin->>'provider' is null then return new; end if;
+  if new.deleted_at is not null and old.deleted_at is not null then return new; end if;
+  if (new.date, new.start_time, new.end_time, new.title, new.status, new.deleted_at)
+     is not distinct from (old.date, old.start_time, old.end_time, old.title, old.status, old.deleted_at) then return new; end if;
+  select value into base from function_settings where key = 'functions_url';
+  select value into hook from function_settings where key = 'hook_secret';
+  if base is null or hook is null then return new; end if;
+  perform net.http_post(
+    url := base || '/push-back',
+    body := jsonb_build_object('id', new.id, 'user_id', new.user_id),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'X-Hook-Secret', hook)
+  );
+  return new;
+end $$;
+drop trigger if exists todos_push_back on public.todos;
+create trigger todos_push_back after update on public.todos for each row execute function public.todo_push_back();
+
+-- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule(jobid) from cron.job where jobname = 'renew-google-channels';
+    perform cron.schedule('renew-google-channels', '17 4 * * *', $cron$
+      select net.http_post(
+        url := (select value from public.function_settings where key = 'functions_url') || '/renew',
+        body := '{}'::jsonb,
+        headers := jsonb_build_object('Content-Type', 'application/json', 'X-Hook-Secret', (select value from public.function_settings where key = 'hook_secret'))
+      )
+    $cron$);
+  end if;
+end $$;

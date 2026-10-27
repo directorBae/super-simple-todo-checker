@@ -4,11 +4,13 @@ const dir = path.resolve(__dirname, '../../artifacts/uiux-qa');
 fs.mkdirSync(dir,{recursive:true}); app.setPath('userData',path.join(dir,'profile'));
 const now=Date.now(), today=new Date().toLocaleDateString('en-CA');
 const db={ todos:[{ id:'a',title:'Design review',teamId:'team',kind:'todo',status:'todo',date:today,createdAt:now,updatedAt:now }], teams:[{id:'team',name:'Studio',color:'#6685e8'}], projects:[], gcalEvents:[], tombstones:[], notifLog:[], settings:{theme:'light',sync:{lastSync:now},notifyStart:true,notifyEnd:true} };
-const state={ok:true,connections:[{id:'account',provider:'notion',label:'Studio Notion',enabled:true}],targets:[],jobs:[],configured:{google:true,notionOAuth:false}};
-db.todos[0].integration={provider:'notion',sources:[{provider:'notion'},{provider:'google'},{provider:'notion'}]};
-db.todos.push(...['apple','google'].map((provider,i)=>({...db.todos[0],id:'logo-'+provider,title:i?'Client meeting':'Afternoon appointment',integration:{provider,sources:[{provider}]}})));
-db.todos.push({...db.todos[0],id:'local-logo-test',title:'Write a quick note',integration:undefined});
-db.todos.push(...['Buy stamps','Call the bank'].map((title,i)=>({...db.todos[0],id:'loose-'+i,title,teamId:null,integration:undefined,createdAt:now+i})));
+const state={ok:true,connections:[],targets:[],jobs:[],configured:{}};
+// 노션 · 구글 캘린더 as the signed-in person sees them (window.api.tools); imported to-dos carry origin.
+let tools={ok:true,connections:[],subscriptions:[],jobs:[]};const toolCalls=[],opened=[];
+db.todos[0].origin={type:'external',provider:'notion',subscription:'s-p1',id:'row-1',url:'https://www.notion.so/design-review'};
+db.todos.push(...['apple','google'].map((provider,i)=>({...db.todos[0],id:'logo-'+provider,title:i?'Client meeting':'Afternoon appointment',origin:{type:'external',provider:'google',url:'https://calendar.google.com/calendar/r'}})));
+db.todos.push({...db.todos[0],id:'local-logo-test',title:'Write a quick note',origin:{type:'app'}});
+db.todos.push(...['Buy stamps','Call the bank'].map((title,i)=>({...db.todos[0],id:'loose-'+i,title,teamId:null,origin:{type:'app'},createdAt:now+i})));
 const calls=[];
 const emit=e=>{e.sender.send('smoke:db',db);return db;};
 let added=0;
@@ -26,6 +28,16 @@ ipcMain.handle('smoke:integrations',(_,p)=>{
  if(p?.action==='notion-users') return {ok:true,users:[{id:'11111111-1111-4111-8111-111111111111',label:'Demo user'}]};
  return state;
 });
+ipcMain.handle('smoke:tools',(_,{action,payload={}})=>{
+ toolCalls.push({action,...payload});
+ if(action==='start'){tools.connections.push({id:'c-'+payload.provider,provider:payload.provider,account:payload.provider==='notion'?'Studio 워크스페이스':'me@studio.com'});return {ok:true,url:'https://api.notion.com/v1/oauth/authorize?state=x'};}
+ if(action==='pages')return {ok:true,pages:[{id:'p1',type:'database',title:'주간 업무',icon:'📋'},{id:'p2',type:'page',title:'회의록',icon:null}].filter(p=>!payload.q||p.title.includes(payload.q))};
+ if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
+ if(action==='unsubscribe'){tools.subscriptions=tools.subscriptions.filter(x=>x.id!==payload.id);return {ok:true};}
+ if(action==='state')return JSON.parse(JSON.stringify(tools));
+ return {ok:true};
+});
+ipcMain.handle('smoke:open',(_,url)=>{opened.push(url);return {ok:true};});
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 app.whenReady().then(async()=>{
  const win=new BrowserWindow({show:false,width:1180,height:860,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(__dirname,'ui-smoke-preload.cjs')}});
@@ -38,28 +50,33 @@ app.whenReady().then(async()=>{
  try {
   await win.loadFile(path.join(__dirname,'../dist/index.html'));await pause(450);
   if(!await js('!!document.querySelector(".onboarding")')) throw Error('First-run onboarding missing');
-  if(await js('document.querySelectorAll(".tool-card").length')!==3) throw Error('Expected three tool buttons');
+  if(await js('[...document.querySelectorAll(".tool-card strong")].map(e=>e.textContent).join()')!=='노션,구글 캘린더') throw Error('Expected two tool cards (노션, 구글 캘린더)');
   await snap('desktop-welcome');
-  await js('document.querySelector(".tool-card").click()');await pause(180);
-  if(!await js('!!document.querySelector(".provider-dialog")'))throw Error('Provider must open modal');
-  await click('위치 선택');
-  await js('const s=document.querySelector(".integration-form select");s.value="source";s.dispatchEvent(new Event("change",{bubbles:true}))');await pause(180);
-  if(!await js('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="저장하고 가져오기").disabled'))throw Error('Assignee selection must be required');
-  await click('담당자 목록 불러오기');
-  await js('const assigneeSelect=[...document.querySelectorAll("label")].find(l=>l.textContent.startsWith("내 Notion 계정")).querySelector("select");assigneeSelect.value="11111111-1111-4111-8111-111111111111";assigneeSelect.dispatchEvent(new Event("change",{bubbles:true}))');await pause(180);
-  await snap('desktop-notion-assignee');
-  await click('저장하고 가져오기');
-  if(!calls.some(p=>p.action==='save-target'&&p.mapping.appId==='appId'&&p.teamId==='team'&&p.autoRoute&&p.assigneeFilter?.propertyId==='owner'&&p.assigneeFilter?.userId==='11111111-1111-4111-8111-111111111111'))throw Error('Mapped source with assignee not saved');
+  // 연결하기 asks for the OAuth page (the main process opens it in the browser); the connection shows up on the next look.
+  await click('연결하기');
+  if(!toolCalls.some(c=>c.action==='start'&&c.provider==='notion'))throw Error('연결하기 must start the Notion sign-in');
+  await pause(400);
+  if(!(await js('document.querySelector(".tool-card").innerText')).includes('Studio 워크스페이스'))throw Error('Connected account not shown');
+  await click('+ 지켜볼 페이지 고르기');await pause(250);
+  {const pages=await js('[...document.querySelectorAll(".tool-page")].map(e=>e.innerText.replace(/\\s+/g," ").trim()).join("|")');if(pages!=='📋 주간 업무 DB|📄 회의록 페이지')throw Error('Notion pages missing: '+pages);}
+  await js('document.querySelector(".tool-page").click()');await pause(300);
+  if(!toolCalls.some(c=>c.action==='subscribe'&&c.resourceId==='p1'&&c.type==='database'))throw Error('Picking a page must subscribe');
+  if(!(await js('document.querySelector(".tool-sub")?.innerText||""')).includes('읽는 중'))throw Error('Subscription state missing');
   await snap('desktop-provider');
-  await aria('연결 창 닫기');await pause(100);
   await click('지금은 건너뛰기');
   if(!db.settings.onboardingDone)throw Error('Skip not persisted');
   if(!await js('!!document.querySelector(".month-grid")'))throw Error('Month not default');
   await snap('desktop-month');
+  // Imported to-dos show their tool's logo at the end of the chip; clicking it opens the source, not the day.
+  await js('document.querySelector(\'.cal-chip[data-todo-id="a"] .source-mark\').click()');await pause(80);
+  if(opened.at(-1)!=='https://www.notion.so/design-review'||!await js('!!document.querySelector(".month-grid")'))throw Error('Month chip source mark must open the source only');
   await js('document.querySelector(".cal-cell.today").click()');await pause(250);
   if(await js('document.querySelector(".topbar").getBoundingClientRect().height')>70)throw Error('Notebook header is no longer compact');
   if(await js('document.querySelectorAll(".memo-day").length')<7)throw Error('Continuous notebook days missing');
   await pause(300);await snap('desktop-notebook-restored');
+  const mark=await js(`(()=>{const line=document.querySelector('#day-${today} .memo-line[data-todo-id="a"] .memo-line-main'),m=line?.querySelector('.source-mark');if(!m)return null;const a=m.getBoundingClientRect(),b=line.getBoundingClientRect();m.click();return {right:Math.round(b.right-a.right),width:Math.round(a.width),editing:!!document.querySelector('.memo-edit'),last:line.lastElementChild===m}})()`);
+  if(!mark||!mark.last||mark.right>16||mark.width>20||mark.editing)throw Error('Source mark must sit at the right end and only open the source: '+JSON.stringify(mark));
+  if(opened.length!==2||await js(`!!document.querySelector('.memo-line[data-todo-id="local-logo-test"] .source-mark')`))throw Error('Only imported to-dos have a source mark');
   // Rows drag from anywhere but their text/buttons (no ⠿ handle); Shift picks a range, Ctrl toggles one.
   if(await js('!!document.querySelector(".memo-day .todo-drag-handle")'))throw Error('Six-dot drag handle must be gone');
   await js(`document.getElementById('day-${today}').scrollIntoView({block:'center'});
@@ -171,6 +188,7 @@ app.whenReady().then(async()=>{
   await aria('메뉴');await click('설정');await click('도구 연결');
   const text=await js('document.querySelector(".settings-pane").innerText');
   for(const hidden of ['OpenAI','개인 메모리','전송 작업','AI 목적지'])if(text.includes(hidden))throw Error('Tool screen leaked '+hidden);
+  if(await js('document.querySelectorAll(".settings-pane .tool-card").length')!==2||!text.includes('지켜보는 중')&&!text.includes('읽는 중'))throw Error('Settings must show the two tools and the watched page');
   await snap('desktop-tools');
   if(errors.length)throw Error(errors.join('\n'));
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='일').click()`);await pause(300);
@@ -242,7 +260,16 @@ app.whenReady().then(async()=>{
       await new Promise(r=>setTimeout(r,700));const after=sc.scrollTop;__ptr('pointercancel',document.body,0,0);return after-before;})()`);await pause(150);
     if(!(moved>40))throw Error('Dragging to the bottom edge must scroll the notebook: '+moved);
   }
-  console.log('UI UX smoke passed: onboarding/skip, tool-only cards, provider modal + automatic mapping, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  // The pet does the tool work: thinking while the job thinks, then says the summary when it is done.
+  tools.jobs=[{id:'j1',provider:'notion',kind:'import',state:'thinking',summary:'노션 "주간 업무" 읽는 중',updated_at:new Date().toISOString()}];
+  db.auth={required:true,loading:false,email:'smoke@checker.test'};win.webContents.send('smoke:db',db);await pause(2600);
+  if(!await js('!!document.querySelector(".roaming-pet[data-work=thinking] .pet-work.thinking")'))throw Error('The pet must think while the job thinks');
+  await snap('desktop-pet-thinking');
+  Object.assign(tools.jobs[0],{state:'done',summary:'노션 "주간 업무"에서 2개 추가',counts:{created:2},updated_at:new Date().toISOString()});await pause(4400);
+  const said=await js('document.querySelector(".roaming-pet .pet-say")?.textContent||""');
+  if(!said.includes('2개 추가'))throw Error('The pet must say the summary when the job is done: '+said);
+  await snap('desktop-pet-done');
+  console.log('UI UX smoke passed: tool connections (connect, pick a Notion page), source marks, pet jobs, onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
-setTimeout(()=>app.exit(1),25000).unref();
+setTimeout(()=>app.exit(1),45000).unref();

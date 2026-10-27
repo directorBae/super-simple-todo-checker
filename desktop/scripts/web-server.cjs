@@ -9,6 +9,7 @@ const { wallpaperHtml } = require('../electron/wallpaper.cjs');
 const { ensureDates } = require('../electron/ensure-dates.cjs');
 const { createUndoHistory } = require('../electron/undo-history.cjs');
 const authApi = require('../../shared/supabase-auth.cjs');
+const toolsApi = require('../electron/tools.cjs');
 
 function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dirname, '../../server/data'), config = configuration(), env = process.env, authFetch } = {}) {
   // Login (email + password): this server keeps one person's session and syncs Supabase with their token.
@@ -26,6 +27,13 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     save: (session) => (session ? fs.writeFileSync(sessionFile, core.store.seal(session), { mode: 0o600 }) : fs.rmSync(sessionFile, { force: true })),
   });
   const ready = keeper ? keeper.account().then((a) => { account = a; }) : Promise.resolve();
+  // 노션 · 구글 캘린더 연결: the same person's token. The browser opens the OAuth page itself (web-api.js).
+  const tools = authRequired ? toolsApi.client(authCfg, async () => (await keeper.current())?.accessToken || null) : null, importDone = toolsApi.doneWatcher();
+  async function toolsAction(p) {
+    const result = await toolsApi.run(tools, String(p.action || ''), p);
+    if (result.ok && p.action === 'state' && importDone(result.jobs)) core.supabase?.sync().catch(() => {});
+    return result;
+  }
   const locked = () => authRequired && !account;
   const authState = () => ({ required: authRequired, loading: false, email: account?.email || null });
   const settingsFile = path.join(dataDir, 'web-settings.json'), wallpaperFile = path.join(dataDir, 'wallpaper-custom.jpg');
@@ -126,6 +134,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
         if (method.startsWith('auth/') && keeper) return send(res, 200, await (mutations = mutations.then(() => authAction(method.slice(5), p))));
         await ready;
         if (locked() && !['settings', 'ack'].includes(method)) throw error('로그인해 주세요.', 401);
+        if (method === 'tools') return send(res, 200, await toolsAction(p));
         if (method === 'wallpaper-upload') {
           const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(p.dataUrl || ''));
           if (!match) throw error('사진 형식을 확인해 주세요.');

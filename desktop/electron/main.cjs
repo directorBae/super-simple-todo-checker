@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, protocol, net, session } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, protocol, net, session, shell } = require('electron');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { wallpaperHtml } = require('./wallpaper.cjs');
@@ -13,6 +13,7 @@ const sync = require('./sync.cjs');
 const supabase = require('./supabase.cjs');
 const updater = require('./updater.cjs');
 const localServer = require('./local-server.cjs');
+const tools = require('./tools.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 // Uploaded wallpaper lives in userData and is served as checker-media://wallpaper so it works in dev and packaged builds.
@@ -175,6 +176,22 @@ function registerIpc() {
     const result = await integrations.request(store, payload);
     if (result.ok && payload && !['compress-title', 'create-pet'].includes(payload.action)) { await sync.syncNow(store); broadcast(); }
     return result;
+  });
+
+  // ---- 노션 · 구글 캘린더 연결 (로그인한 사람의 토큰으로) ----
+  const importDone = tools.doneWatcher();
+  ipcMain.handle('tools:request', async (_, { action, payload } = {}) => {
+    const result = await tools.run(supabase.tools, action, payload);
+    if (result.ok && action === 'start') await shell.openExternal(result.url);
+    // The pet just finished writing: pull the new to-dos now instead of on the next round.
+    if (result.ok && action === 'state' && importDone(result.jobs)) supabase.syncNow(store).then((r) => { if (r.changed) broadcast(); });
+    return result;
+  });
+  // Source marks open the original page in the browser (http/https only).
+  ipcMain.handle('shell:open', async (_, url) => {
+    const safe = tools.safeUrl(url);
+    if (safe) await shell.openExternal(safe);
+    return { ok: !!safe };
   });
 
   ipcMain.handle('app:info', () => ({

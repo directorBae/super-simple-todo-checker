@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Linking, AppState } from 'react-native';
+import { AppState } from 'react-native';
 import { mergeResponse } from './sync-merge.js';
 import { migrateTeams } from './migrate-teams.js';
 import supabaseEngine from '../../shared/supabase-sync.cjs';
 import supabaseAuth from '../../shared/supabase-auth.cjs';
+import toolsEngine from '../../shared/tools-client.cjs';
 import { rescheduleReminders } from './notifications.js';
 
 // Every to-do except bucket items has a date; undated ones get the day they were made.
@@ -20,6 +21,9 @@ const keeper = supabaseAuth.createSessionKeeper(SUPABASE, {
   load: () => AsyncStorage.getItem(SESSION_KEY).then((raw) => (raw ? JSON.parse(raw) : null)),
   save: (session) => (session ? AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session)) : AsyncStorage.removeItem(SESSION_KEY)),
 });
+
+// Notion · Google Calendar connections of the signed-in person (Edge Function `integrations`, see src/tools.js).
+export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, key: SUPABASE.key, fetch: (...a) => fetch(...a), token: async () => (await keeper.current())?.accessToken }) : null;
 
 // 데스크톱 db.json과 같은 스키마 — server/를 통한 크로스 플랫폼 동기화(LWW + tombstone)에 사용
 const DEFAULTS = {
@@ -350,21 +354,6 @@ export function DbProvider({ children }) {
           update(d => { d.settings.sync = { url, token: result.token, lastSync: null }; return d; });
           return { ok: true };
         } catch { return { ok: false, error: 'PC 서버와 같은 Wi-Fi인지 확인해 주세요. iPhone은 설정에서 로컬 네트워크 접근을 허용해야 합니다.' }; }
-      },
-      integrations: async payload => {
-        const s = dbRef.current?.settings.sync || {}, base = (s.url || '').trim().replace(/\/+$/, '');
-          if (!base || !s.token) return { ok: false, error: '내 서버에 먼저 로그인해 주세요.' };
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 120000);
-        try {
-          const res = await fetch(base + (payload ? '/integrations/action' : '/integrations/state'), { method: payload ? 'POST' : 'GET', headers: { Authorization: 'Bearer ' + s.token, 'Content-Type': 'application/json' }, ...(payload ? { body: JSON.stringify(payload) } : {}), signal: controller.signal });
-          const data = await res.json();
-          if (data.url) {
-            if (!/^https:\/\/(accounts\.google\.com|api\.notion\.com)\//.test(data.url)) throw new Error('잘못된 인증 주소입니다.');
-            await Linking.openURL(data.url);
-          }
-          return data;
-        } catch (e) { return { ok: false, error: e.message }; } finally { clearTimeout(timer); }
       },
     }); return self; },
     []

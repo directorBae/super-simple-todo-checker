@@ -85,4 +85,8 @@ async function signOut(store) {
 }
 const recover = (email) => attempt(() => keeper.recover(email));
 
-module.exports = { syncNow, configured: () => engine.configured(cfg), ready: refreshAccount, status, signIn, signUp, signOut, recover };
+// The signed-in person's token for the tool connections (노션 · 구글 캘린더); null when nobody is in.
+const accessToken = async () => (await keeper.current())?.accessToken || null;
+const tools = require('./tools.cjs').client(cfg, accessToken);
+
+module.exports = { syncNow, configured: () => engine.configured(cfg), ready: refreshAccount, status, signIn, signUp, signOut, recover, accessToken, tools };

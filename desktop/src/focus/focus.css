@@ -36,6 +36,8 @@
 .arcade-score { display:flex; justify-content:space-between; gap:8px; background:#111c2d; padding:12px; border-radius:10px 10px 0 0; font-size:11px; }
 .arcade-score > span { color:#ffaaa6; font-size:10px; white-space:nowrap; }
 .arcade-score b { font:13px monospace; color:#ecf2ee; margin-left:8px; }
+.arcade-score .arcade-stage { flex:1; text-align:center; color:#9fb4d6; font:600 10px ui-monospace, Consolas, monospace; letter-spacing:1px; }
+.arcade-score .arcade-gear { font-style:normal; margin-left:8px; letter-spacing:2px; }
 .arcade-screen { position:relative; background:#111c2d; border-radius:0 0 10px 10px; overflow:hidden; }
 .arcade-screen canvas { display:block; width:100%; image-rendering:pixelated; outline-offset:-3px; }
 .arcade-overlay { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; background:#111c2dbb; color:#dde8e1; }
@@ -130,3 +132,41 @@
 @keyframes clock-toast-in { from { opacity:0; transform:translate(-50%,10px); } }
 @media (max-width:600px) { .half-switch { right:50%; transform:translateX(50%); bottom:14px; } .clock-toast { max-width:calc(100% - 32px); bottom:62px; } }
 @media (prefers-reduced-motion:reduce) { .clock-toast { animation:none; } }
+
+/* ---------- 펫이 하는 일: 노션 · 구글 캘린더 (PetWork.jsx) — 도트 한 칸 = 3px, 움직임은 steps()로 뚝뚝 ---------- */
+.pet-work { position:absolute; left:-36px; top:-42px; width:144px; height:120px; overflow:visible; pointer-events:none; }
+.pet-work g, .job-icon g { transform-box:fill-box; }
+.pet-eyes.scan { animation:pet-eyes-scan 1.4s steps(1) infinite; }
+@keyframes pet-eyes-scan { 0% { transform:translateX(-1px); } 50% { transform:translateX(1px); } }
+.pet-scan { animation:pet-scan 1.4s steps(5) infinite; }
+@keyframes pet-scan { from { transform:translateY(0); } to { transform:translateY(5px); } }
+.pet-dot { opacity:0; animation:pet-dot-0 1.5s steps(1) infinite; }
+.pet-dot.d1 { animation-name:pet-dot-1; }
+.pet-dot.d2 { animation-name:pet-dot-2; }
+@keyframes pet-dot-0 { 0% { opacity:0; } 20%, 85% { opacity:1; } 100% { opacity:0; } }
+@keyframes pet-dot-1 { 0% { opacity:0; } 40%, 85% { opacity:1; } 100% { opacity:0; } }
+@keyframes pet-dot-2 { 0% { opacity:0; } 60%, 85% { opacity:1; } 100% { opacity:0; } }
+.pet-spark { animation:pet-spark 1.2s steps(1) infinite; }
+.pet-spark.s1 { animation-delay:-.4s; }
+.pet-spark.s2 { animation-delay:-.8s; }
+@keyframes pet-spark { 0% { opacity:1; } 50% { opacity:0; } }
+.pet-pencil { animation:pet-scribble .6s steps(1) infinite; }
+@keyframes pet-scribble { 0% { transform:translate(0,0); } 25% { transform:translate(-2px,1px); } 50% { transform:translate(-4px,0); } 75% { transform:translate(-2px,1px); } }
+.pet-line { transform-origin:left; animation:pet-line-0 2.4s infinite; animation-timing-function:steps(5); }
+.pet-line.l1 { animation-name:pet-line-1; }
+@keyframes pet-line-0 { 0% { transform:scaleX(0); } 35%, 100% { transform:scaleX(1); } }
+@keyframes pet-line-1 { 0%, 40% { transform:scaleX(0); } 75%, 100% { transform:scaleX(1); } }
+.pet-tear { animation:pet-tear 1.2s steps(4) infinite; }
+@keyframes pet-tear { from { transform:translateY(0); opacity:1; } to { transform:translateY(4px); opacity:0; } }
+/* What it says: a pixel speech bubble over the pet (under it near the top of the window). */
+.pet-say { position:absolute; left:50%; bottom:calc(100% + 4px); transform:translateX(calc(-50% + var(--say-shift, 0px))); width:max-content; max-width:240px; display:flex; align-items:center; gap:8px; padding:7px 11px 7px 8px; border:2px solid #263f3c; border-radius:6px; background:#fffdf6; color:#1f2d2b; font-size:12px; font-weight:600; line-height:1.4; text-align:left; white-space:normal; word-break:keep-all; overflow-wrap:anywhere; box-shadow:0 3px 0 rgba(38,63,60,.22); pointer-events:none; animation:pet-say-in .24s steps(3); }
+.pet-say::after { content:""; position:absolute; left:calc(50% - var(--say-shift, 0px) - 5px); top:100%; width:6px; height:5px; background:inherit; border:2px solid; border-color:inherit; border-top:0; }
+.roaming-pet[data-below="1"] .pet-say { bottom:auto; top:calc(100% + 4px); }
+.roaming-pet[data-below="1"] .pet-say::after { top:auto; bottom:100%; border-top:2px solid; border-bottom:0; }
+.pet-say.error { border-color:#9f1239; background:#fff4f5; color:#881337; }
+@keyframes pet-say-in { from { opacity:0; transform:translate(calc(-50% + var(--say-shift, 0px)), 6px); } }
+.job-icon { position:relative; display:inline-flex; flex-shrink:0; width:18px; height:18px; }
+.job-icon svg { width:18px; height:18px; image-rendering:pixelated; }
+.job-icon img { position:absolute; right:-5px; bottom:-4px; width:11px; height:11px; border-radius:3px; background:#fff; box-shadow:0 0 0 1px rgba(38,63,60,.25); }
+.pet-live { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+@media (prefers-reduced-motion:reduce) { .pet-work *, .pet-say, .job-icon * { animation:none !important; } .pet-dot { opacity:1; } }

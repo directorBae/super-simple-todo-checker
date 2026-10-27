@@ -47,7 +47,8 @@
         "to": "shared",
         "filter": [
           "supabase-sync.cjs",
-          "supabase-auth.cjs"
+          "supabase-auth.cjs",
+          "tools-client.cjs"
         ]
       }
     ],

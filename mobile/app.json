@@ -2,6 +2,7 @@
   "expo": {
     "name": "할 일 체커",
     "slug": "todo-checker",
+    "scheme": "todochecker",
     "owner": "teamblco",
     "version": "1.2.0",
     "orientation": "portrait",

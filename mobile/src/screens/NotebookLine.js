@@ -4,7 +4,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Text, TextInput } from '../text.js';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { SourceIcons } from '../SourceIcons.js';
+import { SourceMark } from '../SourceIcons.js';
 import { useDesign, Sheet, Button, Icon } from '../design.js';
 import { todayStr, localDateStr } from '../util.js';
 import { datePatch, splitLine } from '../notepad.js';
@@ -50,7 +50,7 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    })
    .onEnd((e) => { if(mode.current==='drag') { dropped.current = true; latest.current.onDrop(latest.current.todo, e.absoluteX, e.absoluteY); } })
    .onFinalize(() => { if(mode.current==='drag' && !dropped.current) latest.current.onDrop(null); if(mode.current==='drag') settle(); });
- // A tap (not on the checkbox or the date button): edit the line, or add/remove it while lines are selected.
+ // A tap (not on the checkbox, the date button or the source logo): edit the line, or add/remove it while lines are selected.
  const tap = Gesture.Tap().maxDuration(HOLD_MS).runOnJS(true)
    .onEnd((e, ok) => {
      if(!ok || e.x < box.current.textX - 6 || e.x > box.current.calX - 6) return;
@@ -84,7 +84,6 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    <Animated.View accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={todo.title} accessibilityHint="눌러서 고치기 · 글자를 꾹 눌러 쓸면 여러 줄 선택 · 빈 곳을 꾹 눌러 옮기기" style={{ transform:translate.getTranslateTransform(), opacity:carried?0.35:1, borderRadius:16,borderWidth:1,borderColor:selected?'#ffffffcc':editing||lifted?d.edge:'transparent',backgroundColor:lifted ? '#ffffffd9' : selected ? '#c4b5fd73' : editing ? '#ffffff8c' : 'transparent', shadowColor:'#1e1b4b',shadowOpacity:lifted?0.18:0,shadowRadius:12,shadowOffset:{ width:0,height:6 },elevation:lifted?6:0 }}>
    <View pointerEvents="box-none" style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5 }}>
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked:done }} accessibilityLabel={todo.title+' 완료'} hitSlop={6} onPress={() => api.updateTodo(todo.id,{ status:done?'todo':'done' })} style={{ width:19,height:19,borderRadius:6,borderWidth:1.5,borderColor:done?d.accent:d.muted, backgroundColor:done?d.accent:'transparent',alignItems:'center',justifyContent:'center' }}>{done && <Icon name="check" size={15} color={d.dark?'#172842':'#fff'} />}</Pressable>
-    <SourceIcons todo={todo} size={17}/>
     {/* Narrow text that wraps onto more lines; the rest of the line is free to hold and move. */}
     {editing
       ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
@@ -92,6 +91,8 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
     <View style={{ flex:1,alignSelf:'stretch',minWidth:28 }} />
     {!!todo.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'] }}>{todo.startTime}{todo.endTime?`~${todo.endTime}`:''}</Text>}
     <Pressable onLayout={e => { box.current.calX = e.nativeEvent.layout.x; }} accessibilityLabel={todo.title+' 날짜'} hitSlop={8} onPress={() => onDate(todo)}><Icon name="calendar" size={15} color={d.muted} /></Pressable>
+    {/* Right of the date button, so the line's tap (which stops there) leaves it alone: a tap opens the original. */}
+    <SourceMark todo={todo} size={14}/>
    </View>
    </Animated.View>
    </GestureDetector>

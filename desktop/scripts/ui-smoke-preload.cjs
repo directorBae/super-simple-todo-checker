@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   saveWallpaper: async dataUrl => ({ ok: /^data:image\/jpeg;base64,/.test(dataUrl), src: dataUrl }),
   ackMissed: async () => {},
   integrations: p => ipcRenderer.invoke('smoke:integrations', p),
+  tools: (action, payload) => ipcRenderer.invoke('smoke:tools', { action, payload }),
+  openExternal: url => ipcRenderer.invoke('smoke:open', url),
   syncNow: async () => ({ ok: true }),
   updateSettings: p => ipcRenderer.invoke('smoke:settings', p),
   updateTodo: (id, patch) => ipcRenderer.invoke('smoke:todo', { id, patch }),
