@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Platform, Pressable, View, Keyboard } from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, View, Keyboard } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Text, TextInput } from '../text.js';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -10,6 +10,9 @@ import { todayStr, localDateStr } from '../util.js';
 import { datePatch, splitLine } from '../notepad.js';
 import { touch } from '../gesture.js';
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+const teamOf = (todo, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return (p && p.teamId) || todo.teamId || null; };
+// A project tied to another team would override the new team, so the link is dropped.
+const teamPatch = (todo, teamId, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return p && p.teamId && p.teamId !== teamId ? { teamId, projectId:null } : { teamId }; };
 // One line of the day. Its text is plain until tapped, then edited right there (Enter splits the line, Backspace at the
 // start joins it to the one above, as in a notepad).
 // Gestures (react-native-gesture-handler, so a hold inside the scrolling list is recognised by the phone itself):
@@ -17,7 +20,7 @@ const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2
 //   · hold the text, then slide up/down — select the lines the finger passes over
 //   · hold the empty part, then move — carry the line (or all the selected ones) to another place, a team, the bin or the clock
 const HOLD_MS = 350;
-export function TaskLine({ todo, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal }) {
+export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal }) {
  const d = useDesign(), latest = useRef(null), input = useRef(null), sel = useRef({ start:0,end:0 }), [value,setValue] = useState(todo.title);
  const translate = useRef(new Animated.ValueXY()).current, [lifted,setLifted] = useState(false), [carried,setCarried] = useState(false), mode = useRef('idle'), dropped = useRef(false);
  // Where the text and the date button sit inside the line (from layout), to tell the text from the empty part.
@@ -63,7 +66,8 @@ export function TaskLine({ todo, api, previous, next, editing, caret, onEdit, on
    let focusId=null;
    parts.slice(1).forEach(p => { if(p.title.trim()) { focusId=newId(); api.addTodo({ ...todo, id:focusId, title:p.title, sortOrder:p.sortOrder, status:'todo', startTime:null, endTime:null }); } });
    setValue(head.title);
-   onFocusLine(focusId ? { id:focusId, position:0 } : { id:'draft', position:0, teamId:todo.teamId });
+   // The caret goes to the new line right below (never down to the day's last line).
+   onFocusLine(focusId ? { id:focusId, position:0 } : { id:'after:'+todo.id });
  };
  // Backspace on an empty line removes it; at the start of a line it joins the line above. Either way the caret goes up.
  const backspace = e => {
@@ -91,6 +95,13 @@ export function TaskLine({ todo, api, previous, next, editing, caret, onEdit, on
    </View>
    </Animated.View>
    </GestureDetector>
+   {/* While editing: pick the line's team (팀 없음 takes it out). Taps here keep the keyboard up. */}
+   {editing && !!db?.teams.length && <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:6, paddingVertical:5, paddingLeft:30, paddingRight:8 }}>
+    {[{ id:null, name:'팀 없음', color:null }, ...db.teams].map(t => { const on = (teamOf(todo, db) || null) === t.id; return <Pressable key={t.id||'none'} accessibilityRole="button" accessibilityState={{ selected:on }} onPress={() => api.updateTodo(todo.id, teamPatch(todo, t.id, db))} style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:10,paddingVertical:5,borderRadius:99,borderWidth:1,borderColor:on?(t.color||d.accent):d.edge,backgroundColor:on?'#ffffffe6':'#ffffff73' }}>
+     {!!t.color && <View style={{ width:8,height:8,borderRadius:4,backgroundColor:t.color }} />}
+     <Text style={{ fontSize:12,fontWeight:on?'700':'500',color:on?d.text:d.muted }}>{t.name}</Text>
+    </Pressable>; })}
+   </ScrollView>}
  </View>;
 }
 

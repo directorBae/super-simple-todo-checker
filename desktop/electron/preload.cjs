@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('api', {
   pairDevice: () => invoke('sync:pair'),
   integrations: (payload) => invoke('integrations:request', payload),
 
+  signIn: (email, password) => invoke('auth:signin', { email, password }),
+  signUp: (email, password) => invoke('auth:signup', { email, password }),
+  signOut: () => invoke('auth:signout'),
+  recoverPassword: (email) => invoke('auth:recover', email),
+
 
   onDbChanged: (cb) => ipcRenderer.on('db-changed', (_, db) => cb(db)),
   onOpenView: (cb) => ipcRenderer.on('open-view', (_, view) => cb(view)),

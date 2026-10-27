@@ -6,6 +6,9 @@
  * - 행마다 updated_at(기기 ms)으로 마지막 수정이 이긴다(LWW). 삭제는 deleted_at을 채운 행(tombstone).
  * - 가져오기는 서버 시계인 synced_at 기준이라 기기 시계가 달라도 빠뜨리지 않는다.
  * - meta.known['todos:<id>']는 서버에 있다고 알고 있는 updated_at. 그보다 새 로컬 항목만 올린다.
+ * - 로그인: cfg.token(로그인한 사람의 access token)으로 붙으면 DB 정책이 그 사람의 행만 보여 주고 쓰게 한다.
+ *   meta.userId가 지금 사람과 다르면(다른 계정으로 로그인) 처음 연결한 것처럼 그 계정의 데이터로 바꾼다.
+ *   secret 키로 붙는 연동 서버는 cfg.ownerId로 행의 주인을 직접 적는다.
  * - DB가 기준이다: 한 번도 동기화한 적 없는 기기(meta.pulledAt 없음)는 로컬 할 일·팀·프로젝트를 버리고
  *   서버 내용을 그대로 받는다. 연결 전에 기기에 쌓인 옛 데이터가 DB로 올라가지 않게 하기 위해서다.
  */
@@ -34,9 +37,9 @@ function fromRow(coll, row) {
   return item;
 }
 
-function client({ url, key, fetch: request = globalThis.fetch }) {
+function client({ url, key, token, fetch: request = globalThis.fetch }) {
   const base = String(url || '').replace(/\/+$/, '') + '/rest/v1/';
-  const headers = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
+  const headers = { apikey: key, Authorization: 'Bearer ' + (token || key), 'Content-Type': 'application/json' };
   return async (path, init = {}) => {
     const res = await request(base + path, { ...init, headers: { ...headers, ...(init.headers || {}) } });
     const text = await res.text();
@@ -102,7 +105,7 @@ async function pushRemote(cfg, push, meta, batch = 500) {
   for (const coll of COLLECTIONS) {
     for (const rows of [push.rows[coll], push.deletions[coll]]) {
       for (let i = 0; i < rows.length; i += batch) {
-        const part = rows.slice(i, i + batch);
+        const part = cfg.ownerId ? rows.slice(i, i + batch).map((row) => ({ ...row, user_id: cfg.ownerId })) : rows.slice(i, i + batch);
         await call(`${coll}?on_conflict=id`, { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(part) });
         for (const row of part) meta.known[keyOf(coll, row.id)] = Number(row.updated_at);
         count += part.length;
@@ -121,13 +124,15 @@ const firstSync = (meta) => !meta?.pulledAt;
 // Watermark for a database that was still empty, so the device counts as synced from then on.
 const EPOCH = new Date(0).toISOString();
 
-function freshMeta(meta) {
-  return { pulledAt: meta?.pulledAt || null, known: { ...(meta?.known || {}) } };
+// A copy of the sync bookmarks to work on. Another account than the one they belong to starts over from scratch.
+function freshMeta(meta, userId = null) {
+  if (userId && meta?.userId !== userId) return { pulledAt: null, known: {}, userId };
+  return { pulledAt: meta?.pulledAt || null, known: { ...(meta?.known || {}) }, userId: meta?.userId || userId || null };
 }
 
 // One full round for a client that owns its state: pull → merge → push. Never throws.
 async function syncSupabase(state, meta, cfg) {
-  const next = freshMeta(meta);
+  const next = freshMeta(meta, cfg.userId);
   try {
     const { remote, newest } = await pullRemote(cfg, next);
     const first = firstSync(next);

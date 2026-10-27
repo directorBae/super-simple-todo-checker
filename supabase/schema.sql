@@ -81,9 +81,7 @@ begin
   end loop;
 end $$;
 
--- 지금은 로그인 없이 앱에 넣은 anon 키로 읽고 씁니다.
--- 키를 아는 사람은 누구나 읽고 쓸 수 있으니 키를 공개 저장소에 올리지 마세요.
--- 나중에 로그인을 붙이면 user_id 열을 추가하고 아래 정책을 auth.uid() 기준으로 바꿉니다.
+-- 로그인 전 단계의 열린 정책입니다. 로그인(auth.sql)을 켠 뒤 이 파일을 다시 실행했다면 auth.sql 1단계도 꼭 다시 실행하세요.
 alter table public.teams enable row level security;
 alter table public.projects enable row level security;
 alter table public.todos enable row level security;

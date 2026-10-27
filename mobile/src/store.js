@@ -4,6 +4,8 @@ import { Linking, AppState } from 'react-native';
 import { mergeResponse } from './sync-merge.js';
 import { migrateTeams } from './migrate-teams.js';
 import supabaseEngine from '../../shared/supabase-sync.cjs';
+import supabaseAuth from '../../shared/supabase-auth.cjs';
+import { rescheduleReminders } from './notifications.js';
 
 // Every to-do except bucket items has a date; undated ones get the day they were made.
 const localDate = (ms = Date.now()) => { const t = new Date(ms); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
@@ -11,6 +13,13 @@ function ensureDates(d) { for (const t of d.todos || []) if (t.status !== 'bucke
 
 // Supabase는 화면에 두지 않는다: mobile/.env 의 EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY (빌드 때 포함)
 const SUPABASE = { url: process.env.EXPO_PUBLIC_SUPABASE_URL, key: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY };
+// With Supabase, every person signs in (email + password) and sees only their own rows. The session lives on this phone.
+const LOGIN = supabaseEngine.configured(SUPABASE);
+const SESSION_KEY = 'todo-checker/session';
+const keeper = supabaseAuth.createSessionKeeper(SUPABASE, {
+  load: () => AsyncStorage.getItem(SESSION_KEY).then((raw) => (raw ? JSON.parse(raw) : null)),
+  save: (session) => (session ? AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session)) : AsyncStorage.removeItem(SESSION_KEY)),
+});
 
 // 데스크톱 db.json과 같은 스키마 — server/를 통한 크로스 플랫폼 동기화(LWW + tombstone)에 사용
 const DEFAULTS = {
@@ -41,7 +50,11 @@ export function DbProvider({ children }) {
   const pushTimer = useRef(null);
   const syncCallback = useRef(null);
   const saveQueue = useRef(Promise.resolve());
-  const supabaseBusy = useRef(false);
+  const supabaseRun = useRef(null);
+  const authGen = useRef(0); // bumps on sign-in/out so a sync that started for the previous account drops its result
+  // undefined while the saved session is being read (so the login screen doesn't flash), then { email } or null.
+  const [account, setAccount] = useState(LOGIN ? undefined : null);
+  useEffect(() => { if (LOGIN) keeper.account().then(setAccount, () => setAccount(null)); }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)
@@ -82,8 +95,15 @@ export function DbProvider({ children }) {
       return next;
   };
 
+  // Nothing of the previous account stays on the phone.
+  const wipe = () => update((d) => {
+    Object.assign(d, { teams: [], projects: [], todos: [], tombstones: [] });
+    delete d.supabaseMeta;
+    return d;
+  }, false);
+
   const api = useMemo(
-    () => ({
+    () => { const self = ({
       addTodo: (p) =>
         update((d) => {
           const title = String(p.title || '').trim();
@@ -217,24 +237,60 @@ export function DbProvider({ children }) {
 
       // Supabase: 가져와서 최신 상태에 합친 뒤(그 사이 고친 내용 보존) 바뀐 것만 올린다.
       // 처음 연결할 때는 기기에 남은 옛 데이터를 버리고 DB 내용만 받는다(올리지 않음).
-      supabaseNow: async () => {
-        if (!supabaseEngine.configured(SUPABASE) || supabaseBusy.current || !dbRef.current) return { ok: false, skipped: true };
-        supabaseBusy.current = true;
-        const meta = supabaseEngine.freshMeta(dbRef.current.supabaseMeta);
-        try {
-          const { remote, newest } = await supabaseEngine.pullRemote(SUPABASE, meta);
-          const first = supabaseEngine.firstSync(meta);
-          if (remote.length || first) update((d) => { if (first) supabaseEngine.adoptRemote(d); if (supabaseEngine.applyRemote(d, remote, meta) || first) { migrateTeams(d); ensureDates(d); } return d; }, false);
-          await supabaseEngine.pushRemote(SUPABASE, supabaseEngine.collectPush(dbRef.current, meta), meta);
-          meta.pulledAt = newest || supabaseEngine.EPOCH;
-          return { ok: true };
-        } catch (e) {
-          return { ok: false, error: e.message };
-        } finally {
-          update((d) => { d.supabaseMeta = meta; return d; }, false);
-          supabaseBusy.current = false;
-        }
+      supabaseNow: () => {
+        if (!LOGIN || !dbRef.current) return Promise.resolve({ ok: false, skipped: true });
+        if (supabaseRun.current) return supabaseRun.current;
+        const gen = authGen.current;
+        supabaseRun.current = (async () => {
+          const session = await keeper.current();
+          if (!session) { if (gen === authGen.current) setAccount(null); return { ok: false, skipped: true }; } // signed out (e.g. the login expired): back to the login screen
+          const cfg = { ...SUPABASE, token: session.accessToken, userId: session.user.id };
+          const meta = supabaseEngine.freshMeta(dbRef.current.supabaseMeta, session.user.id);
+          const current = () => gen === authGen.current;
+          try {
+            const { remote, newest } = await supabaseEngine.pullRemote(cfg, meta);
+            if (!current()) return { ok: false, skipped: true };
+            const first = supabaseEngine.firstSync(meta);
+            if (remote.length || first) update((d) => { if (first) supabaseEngine.adoptRemote(d); if (supabaseEngine.applyRemote(d, remote, meta) || first) { migrateTeams(d); ensureDates(d); } return d; }, false);
+            await supabaseEngine.pushRemote(cfg, supabaseEngine.collectPush(dbRef.current, meta), meta);
+            meta.pulledAt = newest || supabaseEngine.EPOCH;
+            return { ok: true };
+          } catch (e) {
+            return { ok: false, error: e.message };
+          } finally {
+            if (current()) update((d) => { d.supabaseMeta = meta; return d; }, false);
+          }
+        })().finally(() => { supabaseRun.current = null; });
+        return supabaseRun.current;
       },
+
+      // 로그인. 다른 계정이 이 휴대폰에 쓰던 데이터는 바로 지우고 그 계정의 데이터를 받는다.
+      signIn: async (email, password) => {
+        const session = await keeper.signIn(email, password);
+        self.enter(session);
+      },
+      signUp: async (email, password) => {
+        const r = await keeper.signUp(email, password);
+        if (r.session) self.enter(r.session);
+        return r;
+      },
+      enter: (session) => {
+        authGen.current += 1;
+        if (dbRef.current?.supabaseMeta?.userId !== session.user.id) wipe();
+        setAccount({ id: session.user.id, email: session.user.email });
+        Promise.resolve(supabaseRun.current).catch(() => {}).then(() => self.supabaseNow()); // after any round left over from before
+      },
+      // 로그아웃: 남은 변경을 올려 두고, 이 휴대폰의 데이터와 예약된 알림을 지운다.
+      signOut: async () => {
+        await self.supabaseNow().catch(() => {});
+        await self.supabaseNow().catch(() => {}); // the first may have been one already running
+        authGen.current += 1;
+        await keeper.signOut();
+        const empty = wipe();
+        setAccount(null);
+        rescheduleReminders(empty).catch(() => {});
+      },
+      recover: (email) => keeper.recover(email),
 
       // server/index.js와 짝 — 전체 상태를 보내고 병합 결과로 교체
       syncNow: async () => {
@@ -310,7 +366,7 @@ export function DbProvider({ children }) {
           return data;
         } catch (e) { return { ok: false, error: e.message }; } finally { clearTimeout(timer); }
       },
-    }),
+    }); return self; },
     []
   );
   syncCallback.current = () => { if (dbRef.current?.settings.sync?.url) api.syncNow(); api.supabaseNow(); };
@@ -335,7 +391,7 @@ export function DbProvider({ children }) {
   }, [api]);
 
   if (!db) return null;
-  return <DbContext.Provider value={{ db, api }}>{children}</DbContext.Provider>;
+  return <DbContext.Provider value={{ db, api, account, loginRequired: LOGIN }}>{children}</DbContext.Provider>;
 }
 
 export const useDb = () => useContext(DbContext);

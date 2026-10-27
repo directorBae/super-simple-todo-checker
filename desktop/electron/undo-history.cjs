@@ -30,6 +30,8 @@ function createUndoHistory({ windowMs = 80, limit = 100, now = Date.now } = {}) 
       done.push(step);
       return step.changes.map((c) => ({ id: c.id, to: clone(c.after) }));
     },
+    // Signing out: nothing of the previous account may come back with Ctrl+Z.
+    clear() { done = []; undone = []; open = null; },
     get size() { return { undo: done.length, redo: undone.length }; },
   };
 }

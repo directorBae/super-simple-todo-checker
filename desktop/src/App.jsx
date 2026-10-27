@@ -3,6 +3,7 @@ import MemoBoard from './views/Todos.jsx';
 import Settings from './views/Settings.jsx';
 import Integrations from './views/Integrations.jsx';
 import Bell from './views/Bell.jsx';
+import Login from './views/Login.jsx';
 import ClockWindow from './focus/ClockWindow.jsx';
 import RoomDock from './focus/RoomDock.jsx';
 import RoamingPet from './focus/RoamingPet.jsx';
@@ -25,7 +26,9 @@ export default function App() {
  useEffect(() => (window.api.platform === 'web' ? startWebReminders(() => latestDb.current) : undefined), []);
  const wallpaper = wallpaperSrc(db?.settings.wallpaper);
  useEffect(() => { if(db) document.body.style.setProperty('--wallpaper', `url("${wallpaper}")`); }, [wallpaper, !!db]);
- if(!db) return null;
+ if(!db || db.auth?.loading) return null;
+ // Signed out: only the login card, nothing of anyone's data.
+ if(db.auth?.required && !db.auth.email) return <div className="app-v"><Login /></div>;
  const onboarding = !db.settings.onboardingDone;
  const finish = () => { window.api.updateSettings({ onboardingDone:true }).then(setDb); };
  if(new URLSearchParams(window.location.search).get('view') === 'clock') return <ClockWindow db={db} />;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, Switch, View } from 'react-native';
+import { Alert, Image, Platform, Pressable, Switch, View } from 'react-native';
 import { Text } from '../text.js';
 import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
@@ -51,9 +51,24 @@ function Wallpapers() {
   </View>;
 }
 
+// Who is signed in, and the way out. Alert has no buttons on the web, so the browser asks there.
+function Account() {
+  const { account, api } = useDb(), d = useDesign();
+  if (!account) return null;
+  const out = () => {
+    if (Platform.OS === 'web') { if (window.confirm('로그아웃할까요?')) api.signOut(); return; }
+    Alert.alert('로그아웃할까요?', undefined, [{ text: '취소', style: 'cancel' }, { text: '로그아웃', style: 'destructive', onPress: () => api.signOut() }]);
+  };
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 14, backgroundColor: d.input }}>
+    <Text numberOfLines={1} style={{ flex: 1, color: d.text, fontSize: 14 }}>{account.email}</Text>
+    <Pressable accessibilityRole="button" hitSlop={8} onPress={out}><Text style={{ color: '#cc4057', fontSize: 13, fontWeight: '600' }}>로그아웃</Text></Pressable>
+  </View>;
+}
+
 export default function AppSettings() {
   const d = useDesign(), [tab, setTab] = useState('notify');
   return <View style={{ gap: 16 }}>
+    <Account />
     <View style={{ flexDirection: 'row', padding: 3, borderRadius: 14, backgroundColor: d.input }}>
       {[['notify', '알림'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['pc', 'PC 연결']].map(([key, label]) => <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }} onPress={() => setTab(key)} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 11, backgroundColor: tab === key ? '#ffffffd9' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? d.accent : d.muted }}>{label}</Text></Pressable>)}
     </View>

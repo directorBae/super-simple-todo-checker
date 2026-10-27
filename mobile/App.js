@@ -12,6 +12,7 @@ import AppSettings from './src/screens/AppSettings.js';
 import Manage from './src/screens/Manage.js';
 import MusicPanel from './src/screens/Music.js';
 import ClockDrawer from './src/screens/ClockDrawer.js';
+import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
 import { notificationPermission, rescheduleReminders } from './src/notifications.js';
 
@@ -73,5 +74,9 @@ function Shell() {
    <StatusBar style="dark" />
  </View></SafeAreaView>;
 }
-function Themed() { const { db } = useDb(); return <DesignProvider wallpaper={db.settings.wallpaper}><Shell /></DesignProvider>; }
+// With Supabase on, nothing shows until someone is signed in (blank while the saved session is read).
+function Themed() {
+ const { db, account, loginRequired } = useDb();
+ return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <Shell /> : account === null ? <Login /> : null}</DesignProvider>;
+}
 export default function App() { return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }

@@ -18,9 +18,23 @@ function BrowserNotify() {
   </div>;
 }
 
+// Who is signed in, and the way out. Signing out removes this account's to-dos from this device.
+function Account({ email }) {
+  const [busy, setBusy] = useState(false);
+  const out = async () => {
+    if (!window.confirm('로그아웃할까요?')) return;
+    setBusy(true);
+    try { await window.api.signOut(); } finally { setBusy(false); }
+  };
+  return <Section title="계정">
+    <div className="setting-row account-row"><span className="account-email">{email}</span><button className="ghost" disabled={busy} onClick={out}>{busy ? '로그아웃 중…' : '로그아웃'}</button></div>
+  </Section>;
+}
+
 function General({ db }) {
   const s = db.settings, upd = (patch) => window.api.updateSettings(patch);
   return <>
+    {db.auth?.email && <Account email={db.auth.email} />}
     <Section title="알림">
       {window.api.platform === 'web' && <BrowserNotify />}
       <label className="setting-row"><input type="checkbox" checked={s.notifyStart} onChange={(e) => upd({ notifyStart: e.target.checked })} />시작 시간 알림</label>

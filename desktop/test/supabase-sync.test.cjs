@@ -11,6 +11,7 @@ function fakeSupabase() {
     requests++;
     const u = new URL(url), coll = u.pathname.split('/').pop(), table = tables[coll];
     assert.equal(init.headers.apikey, 'anon');
+    lastAuth = init.headers.Authorization;
     if ((init.method || 'GET') === 'GET') {
       const since = u.searchParams.get('synced_at')?.replace(/^gt\./, '');
       const rows = [...table.values()].filter((r) => !since || r.synced_at > since).sort((a, b) => a.synced_at.localeCompare(b.synced_at) || a.id.localeCompare(b.id));
@@ -22,6 +23,7 @@ function fakeSupabase() {
   }
   return { tables, fetch, requests: () => requests };
 }
+let lastAuth = '';
 const device = () => ({ state: { teams: [], projects: [], todos: [], tombstones: [] }, meta: null });
 async function sync(d, server) {
   const r = await syncSupabase(d.state, d.meta, { url: 'https://x.supabase.co', key: 'anon', fetch: server.fetch });
@@ -116,4 +118,27 @@ test('an older remote edit does not overwrite a newer local one, and failures le
   const broken = await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', fetch: async () => ({ ok: false, status: 401, text: async () => 'Invalid API key' }) });
   assert.equal(broken.ok, false); assert.match(broken.error, /401/);
   assert.equal(a.state.todos[0].title, '새것');
+});
+
+test('signed in: the access token goes with every request, and another account on the same device starts from its own data', async () => {
+  const server = fakeSupabase(), a = device();
+  const r1 = await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', token: 'tok-a', userId: 'user-a', fetch: server.fetch });
+  assert.ok(r1.ok); assert.equal(lastAuth, 'Bearer tok-a'); assert.equal(r1.meta.userId, 'user-a');
+  a.meta = r1.meta;
+  a.state.todos.push({ id: 'mine', kind: 'todo', title: 'A의 일', status: 'todo', createdAt: 5, updatedAt: 5 });
+  await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', token: 'tok-a', userId: 'user-a', fetch: server.fetch }).then((r) => { a.meta = r.meta; });
+  // B logs in on the same device: its first round takes B's data (here: the fake server has no per-user filter, so we only
+  // check the local reset and the fresh bookmarks).
+  a.state.todos.push({ id: 'local-only', kind: 'todo', title: '안 올라간 일', status: 'todo', createdAt: 1, updatedAt: 1 });
+  const r2 = await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', token: 'tok-b', userId: 'user-b', fetch: server.fetch });
+  assert.ok(r2.ok); assert.equal(r2.meta.userId, 'user-b'); assert.equal(r2.pushed, 0);
+  assert.ok(!a.state.todos.some((t) => t.id === 'local-only'), 'the previous account\'s unsent lines are not carried over');
+});
+
+test('the integration server (secret key) writes the owner on every row', async () => {
+  const server = fakeSupabase(), a = device();
+  const r = await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', ownerId: 'owner-1', fetch: server.fetch });
+  a.meta = r.meta; a.state.todos.push({ id: 'imp', kind: 'todo', title: '노션에서 온 일', status: 'todo', createdAt: 9, updatedAt: 9 });
+  await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', ownerId: 'owner-1', fetch: server.fetch });
+  assert.equal(server.tables.todos.get('imp').user_id, 'owner-1');
 });

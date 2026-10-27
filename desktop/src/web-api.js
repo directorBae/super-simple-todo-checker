@@ -32,6 +32,10 @@ if (!window.api) {
     pairDevice: () => request('pair', {}),
     integrations: p => p ? request('integrations', p).then(async r => { if (r.ok && !['compress-title', 'create-pet'].includes(p.action)) emit(await request('state')); return r; }) : request('integrations'),
     saveWallpaper: dataUrl => request('wallpaper-upload', { dataUrl }),
+    signIn: (email, password) => request('auth/signin', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
+    signUp: (email, password) => request('auth/signup', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
+    signOut: () => request('auth/signout', {}).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
+    recoverPassword: email => request('auth/recover', { email }),
     exportWallpaper: async p => {
       const response = await fetch('/api/wallpaper', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) });
       if (!response.ok) throw new Error('월페이퍼를 저장하지 못했습니다.');

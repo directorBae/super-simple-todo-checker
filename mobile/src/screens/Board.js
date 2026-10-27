@@ -29,6 +29,29 @@ function TeamAddLine({ team, date, api, items, inputRef, reveal, onNext, onTypin
  </View>;
 }
 
+// The new line opened right below a line by Enter: what is typed joins that line's team and sits just under it;
+// Enter again keeps going below, Backspace on the empty line goes back up to the end of the line above.
+function LineBelow({ anchor, next, date, api, setFocus, reveal }) {
+ const d=useDesign(), [text,setText]=useState(''), input=useRef(null), after=useRef(anchor);
+ useEffect(()=>{const t=setTimeout(()=>{input.current?.focus();reveal?.(input);},30);return()=>clearTimeout(t);},[]);
+ const between=(a,b)=>{const s=a?.sortOrder??a?.createdAt??0,f=b?(b.sortOrder??b.createdAt??s+1024):s+1024;return f>s?(s+f)/2:s+1;};
+ const put=title=>{const id=Date.now().toString(36)+Math.random().toString(36).slice(2),sortOrder=between(after.current,next);api.addTodo({id,title,date,teamId:anchor.teamId||null,projectId:anchor.projectId||null,sortOrder});after.current={id,sortOrder};return id;};
+ const change=value=>{
+  if(!value.includes('\n')){setText(value);return;}
+  const parts=value.replace(/\r/g,'').split('\n'),tail=parts.pop();
+  let last=null;for(const title of parts) if(title.trim()) last=put(title);
+  setText(tail);
+  if(last) setFocus({id:'after:'+last,date,nonce:Date.now()}); // keep going right below the line just added
+ };
+ return <View style={{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:3,marginVertical:3,borderRadius:16,borderWidth:1,borderColor:d.edge,backgroundColor:'#ffffff8c'}}>
+  <View style={{width:19,height:19,borderRadius:6,borderWidth:1.5,borderColor:d.accent,opacity:0.6}}/>
+  <TextInput ref={input} accessibilityLabel="새 할 일" maxLength={50} value={text} onChangeText={change} multiline scrollEnabled={false} submitBehavior="newline"
+   onKeyPress={e=>{if(e.nativeEvent.key==='Backspace'&&!text)setFocus({id:anchor.id,position:anchor.title?.length??0,date,nonce:Date.now()});}}
+   onBlur={()=>{if(text.trim())put(text.trim());setFocus(f=>f?.id==='after:'+anchor.id?null:f);}}
+   style={{flex:1,fontSize:15,lineHeight:21,color:d.text,padding:0,minHeight:25}}/>
+ </View>;
+}
+
 // One day: its lines grouped by team, each edited where it is; the faint checkbox at the end starts a new line.
 function DaySection({ date, db, api, focus, setFocus, onDate, onGrab, onStart, onDrop, onMove, rows, reveal, selection, onSelectStart, onSelectMove, onSelectEnd, onToggle }) {
  const d=useDesign(), [draft,setDraft]=useState(''), [team,setTeam]=useState(null), [active,setActive]=useState(false), input=useRef(null), [typingTeam,setTypingTeam]=useState(null);
@@ -62,7 +85,7 @@ function DaySection({ date, db, api, focus, setFocus, onDate, onGrab, onStart, o
   </View>
   {groups.map(g=><View key={g.team?.id||'none'}>
    {g.team&&<View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:8,marginBottom:2}}><View style={{width:7,height:7,borderRadius:4,backgroundColor:g.team.color}}/><Text style={{fontSize:12,fontWeight:'700',color:g.team.important?g.team.color:d.muted}}>{g.team.name}{g.team.important?' ★':''}</Text></View>}
-   {g.todos.map(todo=>{const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} /></View>;})}
+   {g.todos.map((todo,k)=>{const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} db={db} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} />{focus?.id==='after:'+todo.id&&<LineBelow key={'below'+focus.nonce} anchor={todo} next={g.todos[k+1]} date={date} api={api} setFocus={setFocus} reveal={reveal}/>}</View>;})}
    {/* Only a team with no lines yet (or the one being typed in) keeps an input row: no empty rows between teams. */}
    {allTeams&&g.team&&(!g.todos.length||typingTeam===g.team.id)&&<TeamAddLine onTyping={on=>setTypingTeam(cur=>on?g.team.id:cur===g.team.id?null:cur)} team={g.team} date={date} api={api} items={items} reveal={reveal} inputRef={el=>{if(el)teamInputs.current[g.team.id]=el;else delete teamInputs.current[g.team.id];}} onNext={()=>nextTeam(g.team.id)}/>}
   </View>)}

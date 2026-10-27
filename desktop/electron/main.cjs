@@ -39,6 +39,7 @@ function publicState() {
   const state = structuredClone(store.db);
   delete state.settings.gcal;
   delete state.supabaseMeta;
+  state.auth = supabase.status();
   return state;
 }
 
@@ -337,6 +338,14 @@ function registerIpc() {
     return r;
   });
 
+  // ---- 로그인 (이메일 + 비밀번호) ----
+  // Another account's data replaces this one's, so Ctrl+Z must not reach back into it.
+  const signedIn = (r) => { if (r.ok) history.clear(); broadcast(); return { ...r, state: publicState() }; };
+  ipcMain.handle('auth:signin', async (_, { email, password }) => signedIn(await supabase.signIn(store, email, password)));
+  ipcMain.handle('auth:signup', async (_, { email, password }) => signedIn(await supabase.signUp(store, email, password)));
+  ipcMain.handle('auth:signout', async () => signedIn(await supabase.signOut(store)));
+  ipcMain.handle('auth:recover', (_, email) => supabase.recover(email));
+
   // ---- 알림 ----
   ipcMain.handle('notif:ack', () => {
     const now = Date.now();
@@ -379,6 +388,7 @@ app.whenReady().then(() => {
 
   // Supabase가 설정돼 있으면 5초마다, 창으로 돌아올 때마다 가져오고 올린다.
   const autoSupabase = () => supabase.syncNow(store).then((r) => { if (r.changed) broadcast(); });
+  supabase.ready().then(broadcast); // the window waits for this before it shows the login or the app
   autoSupabase();
   setInterval(autoSupabase, 5000);
   app.on('browser-window-focus', autoSupabase);

@@ -8,14 +8,47 @@ const { titleFields } = require('../electron/todo-title.cjs');
 const { wallpaperHtml } = require('../electron/wallpaper.cjs');
 const { ensureDates } = require('../electron/ensure-dates.cjs');
 const { createUndoHistory } = require('../electron/undo-history.cjs');
+const authApi = require('../../shared/supabase-auth.cjs');
 
-function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dirname, '../../server/data'), config = configuration() } = {}) {
-  const core = createApp({ dir: dataDir, config });
+function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dirname, '../../server/data'), config = configuration(), env = process.env, authFetch } = {}) {
+  // Login (email + password): this server keeps one person's session and syncs Supabase with their token.
+  const authCfg = { url: env.SUPABASE_URL, key: env.SUPABASE_ANON_KEY, fetch: authFetch };
+  const authRequired = !!(authCfg.url && authCfg.key);
+  let keeper = null, account = null;
+  const sessionFile = path.join(dataDir, 'web-session.txt');
+  const core = createApp({ dir: dataDir, config, supabaseEnv: env, supabaseFetch: authFetch, supabaseAuth: authRequired ? async () => {
+    const session = await keeper.current();
+    account = session ? session.user : null;
+    return session && { token: session.accessToken, userId: session.user.id };
+  } : undefined });
+  if (authRequired) keeper = authApi.createSessionKeeper(authCfg, {
+    load: () => core.store.unseal(fs.readFileSync(sessionFile, 'utf8')),
+    save: (session) => (session ? fs.writeFileSync(sessionFile, core.store.seal(session), { mode: 0o600 }) : fs.rmSync(sessionFile, { force: true })),
+  });
+  const ready = keeper ? keeper.account().then((a) => { account = a; }) : Promise.resolve();
+  const locked = () => authRequired && !account;
+  const authState = () => ({ required: authRequired, loading: false, email: account?.email || null });
   const settingsFile = path.join(dataDir, 'web-settings.json'), wallpaperFile = path.join(dataDir, 'wallpaper-custom.jpg');
   const defaults = { theme: 'light', onboardingDone: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailyWrapup: true, dailySummaryTime: '09:00', dailyWrapupTime: '21:00', autoLaunch: false };
   let settings = { ...defaults };
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }; } catch (e) { if (e.code !== 'ENOENT') { core.store.close(); throw e; } }
-  const state = () => ({ ...core.snapshot(), settings: { ...settings, sync: { lastSync: Date.now() } }, notifLog: [], gcalEvents: [] });
+  const state = () => ({ ...(locked() ? { teams: [], projects: [], todos: [], tombstones: [] } : core.snapshot()), settings: { ...settings, sync: { lastSync: Date.now() } }, notifLog: [], gcalEvents: [], auth: authState() });
+  async function authAction(method, p) {
+    const email = String(p.email || ''), password = String(p.password || '');
+    try {
+      if (method === 'signin') await keeper.signIn(email, password);
+      else if (method === 'signup') { if ((await keeper.signUp(email, password)).confirm) return { ok: true, confirm: true, state: state() }; }
+      else if (method === 'recover') { await keeper.recover(email); return { ok: true }; }
+      else if (method === 'signout') {
+        await core.supabase?.sync().catch(() => {}); // last upload, then nothing of this account stays here
+        await keeper.signOut(); account = null; core.resetData(); history.clear();
+        return { ok: true, state: state() };
+      } else throw error('요청을 찾을 수 없습니다.', 404);
+    } catch (e) { if (e instanceof authApi.AuthError) return { ok: false, error: e.message }; throw e; }
+    account = await keeper.account(); history.clear();
+    await core.supabase?.sync(); // another account: its data replaces what was here before the window shows it
+    return { ok: true, state: state() };
+  }
   const stamp = item => Math.max(Date.now(), (item?.updatedAt || 0) + 1);
   const send = (res, code, result) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(result)); };
   const error = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -83,13 +116,16 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       const url = new URL(req.url, origin);
       if (url.pathname.startsWith('/api/')) {
         const method = url.pathname.slice(5);
-        if (req.method === 'GET' && method === 'state') return send(res, 200, state());
-        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.1.4-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
+        if (req.method === 'GET' && method === 'state') { await ready; return send(res, 200, state()); }
+        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.2.0-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
         if (req.method === 'GET' && method === 'integrations') return send(res, 200, { ok: true, ...core.integrations.state() });
         if (req.method === 'GET' && method === 'wallpaper-image') { const image = await fsp.readFile(wallpaperFile); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' }); return res.end(image); }
         if (req.method !== 'POST') throw error('요청을 찾을 수 없습니다.', 404);
         if (req.headers.origin !== origin) throw error('웹 앱에서 요청해 주세요.', 403);
         const p = await body(req, method === 'wallpaper-upload' ? 25 * 1024 * 1024 : undefined);
+        if (method.startsWith('auth/') && keeper) return send(res, 200, await (mutations = mutations.then(() => authAction(method.slice(5), p))));
+        await ready;
+        if (locked() && !['settings', 'ack'].includes(method)) throw error('로그인해 주세요.', 401);
         if (method === 'wallpaper-upload') {
           const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(p.dataUrl || ''));
           if (!match) throw error('사진 형식을 확인해 주세요.');
@@ -126,7 +162,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
   return { server, core, close: () => new Promise(resolve => { server.close(() => core.server.close(() => { core.store.close(); resolve(); })); }) };
 }
 if (require.main === module) {
-  const envFile = path.resolve(__dirname, '../../server/.env'); if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
+  for (const envFile of [path.resolve(__dirname, '../../server/.env'), path.resolve(__dirname, '../.env')]) if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
   const web = createWebService(), port = Number(process.env.WEB_PORT || 5173);
   const fail = e => { console.error(e.code === 'EADDRINUSE' ? '포트가 이미 사용 중입니다. 기존 서비스를 확인해 주세요.' : e.message); web.core.store.close(); process.exit(1); };
   web.server.on('error', fail); web.core.server.on('error', fail);
