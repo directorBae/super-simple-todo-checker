@@ -30,7 +30,7 @@ export default function RoomDock({ db, blocked = false, room, setRoom }) {
       const target = e.target instanceof Element ? e.target : null;
       const edge = target?.closest('.clock-edge-handle') ? 1 : target?.closest('.manage-edge-handle') ? -1 : 0;
       // Dragging to-do rows (and dropping them on the clock) is handled by the notebook's drag (useTodoDrag).
-      pointer = { x:e.clientX, y:e.clientY, moved:false, edge, touch:e.pointerType === 'touch', target, swipeAllowed:!target?.closest('.clock-dial,button,a,input,select,textarea') };
+      pointer = { x:e.clientX, y:e.clientY, moved:false, edge, touch:e.pointerType === 'touch', target, swipeAllowed:!target?.closest('.clock-dial,button,a,input,select,textarea,.cal-chip,.roaming-pet,.arcade-card') };
     };
     const move = e => {
       if (!pointer) return;
@@ -39,10 +39,11 @@ export default function RoomDock({ db, blocked = false, room, setRoom }) {
       // Pulling an edge handle toward the middle opens that side's room.
       if (pointer.edge === 1 && dx < -32 && Math.abs(dx)>Math.abs(dy)) { reveal(); pointer.moved=true; }
       if (pointer.edge === -1 && dx > 32 && Math.abs(dx)>Math.abs(dy)) { go(-1); pointer.moved=true; }
-      // Edge-only opening keeps horizontal task actions and vertical scrolling independent.
-      if (pointer.touch && state.current.room === 0 && !pointer.moved && isHorizontalSwipe(dx,dy)) {
-        if (pointer.x>innerWidth-36 && dx < -64) { reveal(); pointer.moved=true; }
-        else if (pointer.x<36 && dx > 64) { go(-1); pointer.moved=true; }
+      // On touch, a sideways swipe anywhere opens the next room (← clock, → teams).
+      // A to-do is only picked up by holding it, so a quick sideways swipe on one switches rooms too.
+      if (pointer.touch && pointer.swipeAllowed && state.current.room === 0 && !pointer.moved && isHorizontalSwipe(dx,dy)) {
+        if (dx < -56) { reveal(); pointer.moved=true; }
+        else if (dx > 56) { go(-1); pointer.moved=true; }
       }
     };
     const release = e => {

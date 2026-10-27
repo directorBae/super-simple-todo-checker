@@ -1,25 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createGame, stepGame, paintStage, blendAmount } from './game-engine.mjs';
 import { DEFAULT_PET } from './Pet.jsx';
-import { petPixels } from '../../../shared/pixel-pet.js';
-
-// The runner is the person's own pixel pet (drawn from local code, so it works offline):
-// legs move on the ground, jump pose in the air, squashed flat while ducking.
-function drawPet(ctx, pet, p, x, ducking, time) {
-  const cellX = ducking ? 1.9 : 1.5, cellY = ducking ? 0.75 : 1.5, frame = Math.floor(time * 12) % 4;
-  for (const px of petPixels(pet, p.onGround ? 'walk' : 'jump', frame)) {
-    ctx.fillStyle = px.color;
-    ctx.fillRect(Math.round(x - 6 + px.x * cellX), Math.round(p.y + p.h - 23 * cellY + px.y * cellY), Math.ceil(cellX), Math.ceil(cellY));
-  }
-}
+import { drawPet } from './pet-sprite.mjs';
 
 // Paints a stage into its own buffer so two stages can cross-fade cleanly.
 function paintInto(buffer, stage, state, g, pet) {
   const ctx = buffer.getContext('2d');
   ctx.save(); ctx.clearRect(0, 0, 500, 280);
-  const runner = (x, ducking) => {
-    if (g.invincible > 0 && Math.floor(g.elapsed * 12) % 2 === 0 && !g.transition) return;
-    drawPet(ctx, pet, state.player, x, ducking, g.elapsed);
+  const runner = (x, bottom, options) => {
+    // Blinks for a moment after a hit.
+    if (g.runner.invincible > 0 && Math.floor(g.elapsed * 12) % 2 === 0 && !g.transition) return;
+    drawPet(ctx, pet, x, bottom, options, g.runner.big, g.elapsed);
   };
   paintStage(ctx, stage, state, g, runner);
   ctx.restore();
@@ -50,7 +41,7 @@ export default function Arcade({ db, active = true }) {
     const draw = time => {
       if (running && last) {
         stepGame(game.current, (time - last) / 1000, keys.current);
-        if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.lives, over: game.current.gameOver }); }
+        if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver }); }
         if (game.current.gameOver) { setRunning(false); const value = Math.floor(game.current.score); if (value > bestRef.current) { setBest(value); window.api.updateSettings({ arcadeBest: value }); } }
       }
       last = time; paint(ctx, game.current, pet, buffers.current); frame = requestAnimationFrame(draw);

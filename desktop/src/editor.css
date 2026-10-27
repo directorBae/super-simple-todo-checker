@@ -1,0 +1,16 @@
+/* Date editor: a small glass month calendar; the to-do moves only on 확정. */
+.todo-editor.date-only { display: flex; flex-direction: column; gap: 8px; align-items: stretch; width: min(300px, 100%); padding: 10px; border-radius: 18px;
+  background: var(--glass-tint-strong); border: 1px solid var(--glass-edge); box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel); }
+.date-cal-nav { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-weight: 700; font-size: 13px; }
+.date-cal-nav .ghost { padding: 3px 9px; border-radius: 10px; font-size: 11px; }
+.date-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.date-cal-dow { font-size: 11px; color: var(--muted); padding: 2px 0; }
+.date-cal-dow.sun { color: #e11d48; } .date-cal-dow.sat { color: #4f6ef7; }
+.date-cal-day { border: 1px solid transparent; background: transparent; border-radius: 10px; padding: 5px 0; font-size: 12px; color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; }
+.date-cal-day:hover { background: rgba(255, 255, 255, 0.5); }
+.date-cal-day.is-today { border-color: rgba(99, 102, 241, 0.45); color: var(--accent); font-weight: 700; }
+.date-cal-day.is-picked { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 700; border-color: transparent; }
+.date-cal-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.date-cal-actions .ghost, .date-cal-actions .primary { padding: 5px 12px; border-radius: 10px; font-size: 12px; }
+.date-cal-spacer { flex: 1; }

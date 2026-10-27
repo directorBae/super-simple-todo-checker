@@ -216,15 +216,17 @@ export function DbProvider({ children }) {
         }),
 
       // Supabase: 가져와서 최신 상태에 합친 뒤(그 사이 고친 내용 보존) 바뀐 것만 올린다.
+      // 처음 연결할 때는 기기에 남은 옛 데이터를 버리고 DB 내용만 받는다(올리지 않음).
       supabaseNow: async () => {
         if (!supabaseEngine.configured(SUPABASE) || supabaseBusy.current || !dbRef.current) return { ok: false, skipped: true };
         supabaseBusy.current = true;
         const meta = supabaseEngine.freshMeta(dbRef.current.supabaseMeta);
         try {
           const { remote, newest } = await supabaseEngine.pullRemote(SUPABASE, meta);
-          if (remote.length) update((d) => { if (supabaseEngine.applyRemote(d, remote, meta)) { migrateTeams(d); ensureDates(d); } return d; }, false);
+          const first = supabaseEngine.firstSync(meta);
+          if (remote.length || first) update((d) => { if (first) supabaseEngine.adoptRemote(d); if (supabaseEngine.applyRemote(d, remote, meta) || first) { migrateTeams(d); ensureDates(d); } return d; }, false);
           await supabaseEngine.pushRemote(SUPABASE, supabaseEngine.collectPush(dbRef.current, meta), meta);
-          meta.pulledAt = newest;
+          meta.pulledAt = newest || supabaseEngine.EPOCH;
           return { ok: true };
         } catch (e) {
           return { ok: false, error: e.message };

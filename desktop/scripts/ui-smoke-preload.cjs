@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('api', {
   syncNow: async () => ({ ok: true }),
   updateSettings: p => ipcRenderer.invoke('smoke:settings', p),
   updateTodo: (id, patch) => ipcRenderer.invoke('smoke:todo', { id, patch }),
+  addTodo: t => ipcRenderer.invoke('smoke:add', t),
+  deleteTodo: id => ipcRenderer.invoke('smoke:delete', id),
+  undoTodo: () => ipcRenderer.invoke('smoke:undo'),
+  redoTodo: () => ipcRenderer.invoke('smoke:redo'),
   pairDevice: async () => ({ ok: true, code: '123456', urls: ['http://192.0.2.1:8787'] }),
   onDbChanged: callback => ipcRenderer.on('smoke:db', (_, db) => callback(db)), onOpenView: callback => ipcRenderer.on('smoke:open-view', (_, view) => callback(view)),
 });

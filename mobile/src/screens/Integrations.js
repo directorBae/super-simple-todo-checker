@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View, Switch } from 'react-native';
+import { Pressable, ScrollView, View, Switch } from 'react-native';
+import { Text, TextInput } from '../text.js';
 import { useDb } from '../store.js';
 import { useDesign, Surface, Sheet, Button, ProviderIcon } from '../design.js';
 import { ServerLoginForm } from './Settings.js';

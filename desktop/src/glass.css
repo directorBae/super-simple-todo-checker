@@ -18,13 +18,13 @@
   --overlay: rgba(10, 14, 30, 0.18);
 
   /* 재질 */
-  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.16));
-  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.3));
-  --glass-panel: url(#lens) blur(12px) saturate(185%) brightness(1.05);
+  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.2));
+  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
+  --glass-panel: url(#lens) blur(18px) saturate(135%) brightness(1.04);
   /* 큰 판은 굴절 폭이 크기에 비례해 커지므로 약한 렌즈 + 강한 블러 */
-  --glass-pane: url(#lens-soft) blur(20px) saturate(185%) brightness(1.05);
-  --glass-control: url(#lens) blur(4px) saturate(170%) brightness(1.08);
-  --glass-sheet: blur(30px) saturate(190%) brightness(1.04);
+  --glass-pane: url(#lens-soft) blur(26px) saturate(135%) brightness(1.04);
+  --glass-control: url(#lens) blur(6px) saturate(125%) brightness(1.06);
+  --glass-sheet: blur(30px) saturate(130%) brightness(1.04);
   --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3), inset 0 0 26px rgba(255, 255, 255, 0.22);
   --glass-drop: 0 16px 44px rgba(8, 14, 40, 0.2), 0 2px 6px rgba(8, 14, 40, 0.08);
   --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.2) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0.6));
@@ -152,18 +152,27 @@ button.primary,
 /* ---------- 상단바 ---------- */
 .topbar {
   border-width: 0 0 1px;
-  border-bottom-color: rgba(255, 255, 255, 0.4);
-  backdrop-filter: var(--glass-sheet);
-  -webkit-backdrop-filter: var(--glass-sheet);
-  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.2), 0 6px 24px rgba(8, 14, 40, 0.1);
+  border-bottom-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  box-shadow: 0 1px 0 rgba(8, 14, 40, 0.04);
 }
 .top-icons { gap: 4px; }
 .bell-btn { display: grid; place-items: center; width: 36px; height: 34px; padding: 0; color: var(--text); }
 .bell-btn svg { width: 20px; height: 20px; }
 .bell-badge { position: absolute; top: 2px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8); }
-.bell-pop { width: 340px; max-height: 60vh; overflow: auto; padding: 16px; }
-.bell-pop h3 { margin: 2px 4px 8px; font-size: 15px; }
-.bell-pop .todo-row { padding: 8px 4px; }
+/* The panel itself never scrolls (that drew a second edge and a scrollbar corner); only the list inside does. */
+.bell-pop { width: 340px; padding: 14px; overflow: hidden; display: flex; flex-direction: column; max-height: 70vh; }
+.bell-pop h3 { margin: 2px 4px 10px; font-size: 15px; }
+.missed-list { list-style: none; margin: 0 0 12px; padding: 0; overflow: auto; display: grid; gap: 6px; min-height: 0; }
+.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.7); }
+.missed-title { font-size: 13px; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
+.missed-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.missed-meta b { padding: 1px 7px; border-radius: 99px; font-weight: 600; font-size: 10.5px; color: #fff; background: #6366f1; }
+.missed-meta b.is-end { background: #0ea5e9; }
+.missed-ack { align-self: stretch; }
+.missed-empty { margin: 4px; font-size: 13px; color: var(--muted); }
 
 /* ---------- 메인 칼럼: 큰 유리판 ---------- */
 /* 창 전체를 덮는 두꺼운 유리: 사진은 색과 빛으로만 비치고 원본 그대로 드러나는 곳은 없다. */
@@ -173,9 +182,9 @@ button.primary,
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.2));
-  backdrop-filter: blur(44px) saturate(185%) brightness(1.04);
-  -webkit-backdrop-filter: blur(44px) saturate(185%) brightness(1.04);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.44), rgba(244, 246, 255, 0.3));
+  backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
+  -webkit-backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
 }
 .manage-col,
 .popup-panel,
@@ -184,12 +193,21 @@ button.primary,
 .notebook-content > .memo-wrap.is-month { max-width: 1240px; }
 /* 내 팀은 달력 박스 밖, 왼쪽 */
 .month-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 22px; align-items: start; }
-.cal-cell:not(.blank) { border-radius: 16px; background: linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12)); }
-.cal-cell:not(.blank):hover { background: var(--glass-tint-strong); box-shadow: var(--glass-light), 0 14px 34px rgba(8, 14, 40, 0.18); }
-.cal-cell.today { background: radial-gradient(120% 100% at 0% 0%, rgba(99, 102, 241, 0.2), transparent 60%), var(--glass-tint-strong); box-shadow: var(--glass-light), 0 0 0 3px rgba(99, 102, 241, 0.22), var(--glass-drop); }
+/* 달력과 내 팀은 감싸는 상자 없이 바로 놓는다 — 칸과 목록만 유리. */
+.month-view { padding: 0; }
+.cal-nav .view-toggle { margin: 0 4px; }
+.month-view .cal-cell:not(.blank) {
+  border-radius: 14px; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; transform: none;
+}
+.month-view .cal-cell:not(.blank)::after { display: none; }
+.month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.42); border-color: rgba(255, 255, 255, 0.75); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8); transform: none; }
+.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.58); border-color: rgba(255, 255, 255, 0.9); box-shadow: inset 0 1px 1px #fff, 0 0 0 2px rgba(99, 102, 241, 0.32); }
+.month-view .cal-chip { background: rgba(255, 255, 255, 0.5); }
 
 /* 내 팀 목록 */
-.team-side { position: sticky; top: 8px; padding: 16px 14px; border-radius: 22px; }
+.team-side { position: sticky; top: 8px; padding: 2px 0; border-radius: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.team-side::after { display: none; }
 .team-side-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .team-side-head h2 { margin: 0; font-size: 15px; letter-spacing: -0.3px; }
 .team-side-head .ghost { padding: 4px 10px; font-size: 12px; border-radius: 10px; }
@@ -200,16 +218,42 @@ button.primary,
 .team-side-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team-side-count { min-width: 22px; padding: 1px 7px; border-radius: 99px; background: rgba(255, 255, 255, 0.5); color: var(--muted); font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) { .month-layout { grid-template-columns: 1fr; } .team-side { position: static; } }
+/* ---------- 휴대폰(모바일 웹): 앱과 같은 구성 — 내 팀 목록·제목·가장자리 손잡이 없이, 옆으로 밀어 방 이동 ---------- */
+@media (max-width: 700px) {
+  .month-layout .team-side, .memo-toolbar h1, .clock-edge-handle, .manage-edge-handle { display: none; }
+  .memo-wrap.is-month .memo-toolbar { display: none; } /* the 일·주·월 tabs sit in the calendar's own row */
+  .cal-nav { flex-wrap: wrap; row-gap: 6px; }
+  .cal-nav .cal-today { display: none; } /* ◎ 오늘 at the bottom does the same */
+  .month-view .cal-grid { gap: 4px; }
+  .month-view .cal-cell { min-height: 58px; padding: 4px 3px; border-radius: 11px; }
+  .month-view .cal-chip { font-size: 10px; }
+  /* A line is checkbox · text · 📅, as in the app; team and delete move to dragging (team groups, the bin). */
+  .memo-day .memo-right > :not(.meta):not(.memo-actions), .memo-day .memo-actions button:not(:first-child) { display: none; }
+  .memo-day .memo-actions { opacity: 1; }
+}
+.todo-undo-toast {
+  position: fixed; left: 16px; right: 16px; bottom: 96px; z-index: 380; margin: 0 auto; max-width: 420px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 18px; font-size: 13px;
+  background: var(--glass-tint-strong); border: 1px solid var(--glass-edge); box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+}
+.todo-undo-toast button { border: 0; background: transparent; color: var(--accent); font-weight: 700; cursor: pointer; }
 
 /* ---------- 일별 페이지: 박스 없는 글자, 고칠 때만 유리 ---------- */
 .memo-day input.memo-input,
-.memo-day input.memo-edit {
+.memo-day .memo-edit {
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
   padding: 4px 0;
 }
+/* A new line starts as a faint empty checkbox — no prompt text. */
+.memo-day .memo-input-row::before {
+  content: ''; width: 13px; height: 13px; margin: 0 3px; flex-shrink: 0; box-sizing: border-box;
+  border: 1.5px solid currentColor; border-radius: 4px; color: var(--placeholder); opacity: 0.5; transform: none;
+}
+.memo-day .memo-input-row:focus-within::before { color: var(--accent); opacity: 0.75; transform: none; }
 .memo-day .memo-input-row,
 .memo-day .memo-line-main {
   border-radius: 12px;
@@ -232,19 +276,19 @@ button.primary,
 /* 오늘 요일 · 날짜만 반짝이는 빛 */
 .memo-day.is-today .memo-dow,
 .memo-day.is-today .memo-date {
-  background: linear-gradient(100deg, #4f46e5 0%, #7c3aed 30%, #ffffff 46%, #c4b5fd 54%, #4f46e5 70%, #7c3aed 100%);
+  background: linear-gradient(100deg, #4f46e5 0%, #6d28d9 35%, #8b5cf6 50%, #6d28d9 65%, #4f46e5 100%);
   background-size: 260% 100%;
+  /* a little room so the clipped gradient never cuts a glyph's edge */
+  padding: 0 2px; margin: 0 -2px;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.55));
   animation: today-shine 3.2s ease-in-out infinite;
 }
 .memo-day.is-today .memo-date { font-weight: 600; font-size: 13px; }
 @keyframes today-shine {
-  0% { background-position: 100% 0; filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4)); }
-  50% { filter: drop-shadow(0 0 10px rgba(196, 181, 253, 0.85)); }
-  100% { background-position: 0% 0; filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.4)); }
+  0% { background-position: 100% 0; }
+  100% { background-position: 0% 0; }
 }
 @media (prefers-reduced-motion: reduce) { .memo-day.is-today .memo-dow, .memo-day.is-today .memo-date { animation: none; background-position: 30% 0; } }
 
@@ -346,18 +390,19 @@ button.primary,
 @media (prefers-reduced-motion: reduce) { .clock-lens-layer { animation: none; } }
 
 /* ---------- 음악 (YouTube) ---------- */
-.music-add { display: flex; gap: 6px; margin-bottom: 12px; }
-.music-add input { flex: 1; min-width: 0; }
-.youtube-frame { position: relative; aspect-ratio: 16 / 9; min-height: 200px; border-radius: 16px; overflow: hidden; background: rgba(10, 14, 30, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); margin-bottom: 10px; }
+.youtube-frame { position: relative; aspect-ratio: 16 / 9; min-height: 200px; border-radius: 16px; overflow: hidden; background: rgba(10, 14, 30, 0.55); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); margin-bottom: 12px; }
 .youtube-frame > div,
 .youtube-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.music-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; max-height: 180px; overflow: auto; }
-.music-list li { display: flex; align-items: center; border-radius: 10px; }
-.music-list li.active { background: rgba(255, 255, 255, 0.5); }
-.music-item { flex: 1; min-width: 0; text-align: left; border: 0; background: transparent; padding: 8px 10px; font-size: 12px; color: var(--text); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-list li.active .music-item { color: var(--accent); font-weight: 600; }
-.music-remove { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; cursor: pointer; }
-.music-remove:hover { color: var(--danger); }
+/* One play button and the link button — nothing else. */
+.music-simple { display: flex; align-items: center; gap: 10px; }
+.music-simple .play-button { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; border: 0; font-size: 15px; color: #fff; cursor: pointer;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, #6366f1, #8b5cf6); box-shadow: 0 6px 18px rgba(79, 70, 229, 0.35); }
+.music-simple .play-button:disabled { opacity: 0.5; cursor: default; }
+.music-simple .music-link { padding: 9px 14px; border-radius: 12px; }
+.music-volume { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+.music-volume input { width: 96px; accent-color: var(--accent); }
+.music-add { flex: 1; display: flex; gap: 6px; min-width: 0; }
+.music-add input { flex: 1; min-width: 0; }
 
 /* 팝업 뒤 화면은 흐리게 가라앉혀 창 내용과 섞이지 않게 한다. */
 .popup-overlay,
@@ -391,16 +436,14 @@ button.primary,
 /* ---------- 할 일 끌기 · 여러 개 선택 ---------- */
 .memo-day .memo-line-main { cursor: grab; -webkit-touch-callout: none; touch-action: pan-y; }
 .memo-day .memo-line-main .memo-title { cursor: text; }
-@media (pointer: coarse) { .memo-day .memo-line-main { -webkit-user-select: none; user-select: none; } }
-.cal-chip { cursor: grab; touch-action: pan-y; -webkit-touch-callout: none; }
+/* Touch: the titles stay selectable, so a long press can select text across several lines (the empty part of a line is the grab area). */
+@media (pointer: coarse) { .memo-day .memo-line-main .memo-grab { -webkit-user-select: none; user-select: none; } }
+.cal-chip { cursor: grab; touch-action: none; -webkit-touch-callout: none; }
 .memo-day .memo-line.is-selected .memo-line-main {
   background: linear-gradient(160deg, rgba(196, 181, 253, 0.55), rgba(255, 255, 255, 0.32));
   border-color: rgba(255, 255, 255, 0.75);
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(124, 58, 237, 0.28), 0 6px 18px rgba(79, 70, 229, 0.16);
-  backdrop-filter: var(--glass-control);
-  -webkit-backdrop-filter: var(--glass-control);
 }
-.memo-line.is-pressing .memo-line-main { transform: scale(0.985); transition: transform 0.45s ease; }
 .memo-line.is-drag-source, .cal-chip.is-drag-source { opacity: 0.42; }
 .todo-dragging, .todo-dragging * { cursor: grabbing !important; -webkit-user-select: none !important; user-select: none !important; }
 .todo-dragging .roaming-pet { pointer-events: none; }
@@ -424,19 +467,37 @@ button.primary,
   outline: 2px solid rgba(124, 58, 237, 0.55); outline-offset: 2px; border-radius: 12px;
   background: rgba(196, 181, 253, 0.35) !important;
 }
-.selection-bar {
-  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 60;
-  display: flex; align-items: center; gap: 4px; padding: 6px 8px 6px 16px; border-radius: 999px;
+.memo-grab { flex: 1 1 0; align-self: stretch; min-width: 24px; }
+.memo-day .memo-line-main .memo-title,
+.memo-day .memo-line-main .memo-edit {
+  /* The text stays narrow and wraps onto more lines, so the rest of the line is always free to drag. */
+  flex: 0 1 auto; max-width: min(62%, 460px); line-height: 1.45;
+  white-space: normal; overflow-wrap: anywhere; word-break: keep-all; overflow: visible; text-overflow: clip;
+}
+.memo-day .memo-line-main .memo-edit { width: min(62%, 460px); display: block; resize: none; overflow: hidden; font-size: 14px; }
+/* Shown only while dragging: the bin (drop to delete). */
+.todo-drop-strip {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 380;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding: 8px; border-radius: 22px;
+  max-width: calc(100vw - 32px);
   background: var(--glass-tint-strong); border: 1px solid var(--glass-edge);
   box-shadow: var(--glass-light), var(--glass-drop);
   backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
-  max-width: calc(100vw - 32px);
+  animation: strip-in 0.18s ease-out;
 }
-.selection-count { font-weight: 700; font-size: 13px; margin-right: 6px; white-space: nowrap; }
-.selection-teams {
-  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
-  display: flex; flex-direction: column; min-width: 180px; padding: 6px; border-radius: 16px;
-  background: var(--pop); border: 1px solid var(--glass-edge); box-shadow: var(--glass-light), var(--glass-drop);
-  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+@keyframes strip-in { from { opacity: 0; transform: translate(-50%, 10px); } }
+.todo-drop-trash {
+  display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #b4233c;
+  background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.7); transition: background 0.15s, color 0.15s, transform 0.15s;
 }
-.selection-teams button { display: flex; align-items: center; gap: 8px; justify-content: flex-start; text-align: left; }
+.todo-drop-trash.is-drop-target { outline: 0; background: #e5486a !important; color: #fff; transform: scale(1.08); }
+.memo-line.is-held .memo-line-main { transform: scale(1.02); box-shadow: 0 8px 24px rgba(8, 14, 40, 0.18); transition: transform 0.15s, box-shadow 0.15s; }
+
+/* Phones: settings tabs in a row on top so the options get the whole width; bucket rows wrap. (After the base rules.) */
+@media (max-width: 700px) {
+  .settings-layout { grid-template-columns: 1fr; gap: 12px; min-height: 0; }
+  .settings-tabs { flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 2px; scrollbar-width: none; }
+  .settings-tab { flex-shrink: 0; white-space: nowrap; padding: 8px 12px; }
+  .manage-col .todo-line { flex-wrap: wrap; }
+  .manage-col .todo-line .title { flex: 1 1 60%; min-width: 0; }
+}

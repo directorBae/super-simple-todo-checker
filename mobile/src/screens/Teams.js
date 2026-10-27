@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, View, Pressable } from 'react-native';
+import { Alert, ScrollView, View, Pressable } from 'react-native';
+import { Text, TextInput } from '../text.js';
 import { useDb } from '../store.js';
 import { useDesign, Surface, Button } from '../design.js';
 const COLORS = ['#6685e8','#4d9d86','#ba76a7','#ce8d51','#8e79c8','#599ab5'];

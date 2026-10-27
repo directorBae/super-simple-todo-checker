@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, ScrollView, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../text.js';
 import { useDb } from '../store.js';
 import { T, shadow } from '../theme.js';
 import { Glass, TeamDot, Badge, TeamChip, GhostButton, PrimaryButton, EmptyNote, FadeInUp, PressScale, Check, SectionTitle } from '../components.js';

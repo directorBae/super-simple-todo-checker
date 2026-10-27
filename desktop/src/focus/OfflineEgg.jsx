@@ -7,11 +7,15 @@ export default function OfflineEgg({ db }) {
   useEffect(() => {
     const disconnected = () => setOffline(true);
     const connected = () => { setOffline(false); setOpen(false); };
-    const escape = e => { if (e.key === 'Escape') setOpen(false); };
-    // Testing: the menu can open the game while online (normally it only appears offline).
-    const requested = () => setOpen(true);
-    window.addEventListener('offline', disconnected); window.addEventListener('online', connected); window.addEventListener('keydown', escape); window.addEventListener('checker:open-game', requested);
-    return () => { window.removeEventListener('offline', disconnected); window.removeEventListener('online', connected); window.removeEventListener('keydown', escape); window.removeEventListener('checker:open-game', requested); };
+    // Esc closes the game; on a computer Ctrl+G opens (or closes) it any time, online or not.
+    const key = e => {
+      if (e.key === 'Escape') { setOpen(false); return; }
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.code !== 'KeyG') return;
+      if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) return;
+      e.preventDefault(); setOpen(v => !v);
+    };
+    window.addEventListener('offline', disconnected); window.addEventListener('online', connected); window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('offline', disconnected); window.removeEventListener('online', connected); window.removeEventListener('keydown', key); };
   }, []);
   if (!offline && !open) return null;
   return <>

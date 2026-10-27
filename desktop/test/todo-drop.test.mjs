@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dropPatches, lineSort, selectRange } from '../../shared/todo-drop.js';
+import { dropPatches, lineSort, teamSort, teamGroups } from '../../shared/todo-drop.js';
 
 const todo = (id, extra = {}) => ({ id, title: id, kind: 'todo', status: 'todo', date: '2026-10-26', teamId: null, projectId: null, createdAt: Number(id.slice(1)), ...extra });
 const apply = (db, patches) => ({ ...db, todos: db.todos.map((t) => ({ ...t, ...(patches.find((p) => p.id === t.id)?.patch || {}) })) });
@@ -34,7 +34,10 @@ test('team drops move every selected row; a day drop takes them out of the team'
   assert.deepEqual(dropPatches(db, ['a1'], { kind: 'line', targetId: 'a1' }), []);
 });
 
-test('shift selects the range between the anchor and the clicked row in screen order', () => {
-  assert.deepEqual(selectRange(['a', 'b', 'c', 'd'], 'd', 'b'), ['b', 'c', 'd']);
-  assert.deepEqual(selectRange(['a', 'b'], 'x', 'b'), ['b']);
+test('week and month lists follow the teams: no team first, then each team in order, notebook order inside', () => {
+  const db = { teams: [{ id: 'B', name: 'Beta' }, { id: 'A', name: 'Alpha' }], projects: [], todos: [
+    todo('a1', { teamId: 'A' }), todo('a2'), todo('a3', { teamId: 'B', startTime: '09:00' }), todo('a4', { teamId: 'B' }), todo('a5', { teamId: 'A', startTime: '08:00' }),
+  ] };
+  assert.deepEqual([...db.todos].sort(teamSort(db)).map((t) => t.id), ['a2', 'a3', 'a4', 'a5', 'a1']);
+  assert.deepEqual(teamGroups(db, db.todos).map((g) => [g.team?.name ?? null, g.list.map((t) => t.id)]), [[null, ['a2']], ['Beta', ['a3', 'a4']], ['Alpha', ['a5', 'a1']]]);
 });

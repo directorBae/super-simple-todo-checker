@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef } from 'react';
-import { AccessibilityInfo, Animated, Image, Modal, Pressable, View, Text, StyleSheet, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
+import { AccessibilityInfo, Animated, Image, Modal, Pressable, View, StyleSheet, Platform, KeyboardAvoidingView, ScrollView } from 'react-native';
+import { Text } from './text.js';
 import { BlurView, BlurTargetView } from 'expo-blur';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import Svg, { Path, Rect, Circle, Text as SvgText } from 'react-native-svg';
@@ -67,6 +68,7 @@ const paths = {
   plus: 'M12 5v14M5 12h14',
   check: 'm5 12 4 4L19 6',
   drag: 'M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01',
+  trash: 'M4 7h16M9 7V4.8c0-.4.4-.8.8-.8h4.4c.4 0 .8.4.8.8V7M6.5 7l.9 12.2c.1.9.8 1.6 1.7 1.6h5.8c.9 0 1.6-.7 1.7-1.6L17.5 7M10 11v6M14 11v6',
 };
 export function Icon({ name, size = 22, color }) {
   const d = useDesign();

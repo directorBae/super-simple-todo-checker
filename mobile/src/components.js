@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, Platform } from 'react-native';
+import { Animated, Pressable, StyleSheet, View, Platform } from 'react-native';
+import { Text } from './text.js';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import { T, glassCard, shadow } from './theme.js';

@@ -6,7 +6,7 @@ import * as dino from '../src/focus/dino.mjs';
 import * as mario from '../src/focus/mario.mjs';
 import * as galaga from '../src/focus/galaga.mjs';
 import * as pacman from '../src/focus/pacman.mjs';
-import * as bowser from '../src/focus/bowser.mjs';
+import { createRunner, hurt, powerUp } from '../src/focus/runner.mjs';
 import titlePolicy from '../electron/todo-title.cjs';
 import wallpaper from '../electron/wallpaper.cjs';
 import { isClockShortcut, isHorizontalSwipe } from '../src/focus/clock-gestures.mjs';
@@ -77,8 +77,8 @@ const seeded = (seed = 7) => () => ((seed = seed * 16807 % 2147483647) / 2147483
 const run = (step, seconds, keys = () => new Set()) => { let r = null; for (let i = 0; i < seconds * 60 && !r; i++) r = step(keys(i), i); return r; };
 
 test('the run strings the games together and pushes the runner back to the left between them', () => {
-  assert.deepEqual(STAGES, ['dino', 'mario', 'dino', 'galaga', 'dino', 'pacman', 'dino', 'bowser']);
-  const g = createGame(); assert.equal(g.stage, 'dino'); assert.equal(g.invincible, 0);
+  assert.deepEqual(STAGES, ['dino', 'mario', 'dino', 'galaga', 'dino', 'pacman']);
+  const g = createGame(); assert.equal(g.stage, 'dino'); assert.equal(g.runner.invincible, 0);
   g.state.obstacles = [{ kind: 'small', x: 480, y: dino.FLOOR - 26, w: 16, h: 26 }]; g.score = DINO_GOAL;
   stepGame(g, 1 / 60, new Set(), () => 0.5); assert.equal(g.stage, 'dino'); assert.equal(g.state.ending, true);
   g.state.obstacles = []; stepGame(g, 1 / 60, new Set()); assert.equal(g.stage, 'mario'); assert.ok(g.transition);
@@ -94,14 +94,14 @@ test('the run strings the games together and pushes the runner back to the left 
 test('lives: a hit costs one life with a grace period, zero lives ends the run', () => {
   const tree = () => [{ kind: 'small', x: RUNNER_X, y: dino.FLOOR - 26, w: 16, h: 26 }];
   const g = createGame(); g.state.obstacles = tree();
-  stepGame(g, 1 / 60, new Set()); assert.equal(g.lives, 2); assert.ok(g.invincible > 1);
-  g.state.obstacles = tree(); stepGame(g, 1 / 60, new Set()); assert.equal(g.lives, 2);
-  g.lives = 1; g.invincible = 0; g.state.obstacles = tree();
+  stepGame(g, 1 / 60, new Set()); assert.equal(g.runner.lives, 2); assert.ok(g.runner.invincible > 1);
+  g.state.obstacles = tree(); stepGame(g, 1 / 60, new Set()); assert.equal(g.runner.lives, 2);
+  g.runner.lives = 1; g.runner.invincible = 0; g.state.obstacles = tree();
   stepGame(g, 1 / 60, new Set()); assert.equal(g.gameOver, true);
   const score = g.score; stepGame(g, 1, new Set()); assert.equal(g.score, score);
 });
 test('dino: speeds up like Chrome, birds only once fast, ↓ ducks, and a held jump goes higher than a tap', () => {
-  const game = { score: 0, invincible: 0 }, st = dino.create(game), start = st.speed;
+  const game = { score: 0, runner: createRunner() }, st = dino.create(game), start = st.speed;
   for (let i = 0; i < 60 * 30; i++) { dino.step(st, 1 / 60, new Set(), game, () => 0.99); st.obstacles = []; }
   assert.ok(st.speed > start + 140, `speed ${st.speed}`); assert.ok(game.score > 0);
   const slow = dino.create(game); slow.gap = 0; dino.step(slow, 1 / 600, new Set(), game, () => 0.01); assert.notEqual(slow.obstacles[0].kind, 'bird');
@@ -112,7 +112,7 @@ test('dino: speeds up like Chrome, birds only once fast, ↓ ducks, and a held j
   assert.ok(tap > 26, 'a tap clears a small tree: ' + tap); assert.ok(held > tap * 2, `hold ${held} vs tap ${tap}`);
 });
 test('mario 1-1: moves only by hand, ? blocks pay 100, chained stomps double, the flag ends the stage', () => {
-  const game = { score: 0, invincible: 0 }, st = mario.create(game), x = st.player.x;
+  const game = { score: 0, runner: createRunner() }, st = mario.create(game), x = st.player.x;
   run((k) => mario.step(st, 1 / 60, k, game), 1); assert.ok(Math.abs(st.player.x - x) < 1, 'no auto-run');
   run((k) => mario.step(st, 1 / 60, k, game), 0.5, () => new Set(['ArrowRight'])); assert.ok(st.player.x > x + 20);
   // ? block at tile 16, four tiles up.
@@ -132,18 +132,57 @@ test('mario 1-1: moves only by hand, ? blocks pay 100, chained stomps double, th
   assert.equal(run(() => mario.step(st3, 1 / 60, new Set(['ArrowRight']), game), 15), 'done');
   assert.ok(game.score >= 2000, 'high grab bonus: ' + game.score);
 });
-test('galaga: enemies dive and shoot back, only two shots fly at once, a fresh press fires', () => {
-  const game = { score: 0, invincible: 0 }, random = seeded(), st = galaga.create();
-  let fired = false; for (let i = 0; i < 60 * 25 && !fired; i++) { galaga.step(st, 1 / 60, new Set(), game, random); fired = st.bullets.length > 0; }
+test('galaga: the pet fires by itself (two shots at a time), enemies shoot back, kills are 100 and wiping out the wave moves on', () => {
+  const game = { score: 0, runner: createRunner() }, random = seeded(), st = galaga.create(game);
+  let fired = false; for (let i = 0; i < 60 * 25 && !fired; i++) { game.runner.invincible = 9; galaga.step(st, 1 / 60, new Set(), game, random); fired = st.bullets.length > 0; }
   assert.ok(fired, 'diving enemies fire');
-  const s2 = galaga.create(); for (let i = 0; i < 10; i++) galaga.step(s2, 1 / 60, new Set(['Space']), game, random);
-  assert.equal(s2.shots.length, 1);
-  for (const keys of [[], ['Space'], [], ['Space']]) galaga.step(s2, 1 / 60, new Set(keys), game, random);
-  assert.equal(s2.shots.length, 2);
+  const s2 = galaga.create(game); for (let i = 0; i < 12; i++) galaga.step(s2, 1 / 60, new Set(), game, random);
+  assert.equal(s2.shots.length, 2, 'two shots in the air without pressing anything');
   assert.equal(s2.enemies.length, 40); assert.equal(s2.enemies.filter((e) => e.kind === 'boss').length, 4);
+  const s3 = galaga.create(game), e = s3.enemies.find((x) => x.kind === 'bee');
+  game.score = 5000; galaga.step(s3, 1 / 1000, new Set(), game, () => 0.99);
+  assert.equal(galaga.step(s3, 1 / 1000, new Set(), game, () => 0.99), null, 'points alone never end the stage');
+  const others = s3.enemies.filter((x) => x !== e); s3.enemies = [e]; e.state = 'formation'; galaga.step(s3, 1 / 1000, new Set(), game, () => 0.99);
+  const before = game.score; s3.shots = [{ x: e.x + 6, y: e.y + 4 }];
+  assert.equal(galaga.step(s3, 1 / 1000, new Set(), game, () => 0.99), 'done', 'the last enemy down ends the stage');
+  assert.equal(game.score - before, 100, 'a kill is 100 points'); assert.ok(others.length === 39);
+});
+test('the pet is one object across games: a mushroom makes it big and adds a heart up to four; a hit costs a heart and shrinks it', () => {
+  const r = createRunner(); powerUp(r);
+  assert.deepEqual([r.lives, r.big], [4, true]);
+  powerUp(r); assert.equal(r.lives, 4, 'no more hearts from mushrooms at four');
+  assert.equal(hurt(r), false); assert.deepEqual([r.lives, r.big], [3, false], 'a hit after a mushroom costs a heart and shrinks');
+  hurt(r); assert.equal(r.lives, 3, 'no second hit while blinking');
+  r.invincible = 0; powerUp(r); assert.equal(r.lives, 4, 'below four a mushroom counts again');
+  r.invincible = 0; hurt(r, { fall: true }); assert.deepEqual([r.lives, r.big], [3, false]);
+  // Big carries into the next game: a big pet in Mario is a tall pet back in the dino run.
+  const g = createGame(); g.runner.big = true; g.state.obstacles = []; g.score = DINO_GOAL; stepGame(g, 1 / 60, new Set());
+  assert.equal(g.stage, 'mario'); assert.ok(g.state.player.h > 30);
+  for (let i = 0; i < 60; i++) stepGame(g, 1 / 60, new Set());
+  g.state.player.x = 4083; g.state.level.cam = 3740; g.state.outro = { phase: 'inside', t: 1 }; stepGame(g, 1 / 60, new Set());
+  assert.equal(g.stage, 'dino'); assert.ok(g.state.player.h > 30, 'still big in the dino run');
+  g.transition = null; g.state.player.x = RUNNER_X; g.runner.invincible = 0; g.state.obstacles = [{ kind: 'small', x: RUNNER_X, y: dino.FLOOR - 26, w: 16, h: 26 }];
+  stepGame(g, 1 / 60, new Set()); assert.equal(g.runner.big, false); assert.equal(g.runner.lives, 2, 'a hit costs a heart and shrinks the pet');
+  for (let i = 0; i < 5; i++) stepGame(g, 1 / 60, new Set()); assert.equal(g.state.player.h, 28);
+});
+test('mario: a mushroom block grows the pet and adds a heart; a big pet breaks bricks', () => {
+  const game = { score: 0, runner: createRunner() }, st = mario.create(game);
+  // ? block at tile 21 (four tiles up) holds a mushroom.
+  Object.assign(st.player, { x: 21 * mario.TILE + 1, y: mario.GROUND * mario.TILE - 28, vx: 0, vy: 0, onGround: true });
+  run((k) => { mario.step(st, 1 / 60, k, game); return st.level.items.length > 0; }, 1.5, (i) => new Set(i < 30 ? ['Space'] : []));
+  assert.equal(st.level.items.length, 1, 'a mushroom comes out');
+  run(() => { mario.step(st, 1 / 60, new Set(), game); return game.runner.big; }, 2, () => new Set());
+  if (!game.runner.big) { const m = st.level.items[0]; Object.assign(st.player, { x: m.x, y: m.y }); mario.step(st, 1 / 60, new Set(), game); }
+  assert.equal(game.runner.big, true); assert.equal(game.runner.lives, 4); assert.equal(st.player.h, 38);
+  // Brick at tile 20, four tiles up: big → it breaks.
+  const st2 = mario.create(game), brick = () => mario.tileAt(st2.level, 20, mario.GROUND - 4);
+  Object.assign(st2.player, { x: 20 * mario.TILE + 1, vx: 0, vy: 0, onGround: true }); st2.player.y = mario.GROUND * mario.TILE - st2.player.h;
+  const solid = brick();
+  run((k) => { mario.step(st2, 1 / 60, k, game); return brick() !== solid; }, 1.5, (i) => new Set(i < 30 ? ['Space'] : []));
+  assert.equal(brick(), 0, 'the brick is gone'); assert.ok(st2.level.debris.length > 0);
 });
 test('pac-man: dots 10, energizer 50 and frightened ghosts worth 200 then 400; a normal ghost catches you', () => {
-  const game = { score: 0, invincible: 0 }, st = pacman.create(); st.pause = 0;
+  const game = { score: 0, runner: createRunner() }, st = pacman.create(); st.pause = 0;
   for (let i = 0; i < 20; i++) pacman.step(st, 1 / 60, new Set(), game, seeded());
   assert.ok(game.score >= 10 && game.score % 10 === 0);
   game.score = 0; Object.assign(st.pac, { x: 1.5, y: 3.5, dir: { x: 0, y: 0 }, want: { x: 0, y: 0 } });
@@ -154,16 +193,10 @@ test('pac-man: dots 10, energizer 50 and frightened ghosts worth 200 then 400; a
   st.fright = 0; st.ghosts.forEach((g) => { g.frightened = false; }); Object.assign(st.ghosts[2], { x: st.pac.x, y: st.pac.y }); st.pause = 0;
   assert.equal(pacman.step(st, 1 / 120, new Set(), game, seeded()), 'hurt');
   assert.equal(pacman.MAZE.length, 31); assert.ok(pacman.MAZE.every((row) => row.length === 28));
-});
-test('bowser: fire breath beats heroes, a hero reaching Bowser hurts, ten heroes clear the bridge', () => {
-  const game = { score: 0, invincible: 0 }, st = bowser.create(); st.spawn = 99;
-  const hero = (x) => ({ x, y: 194, w: 14, h: 20, vx: 0, vy: 0, onGround: true, fire: false, throwIn: 9, step: 0, brave: 0 });
-  st.heroes.push(hero(250));
-  const stays = () => 0.99; // this hero doesn't hop
-  bowser.step(st, 1 / 60, new Set(['Space']), game, stays); assert.equal(st.flames.length, 1);
-  run(() => bowser.step(st, 1 / 60, new Set(), game, stays) || (st.heroes.length ? null : 'ok'), 2); assert.equal(game.score, 100);
-  st.heroes.push(hero(st.bowser.x + 4)); assert.equal(bowser.step(st, 1 / 60, new Set(), game), 'hurt');
-  st.beaten = 10; st.heroes = []; assert.equal(bowser.step(st, 1 / 60, new Set(), game), 'done');
+  // 70% of the dots eaten moves on to the next game.
+  const st2 = pacman.create(); st2.pause = 0; const keep = [...st2.dots].slice(0, Math.floor(st2.total * 0.3) + 1);
+  st2.dots = new Set(keep); assert.equal(pacman.step(st2, 1 / 120, new Set(), game, seeded()), null);
+  st2.dots = new Set(keep.slice(1)); st2.pause = 0; assert.equal(pacman.step(st2, 1 / 120, new Set(), game, seeded()), 'done');
 });
 test('wallpaper is standalone and safely embeds untrusted pet names', () => {
   const html = wallpaper.wallpaperHtml({ pet: { name: '</script><script>alert(1)</script>', greeting: '<img src=x>', color: 'evil' } });

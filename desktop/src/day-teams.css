@@ -1,0 +1,21 @@
+/* ---------- 날짜를 눌러 "내 팀 전부 넣기" ---------- */
+.memo-head-date {
+  display: inline-flex; align-items: baseline; gap: inherit; padding: 2px 6px; margin: -2px -6px;
+  border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.memo-head-date:hover, .memo-head-date[aria-expanded='true'] {
+  background: var(--glass-tint-strong); box-shadow: var(--glass-light);
+}
+.memo-head-date:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.team-template-pill {
+  align-self: center; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+  color: var(--accent); cursor: pointer;
+  background: var(--glass-tint-strong); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), 0 4px 14px rgba(79, 70, 229, 0.16);
+  backdrop-filter: var(--glass-control); -webkit-backdrop-filter: var(--glass-control);
+  animation: team-pill-in 0.16s ease-out;
+}
+.team-template-pill:disabled { color: var(--muted, #8a8fa3); cursor: default; }
+@keyframes team-pill-in { from { opacity: 0; transform: translateX(-6px) scale(0.96); } }
+.team-add-row .memo-input::placeholder { opacity: 0.55; }

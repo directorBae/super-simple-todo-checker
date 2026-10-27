@@ -1,11 +1,13 @@
 import { SourceIcons } from '../SourceIcons.js';
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
+import { Text } from '../text.js';
 import { useDesign } from '../design.js';
 import { localDateStr, todayStr, effectiveTeamId, importantHighlight } from '../util.js';
+import { teamSort } from '../../../shared/todo-drop.js';
 import { shadow } from '../theme.js';
 function GhostButton({label,onPress}) { const d=useDesign(); return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={{paddingHorizontal:10,paddingVertical:7}}><Text style={{fontSize:13,color:d.muted}}>{label}</Text></Pressable>; }
-export default function MonthView({ db, ym, setYm, openDay }) {
+export default function MonthView({ db, ym, setYm, openDay, toggle }) {
   const T=useDesign(), styles=makeStyles(T);
   const kind="todo";
   const today = todayStr();
@@ -21,6 +23,7 @@ export default function MonthView({ db, ym, setYm, openDay }) {
     if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
     (byDate[t.date] = byDate[t.date] || []).push(t);
   }
+  for (const list of Object.values(byDate)) list.sort(teamSort(db)); // grouped by team, like the day list
 
   const move = (n) => {
     const d = new Date(ym.y, ym.m + n, 1);
@@ -55,14 +58,8 @@ export default function MonthView({ db, ym, setYm, openDay }) {
           {ym.y}년 {ym.m + 1}월
         </Text>
         <GhostButton label="▶" onPress={() => move(1)} />
-        <View style={{ flex: 1 }} />
-        <GhostButton
-          label="이번 달"
-          onPress={() => {
-            const d = new Date();
-            setYm({ y: d.getFullYear(), m: d.getMonth() });
-          }}
-        />
+        {/* 일 · 주 · 월 (◎ 오늘 at the bottom brings back this month) */}
+        {toggle}
       </View>
       <View style={styles.calGrid}>
         {['일', '월', '화', '수', '목', '금', '토'].map((w, i) => (
@@ -88,7 +85,6 @@ export default function MonthView({ db, ym, setYm, openDay }) {
           );
         })}
       </View>
-      <Text style={styles.calDesc}>날짜를 누르면 그 날의 리스트로 이동합니다.</Text>
     </View>
   );
 }
@@ -208,7 +204,6 @@ const makeStyles = T => StyleSheet.create({
   },
   calChipText: { flex: 1, minWidth: 0, fontSize: 8.5, color: T.text },
   calMore: { fontSize: 8.5, color: T.muted, paddingLeft: 2 },
-  calDesc: { fontSize: 11, color: T.muted, textAlign: 'center', marginTop: 10 },
   fab: { position: 'absolute', right: 16, bottom: 100 },
   fabInner: {
     borderRadius: 99,

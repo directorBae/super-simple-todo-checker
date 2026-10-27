@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fmtDate, importantHighlight } from './util.js';
+import { fmtDate, importantHighlight, localDateStr, todayStr } from './util.js';
 import { compactTitle } from './focus-utils.mjs';
 
 export function ChipPicker({ label, options, value, onChange }) {
@@ -331,9 +331,54 @@ export function TodoForm({ initial = {}, kind = 'todo', projects = [], teams = [
 }
 
 /* 기존 항목 편집기 — 버튼 없이 모든 변경이 즉시 저장됨 */
-export function TodoEditor({ todo }) {
-  // Every to-do keeps a date; a scheduled time can be cleared instead.
-  return <div className="todo-editor date-only"><label>날짜 <input aria-label="할 일 날짜" type="date" required value={todo.date || ''} onChange={e => { if (e.target.value) window.api.updateTodo(todo.id, { date: e.target.value, endDate: null }); }} /></label>{todo.startTime && <button className="ghost" onClick={() => window.api.updateTodo(todo.id, { startTime: null, endTime: null, endDate: null })}>시간 없애기 ({todo.startTime})</button>}</div>;
+// A small month calendar: picking a day only marks it; `onPick` gets the day, nothing else happens.
+const CAL_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+export function DateCalendar({ value, onPick }) {
+  const [ym, setYm] = useState(() => { const [y, m] = (value || todayStr()).split('-').map(Number); return { y, m: m - 1 }; });
+  const today = todayStr(), first = new Date(ym.y, ym.m, 1), days = new Date(ym.y, ym.m + 1, 0).getDate();
+  const cells = [...Array(first.getDay()).fill(null), ...Array.from({ length: days }, (_, i) => localDateStr(new Date(ym.y, ym.m, i + 1)))];
+  const move = (n) => { const d = new Date(ym.y, ym.m + n, 1); setYm({ y: d.getFullYear(), m: d.getMonth() }); };
+  return (
+    <div className="date-cal" role="group" aria-label="날짜 고르기">
+      <div className="date-cal-nav">
+        <button type="button" className="ghost" aria-label="이전 달" onClick={() => move(-1)}>◀</button>
+        <span>{ym.y}년 {ym.m + 1}월</span>
+        <button type="button" className="ghost" aria-label="다음 달" onClick={() => move(1)}>▶</button>
+      </div>
+      <div className="date-cal-grid">
+        {CAL_DOW.map((w, i) => <span key={w} className={'date-cal-dow' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '')}>{w}</span>)}
+        {cells.map((date, i) => date ? (
+          <button type="button" key={date} data-date={date} aria-pressed={date === value}
+            className={'date-cal-day' + (date === value ? ' is-picked' : '') + (date === today ? ' is-today' : '')}
+            onClick={() => onPick(date)}>{Number(date.slice(8))}</button>
+        ) : <span key={'b' + i} />)}
+      </div>
+    </div>
+  );
+}
+
+export function TodoEditor({ todo, onClose }) {
+  // Every to-do keeps a date, chosen on the calendar only (no typing). Picking a day just marks it;
+  // the to-do moves when 확정 is pressed. A scheduled time can be cleared instead.
+  const [picked, setPicked] = useState(todo.date || todayStr());
+  const confirm = () => { if (picked && picked !== todo.date) window.api.updateTodo(todo.id, { date: picked, endDate: null }); onClose?.(); };
+  // Esc closes it without moving anything, like the other pop-overs.
+  useEffect(() => {
+    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, [onClose]);
+  return (
+    <div className="todo-editor date-only">
+      <DateCalendar value={picked} onPick={setPicked} />
+      <div className="date-cal-actions">
+        {todo.startTime && <button type="button" className="ghost" onClick={() => window.api.updateTodo(todo.id, { startTime: null, endTime: null, endDate: null })}>시간 없애기 ({todo.startTime})</button>}
+        <span className="date-cal-spacer" />
+        <button type="button" className="ghost" onClick={() => onClose?.()}>취소</button>
+        <button type="button" className="primary" onClick={confirm}>확정</button>
+      </div>
+    </div>
+  );
 }
 
 export function TodoRow({ todo, db, showDate = false }) {
@@ -390,7 +435,7 @@ export function TodoRow({ todo, db, showDate = false }) {
               if (v && v !== todo.title) window.api.updateTodo(todo.id, { title: v });
             }}
           />
-          <TodoEditor todo={todo} db={db} />
+          <TodoEditor todo={todo} db={db} onClose={() => setEditing(false)} />
         </div>
       )}
     </div>

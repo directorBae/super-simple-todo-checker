@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { View } from 'react-native';
+import { Text, TextInput } from '../text.js';
 import Constants from 'expo-constants';
 import { useDb } from '../store.js';
 import { useDesign, Button, Surface } from '../design.js';

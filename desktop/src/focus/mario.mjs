@@ -1,5 +1,6 @@
-// A compact take on Super Mario Bros. World 1-1: hand-driven running, ? blocks, bricks, pipes (shape only),
-// pits, goombas, staircases and a flagpole. Tiles are 20px on a 500×280 canvas; rows 12–13 are the ground.
+// A compact take on Super Mario Bros. World 1-1, played by the pet in a Mario cap: hand-driven running,
+// ? blocks (coins, and mushrooms that add a heart and make the pet big), bricks that a big pet breaks,
+// pipes (shape only), pits, goombas, staircases and a flagpole. Tiles are 20px on a 500×280 canvas.
 export const TILE = 20, ROWS = 14, GROUND = 12, VIEW = 500;
 const EMPTY = 0, SOLID = 1, BRICK = 2, QUESTION = 3, USED = 4, PIPE = 5, HARD = 6;
 const WIDTH = 212;
@@ -14,6 +15,9 @@ export const PIPES = [[28, 2], [38, 3], [46, 4], [57, 4], [163, 2], [179, 2]];
 const PITS = [[69, 70], [86, 88], [153, 154]];
 const STAIRS = [[134, [1, 2, 3, 4]], [140, [4, 3, 2, 1]], [148, [1, 2, 3, 4, 4]], [155, [4, 3, 2, 1]], [181, [1, 2, 3, 4, 5, 6, 7, 8, 8]]];
 const GOOMBAS = [22, 40, 51, 53, 97, 99, 114, 116, 124, 126, 128, 130, 174, 176];
+// The ? blocks that hold a mushroom instead of a coin, as in the original.
+const MUSHROOMS = new Set([`21,${LOW}`, `78,${LOW}`, `109,${HIGH}`]);
+import { powerUp, fitBox } from './runner.mjs';
 
 export function createLevel() {
   const grid = new Uint8Array(WIDTH * ROWS);
@@ -25,7 +29,7 @@ export function createLevel() {
   STAIRS.forEach(([x0, heights]) => heights.forEach((h, i) => { for (let y = GROUND - h; y < GROUND; y++) set(x0 + i, y, HARD); }));
   set(FLAG_X, GROUND - 1, HARD);
   return {
-    grid, width: WIDTH, cam: 0, bumps: [], popups: [], combo: 0, coins: 0, done: false, flagY: 2 * TILE + 14,
+    grid, width: WIDTH, cam: 0, bumps: [], popups: [], items: [], debris: [], combo: 0, coins: 0, done: false, flagY: 2 * TILE + 14,
     goombas: GOOMBAS.map((x) => ({ x: x * TILE, y: (GROUND - 1) * TILE + 2, w: 18, h: 18, vx: -40, vy: 0, alive: true, squashed: 0, active: false })),
   };
 }
@@ -50,9 +54,13 @@ function move(level, b, dx, dy) {
 
 const ACCEL = 620, MAX_RUN = 150, FRICTION = 760, GRAVITY = 1150, HOLD_GRAVITY = 0.55, JUMP = -440, CUT = -250, MAX_FALL = 620;
 
-// Stage module: the runner starts where the dino run left it (x = 64) and the camera scrolls with it.
-export function create() {
-  return { level: createLevel(), player: { x: 64, y: (GROUND * TILE) - 28, w: 18, h: 28, vx: 0, vy: 0, onGround: true, held: false }, outro: null, ending: false };
+const SMALL = { w: 18, h: 28 }, BIG = { w: 22, h: 38 };
+const sizeFor = (game) => (game?.runner?.big ? BIG : SMALL);
+
+// Stage module: the pet starts where the dino run left it (x = 64) and the camera scrolls with it.
+export function create(game) {
+  const size = sizeFor(game);
+  return { level: createLevel(), player: { x: 64, y: GROUND * TILE - size.h, ...size, vx: 0, vy: 0, onGround: true, held: false }, outro: null, ending: false };
 }
 
 // The flag pays by how high the runner grabs the pole, as in the original.
@@ -91,6 +99,7 @@ export function step(st, dt, keys, game) {
 
 function stepMario(s, dt, keys, game) {
   const level = s.level, p = s.player;
+  fitBox(p, sizeFor(game)); // grew from a mushroom, or shrank from a hit
   const left = keys.has('ArrowLeft'), right = keys.has('ArrowRight'), action = keys.has('Space') || keys.has('ArrowUp');
   const dir = Number(right) - Number(left);
   if (dir) p.vx = Math.max(-MAX_RUN, Math.min(MAX_RUN, p.vx + dir * ACCEL * dt));
@@ -106,16 +115,40 @@ function stepMario(s, dt, keys, game) {
     p.vy = 40;
     const { tx, ty } = hit.top, type = tileAt(level, tx, ty);
     if (type === QUESTION) {
-      level.grid[ty * level.width + tx] = USED; level.coins++; game.score += 100;
-      level.popups.push({ x: tx * TILE + 4, y: ty * TILE - 6, t: 0, coin: true, text: '100' });
+      level.grid[ty * level.width + tx] = USED;
+      if (MUSHROOMS.has(`${tx},${ty}`)) level.items.push({ x: tx * TILE + 1, y: ty * TILE, w: 18, h: 18, vx: 0, vy: 0, rise: TILE, top: ty * TILE - TILE });
+      else { level.coins++; game.score += 100; level.popups.push({ x: tx * TILE + 4, y: ty * TILE - 6, t: 0, coin: true, text: '100' }); }
     }
-    if (type === BRICK || type === QUESTION) level.bumps.push({ tx, ty, t: 0 });
+    // A big pet breaks bricks; a small one only bumps them.
+    if (type === BRICK && game.runner?.big) {
+      level.grid[ty * level.width + tx] = EMPTY; game.score += 50;
+      for (const [dx, dy] of [[-60, -260], [60, -260], [-40, -180], [40, -180]]) level.debris.push({ x: tx * TILE + 10, y: ty * TILE + 10, vx: dx, vy: dy, t: 0 });
+    } else if (type === BRICK || type === QUESTION) level.bumps.push({ tx, ty, t: 0 });
     // Anything standing on a bumped block gets knocked out, like in the original.
     for (const g of level.goombas) if (g.alive && !g.squashed && Math.abs(g.x + g.w / 2 - (tx * TILE + 10)) < 16 && Math.abs(g.y + g.h - ty * TILE) < 4) { g.alive = false; game.score += 100; level.popups.push({ x: g.x, y: g.y - 10, t: 0, text: '100' }); }
   }
   // The camera only moves forward, and the runner cannot walk back off screen.
   level.cam = Math.max(level.cam, Math.min(p.x - 200, level.width * TILE - VIEW));
   if (p.x < level.cam) { p.x = level.cam; p.vx = Math.max(0, p.vx); }
+
+  // Mushrooms rise out of their block, then slide along and bounce off walls; touching one powers the pet up.
+  for (const m of level.items) {
+    if (m.rise > 0) { const d = Math.min(m.rise, 30 * dt); m.y -= d; m.rise -= d; if (m.rise <= 0) m.vx = 70; continue; }
+    m.vy = Math.min(MAX_FALL, m.vy + GRAVITY * dt);
+    const mh = move(level, m, m.vx * dt, m.vy * dt);
+    if (mh.left || mh.right) m.vx = -m.vx;
+    if (mh.bottom) m.vy = 0;
+    if (m.y > ROWS * TILE + 40) m.gone = true;
+    if (!m.gone && p.x < m.x + m.w && p.x + p.w > m.x && p.y < m.y + m.h && p.y + p.h > m.y) {
+      m.gone = true; game.score += 1000;
+      const hearts = game.runner?.lives;
+      if (game.runner) { powerUp(game.runner); fitBox(p, sizeFor(game)); }
+      level.popups.push({ x: m.x, y: m.y - 8, t: 0, text: game.runner?.lives > hearts ? '♥ +1' : '1000' });
+    }
+  }
+  level.items = level.items.filter((m) => !m.gone);
+  for (const d of level.debris) { d.t += dt; d.vy += GRAVITY * dt; d.x += d.vx * dt; d.y += d.vy * dt; }
+  level.debris = level.debris.filter((d) => d.t < 1.2);
 
   let result = null;
   for (const g of level.goombas) {
@@ -133,7 +166,7 @@ function stepMario(s, dt, keys, game) {
         const points = 100 * 2 ** Math.min(level.combo, 6); level.combo++;
         game.score += points; g.squashed = 0.45; p.vy = p.held ? -380 : -260;
         level.popups.push({ x: g.x, y: g.y - 10, t: 0, text: String(points) });
-      } else if (!(game.invincible > 0)) result = 'hurt';
+      } else if (!(game.runner?.invincible > 0)) result = 'hurt';
     }
   }
   for (const b of level.bumps) b.t += dt;
@@ -183,6 +216,14 @@ function goomba(ctx, g, x) {
   px(ctx, '#000', x + 4, g.y + 3, 4, 1); px(ctx, '#000', x + g.w - 8, g.y + 3, 4, 1);
   px(ctx, '#000', x + (step ? 0 : 2), g.y + 15, 7, 3); px(ctx, '#000', x + g.w - (step ? 9 : 7), g.y + 15, 7, 3);
 }
+// Super Mushroom: red cap with white spots over a pale stem; `shown` is how much has risen out of the block.
+function mushroom(ctx, x, y, shown) {
+  ctx.save(); ctx.beginPath(); ctx.rect(x - 2, y - 2, 24, Math.max(0, shown) + 2); ctx.clip();
+  px(ctx, '#e8402e', x + 2, y, 14, 4); px(ctx, '#e8402e', x, y + 3, 18, 7);
+  px(ctx, '#fff', x + 3, y + 3, 4, 4); px(ctx, '#fff', x + 11, y + 3, 4, 4); px(ctx, '#fff', x + 7, y, 4, 3);
+  px(ctx, '#f6d8a8', x + 4, y + 10, 10, 8); px(ctx, '#000', x + 6, y + 12, 2, 3); px(ctx, '#000', x + 10, y + 12, 2, 3);
+  ctx.restore();
+}
 function scenery(ctx, cam) {
   // Hills, bushes and clouds repeat every 48 tiles, as in the original.
   for (let base = Math.floor(cam / 960) * 960 - 960; base < cam + VIEW + 960; base += 960) {
@@ -215,11 +256,13 @@ export function paint(ctx, s, game, drawRunner) {
     for (const c of [0, 2, 4]) block(ctx, BRICK, cx + c * TILE, cy + TILE * 2 - 10, 0);
     px(ctx, '#000', cx + 2 * TILE + 3, cy + 3 * TILE, 14, 2 * TILE); px(ctx, '#000', cx + 2 * TILE + 3, cy + TILE + 2, 4, 10); px(ctx, '#000', cx + 2 * TILE + 13, cy + TILE + 2, 4, 10);
   }
+  for (const m of level.items) mushroom(ctx, m.x - cam, m.y, m.rise > 0 ? m.top + TILE - m.y : m.h);
+  for (const d of level.debris) { px(ctx, '#c84c0c', d.x - cam, d.y, 7, 7); px(ctx, '#5c1c00', d.x - cam + 5, d.y + 5, 2, 2); }
   for (const g of level.goombas) if (g.alive && g.active) goomba(ctx, g, g.x - cam);
   for (const q of level.popups) {
     const y = q.y - q.t * 40;
     if (q.coin && q.t < 0.35) { px(ctx, '#f8b800', q.x - cam + 3, y - q.t * 60, 8, 14); px(ctx, '#fcf0a0', q.x - cam + 5, y - q.t * 60 + 2, 2, 10); }
     else { ctx.fillStyle = '#fff'; ctx.font = 'bold 10px ui-monospace, Consolas, monospace'; ctx.fillText(q.text, q.x - cam, y); }
   }
-  if (s.outro?.phase !== 'inside') drawRunner(s.player.x - cam);
+  if (s.outro?.phase !== 'inside') drawRunner(s.player.x - cam, s.player.y + s.player.h, { hat: true, onGround: s.player.onGround, flip: s.player.vx < -10 });
 }

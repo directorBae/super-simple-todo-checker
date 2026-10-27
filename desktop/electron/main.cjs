@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const { wallpaperHtml } = require('./wallpaper.cjs');
 const { titleFields } = require('./todo-title.cjs');
 const { ensureDates, localDate } = require('./ensure-dates.cjs');
+const { createUndoHistory, applyChanges } = require('./undo-history.cjs');
 const path = require('path');
 const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
@@ -137,6 +138,10 @@ function applyAutoLaunch() {
   app.setLoginItemSettings({ openAtLogin: !!store.db.settings.autoLaunch, args: ['--hidden'] });
 }
 
+// Ctrl+Z / Ctrl+Shift+Z for to-dos changed in this app (changes that arrive by sync are not undone).
+const history = createUndoHistory();
+const snap = (t) => (t ? JSON.parse(JSON.stringify(t)) : null);
+
 function clearTodoNotifs(id) {
   store.db.notifLog = store.db.notifLog.filter((n) => n.todoId !== id);
 }
@@ -193,16 +198,21 @@ function registerIpc() {
       teamId: p.teamId || null,
       channel: p.channel || null,
       status: p.status === 'bucket' ? 'bucket' : 'todo',
+      // Where it sits among the day's lines (a new line typed under another one goes right below it).
+      ...(Number.isFinite(p.sortOrder) ? { sortOrder: p.sortOrder } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       completedAt: null,
     });
+    const added = store.db.todos.at(-1);
+    history.record(added.id, null, added);
     return done();
   });
 
   ipcMain.handle('todo:update', (_, { id, patch }) => {
     const t = store.db.todos.find((x) => x.id === id);
     if (!t) return publicState();
+    const before = snap(t);
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
     const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder'];
     if ('title' in patch) {
@@ -216,15 +226,28 @@ function registerIpc() {
     if ('status' in patch) t.completedAt = patch.status === 'done' ? Date.now() : null;
     // 시간이 바뀌거나 다시 활성화되면 알림을 재무장
     if (timeChanged || patch.status === 'todo') clearTodoNotifs(id);
+    history.record(id, before, t);
     return done();
   });
 
   ipcMain.handle('todo:delete', (_, id) => {
+    const gone = store.db.todos.find((t) => t.id === id);
+    if (gone) history.record(id, gone, null);
     store.db.todos = store.db.todos.filter((t) => t.id !== id);
     store.db.tombstones.push({ coll: 'todos', id, deletedAt: Date.now() });
     clearTodoNotifs(id);
     return done();
   });
+
+  // Ctrl+Z / Ctrl+Shift+Z: put the last step's to-dos back (or forward again).
+  for (const [channel, direction] of [['todo:undo', 'undo'], ['todo:redo', 'redo']]) {
+    ipcMain.handle(channel, () => {
+      const changes = history[direction]();
+      if (!changes) return publicState();
+      applyChanges(store.db, changes).forEach(clearTodoNotifs);
+      return done();
+    });
+  }
 
   // ---- 프로젝트 ----
   ipcMain.handle('project:add', (_, p) => {

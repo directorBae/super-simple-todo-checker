@@ -7,11 +7,12 @@ const { createApp, configuration } = require('../../server/index');
 const { titleFields } = require('../electron/todo-title.cjs');
 const { wallpaperHtml } = require('../electron/wallpaper.cjs');
 const { ensureDates } = require('../electron/ensure-dates.cjs');
+const { createUndoHistory } = require('../electron/undo-history.cjs');
 
 function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dirname, '../../server/data'), config = configuration() } = {}) {
   const core = createApp({ dir: dataDir, config });
   const settingsFile = path.join(dataDir, 'web-settings.json'), wallpaperFile = path.join(dataDir, 'wallpaper-custom.jpg');
-  const defaults = { theme: 'light', onboardingDone: true, notifyStart: false, notifyEnd: false, dailySummary: false, dailyWrapup: false, dailySummaryTime: '09:00', dailyWrapupTime: '21:00', autoLaunch: false };
+  const defaults = { theme: 'light', onboardingDone: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailyWrapup: true, dailySummaryTime: '09:00', dailyWrapupTime: '21:00', autoLaunch: false };
   let settings = { ...defaults };
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }; } catch (e) { if (e.code !== 'ENOENT') { core.store.close(); throw e; } }
   const state = () => ({ ...core.snapshot(), settings: { ...settings, sync: { lastSync: Date.now() } }, notifLog: [], gcalEvents: [] });
@@ -27,6 +28,21 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw error('잘못된 요청입니다.');
     return value;
   }
+  // Ctrl+Z / Ctrl+Shift+Z for to-dos changed from the web page.
+  const history = createUndoHistory();
+  function undoRedo(direction) {
+    const changes = history[direction]();
+    if (!changes) return state();
+    const snapshot = core.snapshot(), todos = [], tombstones = [], current = snapshot.todos;
+    for (const { id, to } of changes) {
+      const now = current.find((t) => t.id === id);
+      // Newer than its deletion mark, or merge would keep it deleted.
+      const deleted = snapshot.tombstones.find((t) => t.coll === 'todos' && t.id === id)?.deletedAt || 0;
+      if (to) todos.push({ ...to, updatedAt: Math.max(stamp(now || to), deleted + 1) });
+      else if (now) tombstones.push({ coll: 'todos', id, deletedAt: stamp(now) });
+    }
+    core.merge({ todos, tombstones }); return state();
+  }
   function change(kind, action, p) {
     const coll = { todo: 'todos', team: 'teams', project: 'projects' }[kind];
     const snapshot = core.snapshot(), list = snapshot[coll];
@@ -38,6 +54,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
         updates.todos = snapshot.todos.filter(t => t.teamId === p.id).map(t => ({ ...t, teamId: null, updatedAt: stamp(t) }));
         updates.projects = snapshot.projects.filter(t => t.teamId === p.id).map(t => ({ ...t, teamId: null, updatedAt: stamp(t) }));
       } else if (kind === 'project') updates.todos = snapshot.todos.filter(t => t.projectId === p.id).map(t => ({ ...t, projectId: null, updatedAt: stamp(t) }));
+      if (kind === 'todo') history.record(p.id, old, null);
       core.merge(updates); return state();
     }
     const input = action === 'add' ? p : p.patch;
@@ -52,7 +69,9 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     if (kind !== 'todo' && action === 'add' && !String(patch.name || '').trim()) throw error('이름을 입력해 주세요.');
     const next = { ...item, ...patch, updatedAt: stamp(item) };
     if (kind === 'todo') ensureDates({ todos: [next] }, next.updatedAt);
-    core.merge({ [coll]: [next] }); return state();
+    core.merge({ [coll]: [next] });
+    if (kind === 'todo') history.record(next.id, action === 'add' ? null : old, core.snapshot().todos.find((t) => t.id === next.id) || next);
+    return state();
   }
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('X-Frame-Options', 'DENY'); res.setHeader('Referrer-Policy', 'no-referrer');
@@ -87,6 +106,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
           }
           if (method === 'ack') return state();
           if (method === 'integrations') return core.integrations.action(p);
+          if (method === 'todo/undo' || method === 'todo/redo') return undoRedo(method.slice(5));
           const match = /^(todo|team|project)\/(add|update|delete)$/.exec(method);
           if (match) return change(match[1], match[2], p);
           throw error('요청을 찾을 수 없습니다.', 404);

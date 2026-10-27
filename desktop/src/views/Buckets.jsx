@@ -1,11 +1,12 @@
 import { SourceIcons } from '../icons.jsx';
 import React, { useState } from 'react';
-import { Section, Empty } from '../components.jsx';
+import { Section, Empty, DateCalendar } from '../components.jsx';
 import { todayStr } from '../util.js';
 import { compactTitle } from '../focus-utils.mjs';
 
+// 활성화 opens the calendar; the to-do leaves the bucket for the picked day when 확정 is pressed.
 function BucketTodoRow({ todo, db }) {
-  const [date, setDate] = useState('');
+  const [picking, setPicking] = useState(false), [date, setDate] = useState(todayStr());
   const project = db.projects.find((p) => p.id === todo.projectId);
   return (
     <div className="todo-row">
@@ -14,15 +15,7 @@ function BucketTodoRow({ todo, db }) {
 
         {project && <span className="badge">{project.name}</span>}
         <span className="row-actions">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} title="활성화할 날짜 (선택)" />
-          <button
-            className="ghost"
-            title="날짜를 고르지 않으면 오늘로 활성화됩니다"
-            onClick={() =>
-              // 날짜 없이 활성화하면 아무 날에도 안 보여 사라진 것처럼 되므로 오늘로 보낸다
-              window.api.updateTodo(todo.id, { status: 'todo', date: date || todo.date || todayStr() })
-            }
-          >
+          <button className="ghost" aria-expanded={picking} onClick={() => setPicking((v) => !v)}>
             활성화
           </button>
           <button className="ghost danger" onClick={() => window.api.deleteTodo(todo.id)}>
@@ -30,6 +23,16 @@ function BucketTodoRow({ todo, db }) {
           </button>
         </span>
       </div>
+      {picking && (
+        <div className="todo-editor date-only bucket-date">
+          <DateCalendar value={date} onPick={setDate} />
+          <div className="date-cal-actions">
+            <span className="date-cal-spacer" />
+            <button type="button" className="ghost" onClick={() => setPicking(false)}>취소</button>
+            <button type="button" className="primary" onClick={() => { window.api.updateTodo(todo.id, { status: 'todo', date }); setPicking(false); }}>확정</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -57,8 +60,6 @@ export default function Buckets({ db }) {
 
   return (
     <div>
-      <p className="desc">앞으로 챙기고 싶지만 아직 애매한 일들을 담아 두는 곳. 준비가 되면 활성화하세요.</p>
-
       <Section title={`할 일 버킷 (${todoBuckets.length})`}>
         <form className="todo-form" onSubmit={addTodoBucket}>
           <input

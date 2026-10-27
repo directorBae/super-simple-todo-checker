@@ -1,6 +1,8 @@
-// Pac-Man on the arcade maze (28×31). Dots 10, energizers 50 and a frightened spell, ghosts 200/400/800/1600.
+// Pac-Man on the arcade maze (28×31), with the pet in Pac-Man's place. Dots 10, energizers 50 and a frightened
+// spell, ghosts 200/400/800/1600.
 // Each ghost uses its arcade targeting: Blinky chases, Pinky aims 4 tiles ahead, Inky flanks off Blinky,
-// Clyde chases from afar and retreats up close; scatter/chase phases alternate. Eating every dot ends the stage.
+// Clyde chases from afar and retreats up close; scatter/chase phases alternate. The arcade clears a level when every
+// dot is gone; here eating 70% of them is enough to move on to the next game.
 export const MAZE = [
   '############################',
   '#............##............#',
@@ -34,6 +36,7 @@ export const MAZE = [
   '#..........................#',
   '############################',
 ];
+const CLEAR = 0.7; // share of the dots that clears the stage
 const COLS = 28, ROWS = 31, T = 9, OX = (500 - COLS * T) / 2, OY = 0;
 const PHASES = [['scatter', 7], ['chase', 20], ['scatter', 7], ['chase', 20], ['scatter', 5], ['chase', Infinity]];
 const DIRS = [{ x: 0, y: -1 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }]; // arcade tie-break order: up, left, down, right
@@ -51,7 +54,7 @@ const tunnel = (e) => Math.floor(e.y) === 14 && (e.x < 6 || e.x > 22);
 export function create() {
   const dots = new Set();
   MAZE.forEach((row, y) => [...row].forEach((c, x) => { if (c === '.' || c === 'o') dots.add(y * COLS + x); }));
-  const st = { dots, time: 0, dying: 0, phase: 0, phaseTime: 0, fright: 0, eatenChain: 0, pause: 0.8, popups: [], ending: false };
+  const st = { dots, total: dots.size, time: 0, dying: 0, phase: 0, phaseTime: 0, fright: 0, eatenChain: 0, pause: 0.8, popups: [], ending: false };
   reset(st);
   return st;
 }
@@ -130,7 +133,7 @@ export function step(st, dt, keys, game, random = Math.random) {
       for (const g of st.ghosts) if (g.state === 'active') { g.frightened = true; g.dir = { x: -g.dir.x, y: -g.dir.y }; }
     }
   }
-  if (!st.dots.size && !st.ending) return 'done';
+  if (st.dots.size <= st.total * (1 - CLEAR) && !st.ending) { st.ending = true; return 'done'; }
   // Phase clock pauses while ghosts are frightened, as in the arcade.
   if (st.fright > 0) { st.fright -= dt; if (st.fright <= 0) st.ghosts.forEach((g) => { g.frightened = false; }); }
   else {
@@ -151,19 +154,21 @@ export function step(st, dt, keys, game, random = Math.random) {
     travel(g, speed * dt, (e) => chooseGhostDir(st, e, random), true);
     if (g.state === 'eaten' && Math.abs(g.y - 11.5) < 0.6 && Math.abs(g.x - 14) < 1) { g.state = 'returning'; g.x = 14; g.y = 11.5; }
     if (g.state === 'active' && Math.hypot(g.x - pac.x, g.y - pac.y) < 0.7) {
+      if (!g.frightened && game.runner?.invincible > 0) continue;
       if (g.frightened) {
         const points = 200 * 2 ** Math.min(st.eatenChain, 3); st.eatenChain++; game.score += points;
         g.frightened = false; g.state = 'eaten'; st.popups.push({ x: g.x, y: g.y, t: 0, text: String(points) }); st.pause = 0.35;
       } else result = 'hurt';
     }
   }
-  if (result === 'hurt') st.dying = 1.4;
+  // Either way the hit costs a heart (in the engine); a big pet shrinks and blinks on, a small one is caught.
+  if (result === 'hurt' && !game.runner?.big) st.dying = 1.4;
   return result;
 }
 
 // ---------- drawing ----------
 const px = (ctx, color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
-export function paint(ctx, st) {
+export function paint(ctx, st, game, drawRunner) {
   px(ctx, '#000', 0, 0, 500, 280);
   // Walls: outline every wall cell edge that faces a corridor.
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
@@ -182,14 +187,13 @@ export function paint(ctx, st) {
     if (MAZE[y][x] === 'o') { if (Math.floor(st.time * 4) % 2 === 0) { ctx.fillStyle = '#ffb8ae'; ctx.beginPath(); ctx.arc(cx, cy, 3.6, 0, Math.PI * 2); ctx.fill(); } }
     else px(ctx, '#ffb8ae', cx - 1, cy - 1, 2, 2);
   }
-  // Pac-Man (folds away when caught, like the arcade)
-  if (st.dying > 0) {
-    const p = st.pac, k = Math.min(1, (1.4 - st.dying) / 1.1), cx = OX + p.x * T, cy = OY + p.y * T;
-    if (k < 1) { ctx.fillStyle = '#ffe600'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, 6.5, -Math.PI / 2 + k * Math.PI, -Math.PI / 2 - k * Math.PI + Math.PI * 2); ctx.fill(); }
-    return;
+  // The pet (shrinks away when caught, like Pac-Man folding up)
+  {
+    const p = st.pac, cx = OX + p.x * T, cy = OY + p.y * T, base = game?.runner?.big ? 0.95 : 0.75;
+    const k = st.dying > 0 ? Math.max(0, (st.dying - 0.3) / 1.1) : 1;
+    if (k > 0) drawRunner?.(cx - 12 * base * k + 6 * base * k, cy + 11 * base * k, { cell: base * k, flip: (p.dir.x || p.want.x) < 0, onGround: true });
+    if (st.dying > 0) return;
   }
-  const p = st.pac, cx = OX + p.x * T, cy = OY + p.y * T, open = 0.08 + Math.abs(Math.sin(p.mouth)) * 0.32, facing = Math.atan2(p.dir.y || p.want.y, p.dir.x || p.want.x || -1);
-  ctx.fillStyle = '#ffe600'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, 6.5, facing + open * Math.PI, facing - open * Math.PI + Math.PI * 2); ctx.fill();
   // Ghosts
   for (const g of st.ghosts) {
     const gx = OX + g.x * T, gy = OY + g.y * T, flash = g.frightened && st.fright < 2 && Math.floor(st.time * 6) % 2 === 0;

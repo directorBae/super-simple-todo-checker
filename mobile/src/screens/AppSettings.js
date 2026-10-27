@@ -1,11 +1,26 @@
-import React, { useState } from 'react';
-import { Image, Pressable, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Image, Pressable, Switch, View } from 'react-native';
+import { Text } from '../text.js';
 import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import { useDb } from '../store.js';
 import { useDesign, WALLPAPERS, wallpaperSource } from '../design.js';
 import Integrations from './Integrations.js';
 import ServerSettings from './Settings.js';
+import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
+import { notificationPermission } from '../notifications.js';
+
+// Same switches as the desktop settings; reminders are scheduled on this phone.
+function Reminders() {
+  const { db, api } = useDb(), d = useDesign(), s = { ...REMINDER_DEFAULTS, ...db.settings };
+  const [permission, setPermission] = useState('granted');
+  useEffect(() => { notificationPermission(false).then(setPermission).catch(() => {}); }, []);
+  const rows = [['notifyStart', '시작 시간 알림'], ['notifyEnd', '마무리 시간 알림'], ['dailySummary', `아침 요약 (${s.dailySummaryTime}, 오늘 할 일 개수)`], ['dailyWrapup', `하루 마무리 (${s.dailyWrapupTime}, 완료·남은 일)`]];
+  return <View style={{ gap: 12 }}>
+    {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => setPermission(await notificationPermission(true))} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 휴대폰 설정 > 체커 > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
+    {rows.map(([key, label]) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><Text style={{ color: d.text, fontSize: 14, flexShrink: 1 }}>{label}</Text><Switch accessibilityLabel={label} value={!!s[key]} onValueChange={(v) => api.updateSettings({ [key]: v })} /></View>)}
+  </View>;
+}
 
 function Wallpapers() {
   const { db, api } = useDb(), d = useDesign(), current = db.settings.wallpaper || { id: WALLPAPERS[0].id };
@@ -37,11 +52,11 @@ function Wallpapers() {
 }
 
 export default function AppSettings() {
-  const d = useDesign(), [tab, setTab] = useState('wallpaper');
+  const d = useDesign(), [tab, setTab] = useState('notify');
   return <View style={{ gap: 16 }}>
     <View style={{ flexDirection: 'row', padding: 3, borderRadius: 14, backgroundColor: d.input }}>
-      {[['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['pc', 'PC 연결']].map(([key, label]) => <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }} onPress={() => setTab(key)} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 11, backgroundColor: tab === key ? '#ffffffd9' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? d.accent : d.muted }}>{label}</Text></Pressable>)}
+      {[['notify', '알림'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['pc', 'PC 연결']].map(([key, label]) => <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }} onPress={() => setTab(key)} style={{ flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 11, backgroundColor: tab === key ? '#ffffffd9' : 'transparent' }}><Text style={{ fontSize: 13, fontWeight: '600', color: tab === key ? d.accent : d.muted }}>{label}</Text></Pressable>)}
     </View>
-    {tab === 'wallpaper' ? <Wallpapers /> : tab === 'tools' ? <Integrations /> : <ServerSettings />}
+    {tab === 'notify' ? <Reminders /> : tab === 'wallpaper' ? <Wallpapers /> : tab === 'tools' ? <Integrations /> : <ServerSettings />}
   </View>;
 }

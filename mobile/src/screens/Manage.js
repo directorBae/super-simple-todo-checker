@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../text.js';
 import { useDesign, Surface } from '../design.js';
 import Teams from './Teams.js';
 import Buckets from './Buckets.js';

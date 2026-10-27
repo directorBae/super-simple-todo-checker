@@ -42,8 +42,9 @@ export const byDateTime = (a, b) =>
 
 // 프로젝트를 통해 소속된 팀까지 고려한 실제 팀 id
 export function effectiveTeamId(todo, db) {
-  const p = db.projects.find((x) => x.id === todo.projectId);
-  return (p && p.teamId) || todo.teamId || null;
+  const p = db.projects.find((x) => x.id === todo.projectId), id = (p && p.teamId) || todo.teamId || null;
+  // A team that no longer exists counts as no team, so its lines still show (first, with the lines without a team).
+  return id && db.teams.some((t) => t.id === id) ? id : null;
 }
 
 // 팀 색상 팔레트: 무지개 계열 11색 + 검은색

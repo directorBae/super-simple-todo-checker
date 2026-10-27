@@ -15,10 +15,10 @@ function fakeSupabase() {
       const since = u.searchParams.get('synced_at')?.replace(/^gt\./, '');
       const rows = [...table.values()].filter((r) => !since || r.synced_at > since).sort((a, b) => a.synced_at.localeCompare(b.synced_at) || a.id.localeCompare(b.id));
       const offset = Number(u.searchParams.get('offset') || 0), limit = Number(u.searchParams.get('limit') || 1000);
-      return { ok: true, status: 200, json: async () => structuredClone(rows.slice(offset, offset + limit)) };
+      return { ok: true, status: 200, text: async () => JSON.stringify(rows.slice(offset, offset + limit)) };
     }
     for (const row of JSON.parse(init.body)) table.set(row.id, { title: '', created_at: 0, deleted_at: null, ...table.get(row.id), ...row, synced_at: serverTime() });
-    return { ok: true, status: 201, json: async () => null };
+    return { ok: true, status: 201, text: async () => '' }; // like Supabase with return=minimal: empty body
   }
   return { tables, fetch, requests: () => requests };
 }
@@ -36,8 +36,26 @@ test('rows round-trip between app items and table columns', () => {
   assert.equal(back.startTime, '09:00'); assert.equal(back.revision, 3); assert.equal(back.kind, 'todo'); assert.equal(back.syncRevision, undefined);
 });
 
+test('a device connecting for the first time takes the database as is and never uploads its old local data', async () => {
+  const server = fakeSupabase(), a = device(), b = device();
+  await sync(a, server);
+  a.state.todos.push({ id: 'shared', kind: 'todo', title: 'DB에 있는 일', status: 'todo', createdAt: 5, updatedAt: 5 });
+  await sync(a, server);
+  b.state.todos.push({ id: 'old', kind: 'todo', title: '연결 전 로컬 일', status: 'todo', createdAt: 1, updatedAt: 1 });
+  b.state.teams.push({ id: 'old-team', name: '옛 팀', createdAt: 1, updatedAt: 1 });
+  b.state.tombstones.push({ coll: 'todos', id: 'shared', deletedAt: 2 });
+  const first = await sync(b, server);
+  assert.equal(first.changed, true); assert.equal(first.pushed, 0);
+  assert.deepEqual(b.state.todos.map((t) => t.title), ['DB에 있는 일']); assert.deepEqual(b.state.teams, []);
+  assert.equal(server.tables.todos.has('old'), false); assert.equal(server.tables.teams.size, 0);
+  // After that first round the device is an ordinary peer: its new items go up.
+  b.state.todos.push({ id: 'new', kind: 'todo', title: '새 일', status: 'todo', createdAt: 9, updatedAt: 9 });
+  assert.equal((await sync(b, server)).pushed, 1);
+});
+
 test('two devices converge on creates, edits, deletes and concurrent edits', async () => {
   const server = fakeSupabase(), a = device(), b = device();
+  await sync(a, server);
   a.state.teams.push({ id: 'team', name: 'Studio', color: '#bc9f85', createdAt: 1, updatedAt: 1 });
   a.state.todos.push({ id: 'x', kind: 'todo', title: '시안 정리', status: 'todo', teamId: 'team', createdAt: 1, updatedAt: 1, origin: { type: 'app' } });
   a.state.todos.push({ id: 'y', kind: 'todo', title: '버킷 아이디어', status: 'bucket', createdAt: 1, updatedAt: 1 });
@@ -75,6 +93,7 @@ test('two devices converge on creates, edits, deletes and concurrent edits', asy
 
 test('an edit made after a remote deletion brings the item back', async () => {
   const server = fakeSupabase(), a = device(), b = device();
+  await sync(a, server);
   a.state.todos.push({ id: 'z', kind: 'todo', title: '살아남기', status: 'todo', createdAt: 1, updatedAt: 1 });
   await sync(a, server); await sync(b, server);
   b.state.todos = []; b.state.tombstones.push({ coll: 'todos', id: 'z', deletedAt: 30 });
@@ -89,8 +108,9 @@ test('an edit made after a remote deletion brings the item back', async () => {
 
 test('an older remote edit does not overwrite a newer local one, and failures leave state usable', async () => {
   const server = fakeSupabase(), a = device();
+  await sync(a, server);
   a.state.todos.push({ id: 'k', kind: 'todo', title: '새것', status: 'todo', createdAt: 1, updatedAt: 50 });
-  server.tables.todos.set('k', { id: 'k', title: '옛것', status: 'todo', created_at: 1, updated_at: 20, deleted_at: null, extra: {}, synced_at: '2026-01-01T00:00:00.000Z' });
+  server.tables.todos.set('k', { id: 'k', title: '옛것', status: 'todo', created_at: 1, updated_at: 20, deleted_at: null, extra: {}, synced_at: '2026-12-31T00:00:00.000Z' });
   await sync(a, server);
   assert.equal(a.state.todos[0].title, '새것'); assert.equal(server.tables.todos.get('k').title, '새것');
   const broken = await syncSupabase(a.state, a.meta, { url: 'https://x.supabase.co', key: 'anon', fetch: async () => ({ ok: false, status: 401, text: async () => 'Invalid API key' }) });

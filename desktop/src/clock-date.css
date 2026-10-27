@@ -1,0 +1,48 @@
+/* ---------- 시계: 끌고 온 할 일의 날짜, 그 위에서 열리는 달력 ---------- */
+.clock-date-ui {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 30;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: auto;
+}
+.clock-date-pill {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 22px; border-radius: 999px;
+  font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(248, 247, 255, 0.84)); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.clock-date-pill small { font-size: 11px; font-weight: 500; color: var(--muted); }
+.clock-date-pill.open { transform: scale(1.04); box-shadow: var(--glass-light), 0 0 0 2px rgba(124, 58, 237, 0.35), var(--glass-drop); }
+.clock-drag-cal {
+  width: 280px; padding: 12px; border-radius: 22px;
+  /* Nearly opaque: the clock hands and numerals sit right behind it. */
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(248, 247, 255, 0.88)); border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-light), var(--glass-drop);
+  backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel);
+  animation: clock-cal-in 0.16s ease-out;
+}
+@keyframes clock-cal-in { from { opacity: 0; transform: translateY(-6px); } }
+.clock-drag-cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+.clock-drag-cal-nav span { display: grid; place-items: center; width: 40px; height: 30px; border-radius: 10px; color: var(--muted); background: rgba(255, 255, 255, 0.4); }
+.clock-drag-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; text-align: center; }
+.clock-drag-cal-grid i { font-style: normal; font-size: 11px; color: var(--muted); padding-bottom: 2px; }
+.clock-drag-cal-grid i.sun { color: #e11d48; }
+.clock-drag-cal-grid i.sat { color: #4f6ef7; }
+.clock-drag-cal-grid span { display: grid; place-items: center; height: 32px; border-radius: 10px; font-size: 13px; color: var(--text); }
+.clock-drag-cal-grid span.today { color: var(--accent); font-weight: 700; }
+.clock-drag-cal-grid span.current { box-shadow: inset 0 0 0 1.5px rgba(124, 58, 237, 0.55); }
+.clock-drag-cal-grid span.hover { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; }
+
+/* ---------- 시계: 오전 · 오후 두 개 (나란히, 좁은 창에서는 위아래) ---------- */
+.clock-dials { display: flex; align-items: center; justify-content: center; gap: max(4cqw, 24px); }
+.clock-half { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.clock-half-name { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--muted); letter-spacing: 0.02em; }
+.clock-half.is-now .clock-half-name { color: var(--text); }
+.clock-half-name small { padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+/* Two dials share the room; each keeps space around it for its hover lens. */
+.clock-dials .clock-stage { width: min(40cqw, 66cqh); }
+@container (orientation: portrait) {
+  .clock-dials { flex-direction: column; gap: 14px; }
+  .clock-dials .clock-stage { width: min(72cqw, 36cqh); }
+  .clock-half { gap: 4px; }
+}

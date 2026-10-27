@@ -4,13 +4,25 @@ import Integrations from './Integrations.jsx';
 import { WALLPAPERS, shrinkImage, wallpaperSrc } from '../wallpapers.js';
 import { DEFAULT_PET } from '../focus/Pet.jsx';
 import { petPixels } from '../../../shared/pixel-pet.js';
+import { webNotifyState, askWebNotify } from '../web-notify.js';
 
 const TABS = [['general', '일반'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['phone', '휴대폰 연결'], ['about', '정보']];
+
+// Web only: the browser has to be allowed to show notifications.
+function BrowserNotify() {
+  const [state, setState] = useState(webNotifyState());
+  const text = { granted: '이 브라우저에서 알림이 켜져 있어요. 이 페이지가 열려 있는 동안 알려 드려요.', denied: '브라우저에서 알림이 차단되어 있어요. 주소창의 사이트 설정에서 알림을 허용해 주세요.', default: '알림을 받으려면 브라우저에서 허용해 주세요.', insecure: '브라우저 알림은 https:// 주소(또는 이 PC의 localhost)에서만 쓸 수 있어요.', unsupported: '이 브라우저는 알림을 지원하지 않아요.' }[state];
+  return <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+    <span className="desc" style={{ margin: 0, flex: 1, minWidth: 200 }}>{text}</span>
+    {state === 'default' && <button className="primary" onClick={async () => setState(await askWebNotify())}>알림 허용하기</button>}
+  </div>;
+}
 
 function General({ db }) {
   const s = db.settings, upd = (patch) => window.api.updateSettings(patch);
   return <>
     <Section title="알림">
+      {window.api.platform === 'web' && <BrowserNotify />}
       <label className="setting-row"><input type="checkbox" checked={s.notifyStart} onChange={(e) => upd({ notifyStart: e.target.checked })} />시작 시간 알림</label>
       <label className="setting-row"><input type="checkbox" checked={s.notifyEnd} onChange={(e) => upd({ notifyEnd: e.target.checked })} />마무리 시간 알림</label>
       <label className="setting-row">
@@ -23,8 +35,7 @@ function General({ db }) {
       </label>
     </Section>
     {window.api.platform !== 'web' && <Section title="시스템">
-      <label className="setting-row"><input type="checkbox" checked={s.autoLaunch} onChange={(e) => upd({ autoLaunch: e.target.checked })} />Windows 시작 시 자동 실행 (백그라운드)</label>
-      <p className="desc">창을 닫아도 트레이에서 계속 실행되며 알림을 보냅니다. 완전 종료는 트레이 아이콘 → 종료.</p>
+      <label className="setting-row"><input type="checkbox" checked={s.autoLaunch} onChange={(e) => upd({ autoLaunch: e.target.checked })} />컴퓨터를 켤 때 자동 실행</label>
     </Section>}
   </>;
 }

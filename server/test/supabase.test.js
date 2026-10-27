@@ -16,10 +16,10 @@ function fakeSupabase() {
       const since = u.searchParams.get('synced_at')?.replace(/^gt\./, '');
       const rows = [...table.values()].filter((r) => !since || r.synced_at > since).sort((a, b) => a.synced_at.localeCompare(b.synced_at));
       const offset = Number(u.searchParams.get('offset') || 0), limit = Number(u.searchParams.get('limit'));
-      return { ok: true, status: 200, json: async () => structuredClone(rows.slice(offset, offset + limit)) };
+      return { ok: true, status: 200, text: async () => JSON.stringify(rows.slice(offset, offset + limit)) };
     }
     for (const row of JSON.parse(init.body)) table.set(row.id, { title: '', created_at: 0, deleted_at: null, ...table.get(row.id), ...row, synced_at: new Date(Date.UTC(2026, 0, 1) + ++clock).toISOString() });
-    return { ok: true, status: 201, json: async () => null };
+    return { ok: true, status: 201, text: async () => '' }; // like Supabase with return=minimal: empty body
   }
   return { tables, fetch };
 }
@@ -33,6 +33,7 @@ test('the integration server exchanges changes with Supabase like any other devi
 
   // A phone writes straight to Supabase; the server picks it up.
   const phone = { state: { teams: [], projects: [], todos: [], tombstones: [] }, meta: null };
+  phone.meta = (await syncSupabase(phone.state, phone.meta, { url: 'https://x.supabase.co', key: 'anon', fetch: remote.fetch })).meta; // connects first
   const now = Date.now();
   phone.state.todos.push({ id: 'p1', kind: 'todo', title: '폰에서 만든 일', status: 'todo', date: null, createdAt: now, updatedAt: now, origin: { type: 'app' } });
   const pushed = await syncSupabase(phone.state, phone.meta, { url: 'https://x.supabase.co', key: 'anon', fetch: remote.fetch });

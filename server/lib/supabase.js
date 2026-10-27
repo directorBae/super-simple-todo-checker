@@ -21,12 +21,14 @@ function createSupabaseSync({ dir, env = process.env, merge, snapshot, fetch }) 
       } else {
         const item = engine.fromRow(coll, row);
         next.known[coll + ':' + row.id] = item.updatedAt;
+        // A device whose clock runs ahead would make merge() reject the whole round; take its change as of now.
+        if (item.updatedAt > Date.now() + 60000) item.updatedAt = Date.now();
         updates[coll].push(item);
       }
     }
     if (remote.length) merge(updates);
     await engine.pushRemote(cfg, engine.collectPush(snapshot(), next), next);
-    next.pulledAt = newest;
+    next.pulledAt = newest || engine.EPOCH;
     meta = next;
     fs.writeFileSync(metaFile + '.tmp', JSON.stringify(meta)); fs.renameSync(metaFile + '.tmp', metaFile);
   }

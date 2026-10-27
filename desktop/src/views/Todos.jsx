@@ -3,7 +3,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { TodoEditor, TeamControl } from '../components.jsx';
 import { SourceIcons } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
-import { dropPatches, lineSort } from '../../../shared/todo-drop.js';
+import { lineSort, teamSort, teamGroups } from '../../../shared/todo-drop.js';
 import { useTodoDrag } from './useTodoDrag.js';
 import {
   todayStr,
@@ -83,12 +83,14 @@ const addWith = (ctx, title, date, kind) =>
     teamId: ctx ? ctx.teamId : null,
     projectId: ctx ? ctx.projectId : null,
     channel: ctx ? ctx.channel : null,
+    ...(ctx && Number.isFinite(ctx.sortOrder) ? { sortOrder: ctx.sortOrder } : {}),
   });
 
 /* 여러 줄 붙여넣기: 줄마다 할 일로 추가하되, 팀/프로젝트/채널 이름 줄은 그룹 전환으로 처리 */
-function pasteLines(text, { date, kind, db, ctx, firstPrefix = '' }) {
+// `place` ({ order, next }): pasted into a line, the new lines go right below it (while they stay in its group).
+function pasteLines(text, { date, kind, db, ctx, firstPrefix = '', place = null }) {
   const lines = text.split(/\r?\n/).map((s) => s.trim());
-  let cur = ctx;
+  let cur = ctx, order = place?.order;
   let first = true;
   for (let line of lines) {
     if (first) {
@@ -101,13 +103,16 @@ function pasteLines(text, { date, kind, db, ctx, firstPrefix = '' }) {
       cur = g;
       continue;
     }
-    addWith(cur, line, date, kind);
+    if (cur === ctx && Number.isFinite(order)) {
+      order = Number.isFinite(place.next) ? (order + place.next) / 2 : order + 1024;
+      addWith({ ...cur, sortOrder: order }, line, date, kind);
+    } else addWith(cur, line, date, kind);
   }
   return cur;
 }
 
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
-function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape, indent, kind, selected }) {
+function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
   const inputRef = useRef(null);
   const project = db.projects.find((p) => p.id === todo.projectId);
@@ -118,12 +123,18 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
     if (editing && inputRef.current) {
       const el = inputRef.current;
       el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
+      const at = Math.min(caret ?? el.value.length, el.value.length);
+      el.setSelectionRange(at, at);
+      fit(el);
     }
   }, [editing]);
 
+  // The edit box is as narrow as the title and grows downward when the text wraps.
+  const fit = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
+
+  const removed = useRef(false); // joined into the line above by Backspace: nothing left to save
   const save = () => {
-    if (!inputRef.current) return;
+    if (!inputRef.current || removed.current) return;
     const v = inputRef.current.value.trim();
     if (!v) window.api.deleteTodo(todo.id);
     else if (v !== todo.title) window.api.updateTodo(todo.id, { title: v });
@@ -132,18 +143,26 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
 
   const onKeyDown = (e) => {
     if (e.nativeEvent.isComposing) return;
+    const el = e.currentTarget;
     if (e.key === 'Enter') {
+      // Like a notepad: Enter splits the line at the caret; what follows the caret moves to a new line right below.
       e.preventDefault();
+      const head = el.value.slice(0, el.selectionStart).trimEnd(), tail = el.value.slice(el.selectionEnd).trim();
+      if (head) el.value = head;
       save();
-      onEnter(todo); // 같은 그룹에 이어서 새 줄
+      onEnter(todo, head ? tail : '');
     } else if (e.key === 'Escape') {
       onEndEdit();
       onEscape();
-    } else if (e.key === 'Backspace' && inputRef.current.value === '') {
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && el.selectionStart === el.selectionEnd) {
+      // ↑ on the first row / ↓ on the last row of the text moves to the line above / below.
+      const rows = Math.round(el.scrollHeight / (parseFloat(getComputedStyle(el).lineHeight) || 20));
+      const up = e.key === 'ArrowUp';
+      if (rows <= 1 || (up ? el.selectionStart === 0 : el.selectionEnd === el.value.length)) { e.preventDefault(); onArrow(todo, up ? -1 : 1); }
+    } else if (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+      // Like a notepad: at the start of a line, Backspace joins it to the line above (an empty line just goes away).
       e.preventDefault();
-      window.api.deleteTodo(todo.id);
-      onEndEdit();
-      onEscape();
+      if (onBackspace(todo, inputRef.current.value)) removed.current = true;
     }
   };
 
@@ -162,10 +181,11 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
         />
         <SourceIcons todo={todo}/>
         {editing ? (
-          <input
+          <textarea
             ref={inputRef}
-            className="memo-edit" maxLength={50}
+            className="memo-edit" maxLength={50} rows={1}
             defaultValue={todo.title}
+            onInput={(e) => fit(e.currentTarget)}
             onKeyDown={onKeyDown}
             onBlur={save}
             onPaste={(e) => {
@@ -182,6 +202,7 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
                 kind: kind || todo.kind,
                 db,
                 ctx: { teamId: todo.teamId || null, projectId: todo.projectId || null, channel: todo.channel || null },
+                place: placeAfter?.(todo),
               });
               onEndEdit();
             }}
@@ -193,6 +214,8 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
         )}
 
         {project && <span className="badge">{project.name}</span>}
+        {/* The empty stretch of the row: press and move here to drag it (on touch, only here). */}
+        <span className="memo-grab" aria-hidden="true" />
         <span className="memo-right">
           {(todo.startTime || todo.endTime) && (
             <span className="meta">
@@ -214,14 +237,22 @@ function MemoLine({ todo, db, editing, onStartEdit, onEndEdit, onEnter, onEscape
           </span>
         </span>
       </div>
-      {detail && <TodoEditor todo={todo} db={db} />}
+      {detail && <TodoEditor todo={todo} db={db} onClose={() => setDetail(false)} />}
     </div>
   );
 }
 
 /* 그룹(팀/프로젝트) 안에서 이어 쓰는 입력 줄 */
-function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
-  const [text, setText] = useState('');
+function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded, onDown }) {
+  const [text, setText] = useState(base.text || '');
+  // Each line typed here goes right below the previous one (between the line it came from and the next).
+  const order = useRef(base.order);
+  const place = () => {
+    if (!Number.isFinite(order.current)) return base;
+    const at = Number.isFinite(base.next) ? (order.current + base.next) / 2 : order.current + 1024;
+    order.current = at; onAdded?.(at);
+    return { ...base, sortOrder: at };
+  };
   const [sugIdx, setSugIdx] = useState(0);
   const [sugOff, setSugOff] = useState(false);
   const ref = useRef(null);
@@ -229,7 +260,9 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
   const sugs = sugOff ? [] : suggestGroups(text, kind, db);
 
   useEffect(() => {
-    if (ref.current) ref.current.focus();
+    if (!ref.current) return;
+    ref.current.focus();
+    if (base.text) ref.current.setSelectionRange(0, 0); // caret where the line was split
   }, []);
 
   const pickSug = (g) => {
@@ -257,11 +290,14 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
         onClose(g); // 다른 그룹 이름을 치면 그 그룹으로 전환
         return;
       }
-      addWith(base, v, date, kind);
+      addWith(place(), v, date, kind);
       setText('');
     } else if (e.key === 'Tab' && sugs.length) {
       e.preventDefault();
       pickSug(sugs[sugIdx] || sugs[0]);
+    } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !sugs.length && !text) {
+      e.preventDefault();
+      if (e.key === 'ArrowUp') onEditLast(); else onDown?.();
     } else if (e.key === 'ArrowDown' && sugs.length) {
       e.preventDefault();
       setSugIdx((sugIdx + 1) % sugs.length);
@@ -280,7 +316,7 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
   // 포커스를 잃으면 쓰던 내용을 그대로 저장하고 닫는다
   const commitOnBlur = () => {
     const v = text.trim();
-    if (v) addWith(base, v, date, kind);
+    if (v) addWith(place(), v, date, kind);
     setText('');
     onClose();
   };
@@ -291,7 +327,7 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast }) {
         ref={ref}
         className="memo-input" maxLength={50}
         value={text}
-        placeholder="계속 입력"
+        aria-label="할 일 입력"
         onChange={(e) => {
           setText(e.target.value);
           setSugOff(false);
@@ -363,8 +399,9 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
       if (ctx) setCtx(null);
       else onBackspaceEmpty();
     } else if (e.key === 'ArrowUp' && text === '') {
+      // ↑ from the empty input: the day's last line (or the day before when this one is empty), like a notepad.
       e.preventDefault();
-      focusDay(addDays(date, -1));
+      onBackspaceEmpty();
     } else if (e.key === 'ArrowDown' && text === '') {
       e.preventDefault();
       focusDay(addDays(date, 1));
@@ -394,7 +431,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
       <input
         ref={ref}
         className="memo-input" maxLength={50}
-        placeholder={'할 일 입력'}
+        aria-label="할 일 입력"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -417,10 +454,58 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
   );
 }
 
+/* 팀 제목 아래 늘 떠 있는 입력 줄 — "내 팀 전부 넣기"로 꺼낸 팀에 바로 적는다 */
+function TeamAddInput({ date, kind, db, team, inputRef, onNext, onUp, onFocusChange }) {
+  const [text, setText] = useState('');
+  const base = { teamId: team.id, projectId: null, channel: null, label: team.name, color: team.color };
+  const commit = () => {
+    const v = text.trim();
+    if (v) addWith(base, v, date, kind);
+    setText('');
+  };
+  return (
+    <div className="memo-input-row indent team-add-row">
+      <input
+        ref={inputRef}
+        className="memo-input" maxLength={50}
+        aria-label={team.name + ' 할 일 입력'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            if (text.trim()) commit();
+            else onNext(); // 빈 줄에서 Enter → 다음 팀으로
+          } else if (e.key === 'Escape') e.currentTarget.blur();
+          else if (e.key === 'Backspace' && !text) { e.preventDefault(); onUp(); } // empty: up to the line above
+        }}
+        onPaste={(e) => {
+          const t = e.clipboardData.getData('text');
+          if (!t.includes('\n')) return;
+          e.preventDefault();
+          pasteLines(t, { date, kind, db, ctx: base, firstPrefix: text });
+          setText('');
+        }}
+        onFocus={() => onFocusChange(true)}
+        onBlur={() => { commit(); onFocusChange(false); }}
+      />
+    </div>
+  );
+}
+
 function DaySection({ date, kind, db, isToday, registerInput, focusDay, selection }) {
   const [editingId, setEditingId] = useState(null);
+  const caretRef = useRef(null); // where the caret lands in the line being opened (null = end)
+  const [typingTeam, setTypingTeam] = useState(null); // the team input row in use stays while you type in it
   const [draft, setDraft] = useState(null); // { key, teamId, projectId, channel }
   const [ctx, setCtx] = useState(null);
+  // 날짜를 누르면 "내 팀 전부 넣기"가 뜨고, 누르면 모든 팀이 제목으로 들어온다(빈 팀은 화면에만 있는 틀).
+  const [teamPill, setTeamPill] = useState(false);
+  const [allTeams, setAllTeams] = useState(false);
+  const headRef = useRef(null);
+  const teamInputs = useRef({});
+  const pendingTeamFocus = useRef(null);
   const items = [...db.todos.filter((t) => t.kind === kind && t.date === date && t.status !== 'bucket')].sort(lineSort);
 
   const events =
@@ -433,15 +518,64 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
   const noTeam = items.filter((t) => !effectiveTeamId(t, db));
   const teamGroups = db.teams
     .map((team) => ({ team, list: items.filter((t) => effectiveTeamId(t, db) === team.id) }))
-    .filter((g) => g.list.length);
+    .filter((g) => allTeams || g.list.length);
   const displayOrder = [...noTeam, ...teamGroups.flatMap((g) => g.list)];
 
   const { m, d, dow } = dateParts(date);
 
+  // 다른 곳을 누르면 버튼은 닫힌다.
+  useEffect(() => {
+    if (!teamPill) return;
+    const away = (e) => { if (!headRef.current?.contains(e.target)) setTeamPill(false); };
+    window.addEventListener('pointerdown', away);
+    return () => window.removeEventListener('pointerdown', away);
+  }, [teamPill]);
+  // 넣은 직후 첫 빈 팀(없으면 첫 팀)의 입력 줄로.
+  useEffect(() => {
+    const id = pendingTeamFocus.current;
+    if (!id) return;
+    pendingTeamFocus.current = null;
+    teamInputs.current[id]?.focus();
+  });
+  const insertAllTeams = () => {
+    setTeamPill(false);
+    if (!db.teams.length) return;
+    const empty = db.teams.find((team) => !items.some((t) => effectiveTeamId(t, db) === team.id));
+    pendingTeamFocus.current = (empty || db.teams[0]).id;
+    setAllTeams(true);
+  };
+  const focusNextTeam = (teamId) => {
+    const i = db.teams.findIndex((t) => t.id === teamId);
+    const next = db.teams[i + 1];
+    if (next) teamInputs.current[next.id]?.focus();
+    else focusDay(date);
+  };
+
   // 줄에서 Enter → 그 줄이 속한 그룹에 이어서 새 줄
-  const continueFrom = (todo) => {
+  // Enter on a line → a new line right below it in the same group (with the text after the caret, if any).
+  const sortKey = (t) => t.sortOrder ?? t.createdAt ?? 0;
+  const placeAfter = (todo) => {
     const key = effectiveTeamId(todo, db) || '';
-    setDraft({ key, teamId: todo.teamId || null, projectId: todo.projectId || null, channel: todo.channel || null });
+    const list = key ? teamGroups.find((g) => g.team.id === key)?.list || [] : noTeam;
+    const next = list.slice(list.findIndex((t) => t.id === todo.id) + 1).find((t) => !t.startTime);
+    return { key, order: sortKey(todo), next: next ? sortKey(next) : undefined };
+  };
+  const continueFrom = (todo, text = '') => {
+    const { key, order, next } = placeAfter(todo);
+    setDraft({ key, teamId: todo.teamId || null, projectId: todo.projectId || null, channel: todo.channel || null, afterId: todo.id, order, next, text });
+  };
+  // Where the open draft line sits in a group: right after the line it came from and the lines typed since.
+  const draftAnchor = (list) => {
+    if (!draft?.afterId) return null;
+    let at = null;
+    for (const t of list) if (t.id === draft.afterId || (!t.startTime && Number.isFinite(draft.order) && sortKey(t) <= draft.order)) at = t.id;
+    return at;
+  };
+  // ↑ / ↓ from a line: the line above / below in the day; below the last line is the day's input.
+  const stepLine = (todo, dir) => {
+    const i = displayOrder.findIndex((t) => t.id === todo.id), t = displayOrder[i + dir];
+    if (t) editLine(t.id, dir < 0 ? null : 0);
+    else if (dir > 0) { setEditingId(null); focusDay(date); }
   };
 
   const closeDraft = (nextGroup) => {
@@ -450,6 +584,31 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
       setCtx(nextGroup);
       focusDay(date);
     }
+  };
+
+  const editLine = (id, caret = null) => { setDraft(null); caretRef.current = caret; setEditingId(id); };
+  // Backspace at the start of a line, as in a notepad: the line joins the one above it in the day (an empty one just
+  // disappears) and the caret stays where they met. The first line of the day only goes away if it is empty.
+  const backspaceLine = (todo, text) => {
+    const i = displayOrder.findIndex((t) => t.id === todo.id), prev = displayOrder[i - 1], next = displayOrder[i + 1];
+    if (!prev) {
+      if (text) return false;
+      window.api.deleteTodo(todo.id);
+      if (next) editLine(next.id, 0); else { setEditingId(null); focusDay(date); }
+      return true;
+    }
+    const joined = prev.title + text;
+    if (Array.from(joined).length > 50) { editLine(prev.id); return false; } // too long to join: just move up
+    window.api.deleteTodo(todo.id);
+    if (text) window.api.updateTodo(prev.id, { title: joined });
+    editLine(prev.id, prev.title.length);
+    return true;
+  };
+  // From an empty team input row: up to the last line above it.
+  const upFromTeam = (teamId) => {
+    const i = teamGroups.findIndex((g) => g.team.id === teamId);
+    const above = [...noTeam, ...teamGroups.slice(0, i + 1).flatMap((g) => g.list)].at(-1);
+    if (above) editLine(above.id);
   };
 
   const editLastOf = (list) => {
@@ -465,38 +624,75 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
       kind={kind}
       indent={indent}
       editing={editingId === t.id}
-      selected={selection.has(t.id)}
-      onStartEdit={() => setEditingId(t.id)}
-      onEndEdit={() => setEditingId(null)}
+      caret={editingId === t.id ? caretRef.current : null}
+      onStartEdit={() => editLine(t.id)}
+      onEndEdit={() => setEditingId((id) => (id === t.id ? null : id))}
       onEnter={continueFrom}
       onEscape={() => focusDay(date)}
+      onBackspace={backspaceLine}
+      onArrow={stepLine}
+      placeAfter={placeAfter}
+      selected={selection.has(t.id)}
     />
   );
 
-  const draftFor = (key, list, indent) =>
-    draft && draft.key === key ? (
+  const draftInput = (list, indent) => {
+    const anchor = draftAnchor(list), below = anchor ? displayOrder[displayOrder.findIndex((t) => t.id === anchor) + 1] : null;
+    return (
       <GroupInput
+        key={'draft-' + (draft.afterId || 'end')}
         date={date}
         kind={kind}
         db={db}
         base={draft}
         indent={indent}
         onClose={closeDraft}
-        onEditLast={() => editLastOf(list)}
+        onEditLast={() => (anchor ? editLine(anchor) : editLastOf(list))}
+        onDown={() => (below ? editLine(below.id, 0) : (setDraft(null), focusDay(date)))}
+        onAdded={(order) => setDraft((d) => (d ? { ...d, order, text: '' } : d))} // the input moves under the new line
       />
-    ) : null;
+    );
+  };
+  // The draft line goes right under the line it came from, or at the end of the group.
+  const linesWithDraft = (key, list, indent) => {
+    const open = draft && draft.key === key, anchor = open ? draftAnchor(list) : null;
+    return (
+      <>
+        {list.map((t) => (
+          <React.Fragment key={t.id}>
+            {renderLine(t, indent)}
+            {open && anchor === t.id && draftInput(list, indent)}
+          </React.Fragment>
+        ))}
+        {open && !anchor && draftInput(list, indent)}
+      </>
+    );
+  };
 
   return (
     <section
       className={'memo-day' + (isToday ? ' is-today' : '') + (items.length === 0 ? ' is-empty' : '')}
       id={'day-' + date}
     >
-      <div className="memo-head" onClick={() => focusDay(date)}>
-        <span className={'memo-dow' + (dow === 0 ? ' sun' : dow === 6 ? ' sat' : '')}>{DOW_NAMES[dow]}</span>
-        <span className="memo-date">
-          {m}월 {d}일
-        </span>
+      <div className="memo-head" ref={headRef}>
+        <button
+          type="button"
+          className="memo-head-date"
+          aria-expanded={teamPill}
+          title="눌러서 내 팀 전부 넣기"
+          onClick={() => setTeamPill((v) => !v)}
+        >
+          <span className={'memo-dow' + (dow === 0 ? ' sun' : dow === 6 ? ' sat' : '')}>{DOW_NAMES[dow]}</span>
+          <span className="memo-date">
+            {m}월 {d}일
+          </span>
+        </button>
         {isToday && <span className="memo-today">오늘</span>}
+        {teamPill && (
+          <button type="button" className="team-template-pill" onClick={insertAllTeams} disabled={!db.teams.length}>
+            {db.teams.length ? '내 팀 전부 넣기' : '팀이 없어요'}
+          </button>
+        )}
       </div>
       {events.map((ev) => (
         <div className="memo-event" key={ev.id} title="구글 캘린더 일정">
@@ -504,8 +700,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
           {ev.title}
         </div>
       ))}
-      {noTeam.map((t) => renderLine(t, false))}
-      {draftFor('', noTeam, false)}
+      {linesWithDraft('', noTeam, false)}
       {teamGroups.map(({ team, list }) => (
         <div key={team.id}>
           <div
@@ -517,8 +712,20 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
             <span className="team-dot" style={{ background: team.color }} />
             <span className="team-name">{team.name}</span>
           </div>
-          {list.map((t) => renderLine(t, true))}
-          {draftFor(team.id, list, true)}
+          {linesWithDraft(team.id, list, true)}
+          {/* A team's input row shows only while the team has no lines yet (or you are typing in it): no empty rows in between. */}
+          {allTeams && !(draft && draft.key === team.id) && (!list.length || typingTeam === team.id) && (
+            <TeamAddInput
+              date={date}
+              kind={kind}
+              db={db}
+              team={team}
+              inputRef={(el) => { if (el) teamInputs.current[team.id] = el; else delete teamInputs.current[team.id]; }}
+              onNext={() => focusNextTeam(team.id)}
+              onUp={() => upFromTeam(team.id)}
+              onFocusChange={(on) => setTypingTeam((cur) => (on ? team.id : cur === team.id ? null : cur))}
+            />
+          )}
         </div>
       ))}
       <DayInput
@@ -531,7 +738,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
         focusDay={focusDay}
         onBackspaceEmpty={() => {
           // 빈 날이면 전날로, 항목이 있으면 마지막 항목 편집
-          if (displayOrder.length) setEditingId(displayOrder[displayOrder.length - 1].id);
+          if (displayOrder.length) editLine(displayOrder[displayOrder.length - 1].id);
           else focusDay(addDays(date, -1));
         }}
       />
@@ -540,7 +747,29 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
 }
 
 /* 월 캘린더 뷰 */
-function MonthView({ db, kind, ym, setYm, openDay }) {
+/* 달력 칸의 할 일 한 줄 — 팀 색 띠, 완료는 취소선. 주간 보기에서는 시간도 보인다. */
+function calChip(t, db, showTime = false) {
+  const hl = importantHighlight(t, db);
+  let edge = '#cbd5e1';
+  {
+    const team = db.teams.find((x) => x.id === effectiveTeamId(t, db));
+    if (team) edge = team.color;
+  }
+  return (
+    <div
+      key={t.id}
+      className={'cal-chip' + (t.status === 'done' ? ' chip-done' : '') + (hl ? ' chip-hl' : '')}
+      data-todo-id={t.id}
+      style={hl ? { borderLeftColor: edge, '--hl': hl } : { borderLeftColor: edge }}
+      title={t.title}
+    >
+      {showTime && t.startTime && <span className="cal-chip-time">{t.startTime}</span>}
+      <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{compactTitle(t.title)}</span>
+    </div>
+  );
+}
+
+function MonthView({ db, kind, ym, setYm, openDay, toggle }) {
   const today = todayStr();
   const first = new Date(ym.y, ym.m, 1);
   const daysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
@@ -554,31 +783,15 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
     if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
     (byDate[t.date] = byDate[t.date] || []).push(t);
   }
+  // Chips follow the teams (no names here, just the order).
+  for (const list of Object.values(byDate)) list.sort(teamSort(db));
 
   const move = (n) => {
     const d = new Date(ym.y, ym.m + n, 1);
     setYm({ y: d.getFullYear(), m: d.getMonth() });
   };
 
-  const chip = (t) => {
-    const hl = importantHighlight(t, db);
-    let edge = '#cbd5e1';
-    {
-      const team = db.teams.find((x) => x.id === effectiveTeamId(t, db));
-      if (team) edge = team.color;
-    }
-    return (
-      <div
-        key={t.id}
-        className={'cal-chip' + (t.status === 'done' ? ' chip-done' : '') + (hl ? ' chip-hl' : '')}
-        data-todo-id={t.id}
-        style={hl ? { borderLeftColor: edge, '--hl': hl } : { borderLeftColor: edge }}
-        title={t.title}
-      >
-        <SourceIcons todo={t} size={11}/><span className="cal-chip-title">{compactTitle(t.title)}</span>
-      </div>
-    );
-  };
+  const chip = (t) => calChip(t, db);
 
   return (
     <div className="month-view">
@@ -592,8 +805,9 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
         <button className="ghost" onClick={() => move(1)}>
           ▶
         </button>
+        {toggle}
         <button
-          className="ghost"
+          className="ghost cal-today"
           onClick={() => {
             const d = new Date();
             setYm({ y: d.getFullYear(), m: d.getMonth() });
@@ -623,7 +837,50 @@ function MonthView({ db, kind, ym, setYm, openDay }) {
           </div>
         ))}
       </div>
-      <p className="desc">날짜 클릭 또는 날짜 위에서 Ctrl+휠 ↑ → 해당 날짜로 · 휠 → 월 이동</p>
+    </div>
+  );
+}
+
+/* 주간 보기 — 일~토 7칸(휴대폰에서는 7줄). 시간 있는 일이 먼저, 칸을 누르면 그 날의 일 보기로. */
+const WEEK_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+const weekStart = (date) => addDays(date, -dateParts(date).dow);
+
+function WeekView({ db, kind, weekOf, setWeekOf, openDay, toggle }) {
+  const today = todayStr();
+  const start = weekStart(weekOf);
+  const days = WEEK_DOW.map((_, i) => addDays(start, i));
+  const byDate = {};
+  for (const t of db.todos) {
+    if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
+    (byDate[t.date] = byDate[t.date] || []).push(t);
+  }
+  const a = dateParts(days[0]), b = dateParts(days[6]);
+  return (
+    <div className="month-view week-view">
+      <div className="cal-nav">
+        <button className="ghost" aria-label="지난주" onClick={() => setWeekOf(addDays(start, -7))}>◀</button>
+        <span className="cal-title">{a.m}월 {a.d}일 – {b.m !== a.m ? `${b.m}월 ` : ''}{b.d}일</span>
+        <button className="ghost" aria-label="다음 주" onClick={() => setWeekOf(addDays(start, 7))}>▶</button>
+        {toggle}
+        <button className="ghost cal-today" onClick={() => setWeekOf(today)}>오늘</button>
+      </div>
+      <div className="week-grid">
+        {days.map((date, i) => (
+          <div key={date} data-date={date} className={'cal-cell week-day' + (date === today ? ' today' : '')} onClick={() => openDay(date)}>
+            <div className={'week-head' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '')}>
+              <span className="week-dow">{WEEK_DOW[i]}</span>
+              <span className="week-date">{dateParts(date).d}</span>
+            </div>
+            {/* Grouped by team, each group under its team's name (on phones only the order is kept). */}
+            <div className="week-chips">{teamGroups(db, byDate[date] || []).map(({ team, list }) => (
+              <React.Fragment key={team?.id || 'none'}>
+                {team && <div className="week-team"><span className="team-dot" style={{ background: team.color }} />{team.name}</div>}
+                {list.map((t) => calChip(t, db, true))}
+              </React.Fragment>
+            ))}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -652,31 +909,14 @@ function TeamSidebar({ db, onOpenTeams }) {
   );
 }
 
-/* 여러 줄을 골랐을 때 뜨는 막대 — 휴대폰에서는 길게 눌러 선택 모드로 들어온다 */
-function SelectionBar({ db, selection, onDone }) {
-  const [teams, setTeams] = useState(false);
-  const ids = [...selection].filter((id) => db.todos.some((t) => t.id === id));
-  const moveTo = async (teamId) => {
-    await Promise.all(dropPatches(db, ids, { kind: 'team', teamId }).map(({ id, patch }) => window.api.updateTodo(id, patch)));
-    setTeams(false);
-    onDone();
-  };
+/* 끄는 동안만 뜨는 쓰레기통 — 여기에 놓으면 삭제(되돌리기 가능). 팀은 그 팀 줄 사이에 놓으면 들어간다. */
+function TrashDrop() {
   return (
-    <div className="selection-bar" role="toolbar" aria-label="선택한 할 일">
-      <span className="selection-count">{ids.length}개 선택</span>
-      <button className="ghost" aria-expanded={teams} onClick={() => setTeams(!teams)}>팀으로 이동</button>
-      <button className="ghost" onClick={onDone}>취소</button>
-      {teams && (
-        <div className="selection-teams">
-          {db.teams.map((team) => (
-            <button key={team.id} className="ghost" onClick={() => moveTo(team.id)}>
-              <span className="team-dot" style={{ background: team.color }} />
-              {team.name}
-            </button>
-          ))}
-          <button className="ghost" onClick={() => moveTo(null)}>팀 없음</button>
-        </div>
-      )}
+    <div className="todo-drop-strip" role="group" aria-label="여기에 놓아 삭제">
+      <span className="todo-drop-trash" data-drop-trash="">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M9 7V4.8c0-.4.4-.8.8-.8h4.4c.4 0 .8.4.8.8V7M6.5 7l.9 12.2c.1.9.8 1.6 1.7 1.6h5.8c.9 0 1.6-.7 1.7-1.6L17.5 7M10 11v6M14 11v6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        삭제
+      </span>
     </div>
   );
 }
@@ -691,6 +931,9 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
     const d = new Date();
     return { y: d.getFullYear(), m: d.getMonth() };
   });
+  const [weekOf, setWeekOf] = useState(today);
+  const weekRef = useRef(weekOf);
+  weekRef.current = weekOf;
   const rootRef = useRef(null);
   const inputRefs = useRef({});
   const prependHeightRef = useRef(null);
@@ -702,9 +945,9 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
   useEffect(() => { setFabHost(rootRef.current?.closest('.app-v') || document.body); }, []);
   const viewRef = useRef(view);
   viewRef.current = view;
+  const [dragging, setDragging] = useState(false);
   const [selection, setSelection] = useState(() => new Set());
-  const [selectMode, setSelectMode] = useState(false);
-  useTodoDrag({ rootRef, db, selection, setSelection, selectMode, setSelectMode });
+  useTodoDrag({ rootRef, db, selection, setSelection, onDragging: setDragging });
 
 
   const scroller = () => (rootRef.current ? rootRef.current.parentElement : null);
@@ -745,7 +988,7 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
   const openDayRef = useRef(openDay);
   openDayRef.current = openDay;
 
-  // Ctrl+휠(핀치 줌)으로 리스트 ↔ 월 뷰 전환, 월 뷰에서는 휠로 월 이동.
+  // Ctrl+휠(핀치 줌)으로 일 ↔ 주 ↔ 월 한 단계씩 전환, 월 뷰에서는 휠로 월 이동.
   // 가운데 열 바깥 여백에서도 동작하도록 스크롤 영역 전체에서 받는다.
   useEffect(() => {
     const el = scroller();
@@ -756,16 +999,21 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
         const now = Date.now();
         if (now - wheelGateRef.current < 350) return;
         wheelGateRef.current = now;
+        const cell = e.target.closest ? e.target.closest('[data-date]') : null;
         if (e.deltaY > 0 && viewRef.current === 'list') {
           const under = document.elementFromPoint(e.clientX, e.clientY);
           const dayEl = under && under.closest ? under.closest('.memo-day') : null;
-          const d = dayEl ? dayEl.id.slice(4) : todayStr();
-          const [y, m] = d.split('-').map(Number);
+          setWeekOf(dayEl ? dayEl.id.slice(4) : todayStr());
+          setView('week');
+        } else if (e.deltaY > 0 && viewRef.current === 'week') {
+          const [y, m] = ((cell && cell.dataset.date) || weekRef.current).split('-').map(Number);
           setYm({ y, m: m - 1 });
           setView('month');
         } else if (e.deltaY < 0 && viewRef.current === 'month') {
-          const cell = e.target.closest ? e.target.closest('[data-date]') : null;
-          openDayRef.current((cell && cell.dataset.date) || todayStr());
+          setWeekOf((cell && cell.dataset.date) || todayStr());
+          setView('week');
+        } else if (e.deltaY < 0 && viewRef.current === 'week') {
+          openDayRef.current((cell && cell.dataset.date) || weekRef.current);
         }
       } else if (viewRef.current === 'month') {
         e.preventDefault();
@@ -842,26 +1090,35 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
   const dates = [];
   for (let i = range.start; i <= range.end; i++) dates.push(addDays(today, i));
 
+  // 일 · 주 · 월 — next to the title on the day page, next to the month/week name in the calendars.
+  const toggle = (
+    <div className="view-toggle">
+      <button className={'ghost' + (view === 'list' ? ' on' : '')} onClick={() => openDay(today)}>
+        일
+      </button>
+      <button className={'ghost' + (view === 'week' ? ' on' : '')} onClick={() => { setWeekOf(today); setView('week'); }}>
+        주
+      </button>
+      <button className={'ghost' + (view === 'month' ? ' on' : '')} onClick={() => setView('month')}>
+        월
+      </button>
+    </div>
+  );
+
   return (
-    <div ref={rootRef} className={'memo-wrap' + (view === 'month' ? ' is-month' : '')}>
+    <div ref={rootRef} className={'memo-wrap' + (view !== 'list' ? ' is-month' : '')}>
       <div className="memo-toolbar">
         <h1 className={''}>
           {'할 일'}
         </h1>
-
-        <div className="view-toggle">
-          <button className={'ghost' + (view === 'list' ? ' on' : '')} onClick={() => openDay(today)}>
-            일
-          </button>
-          <button className={'ghost' + (view === 'month' ? ' on' : '')} onClick={() => setView('month')}>
-            월
-          </button>
-        </div>
+        {view === 'list' && toggle}
       </div>
-      {view === 'month' ? (
+      {view !== 'list' ? (
         <div className="month-layout">
           <TeamSidebar db={db} onOpenTeams={onOpenTeams} />
-          <MonthView db={db} kind={kind} ym={ym} setYm={setYm} openDay={openDay} />
+          {view === 'week'
+            ? <WeekView db={db} kind={kind} weekOf={weekOf} setWeekOf={setWeekOf} openDay={openDay} toggle={toggle} />
+            : <MonthView db={db} kind={kind} ym={ym} setYm={setYm} openDay={openDay} toggle={toggle} />}
         </div>
       ) : (
         <>
@@ -889,8 +1146,7 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
           })}
         </>
       )}
-      {fabHost && selection.size > 0 && (selectMode || selection.size > 1) && createPortal(
-        <SelectionBar db={db} selection={selection} onDone={() => { setSelection(new Set()); setSelectMode(false); }} />, fabHost)}
+      {fabHost && dragging && createPortal(<TrashDrop />, fabHost)}
       {/* 오늘로 점프 — 항상 우측 하단 고정. 유리판(backdrop-filter)이 fixed 기준이 되지 않게 앱 루트에 띄운다. */}
       {fabHost && createPortal(<button
         className="fab-today"
@@ -899,6 +1155,8 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
           if (view === 'month') {
             const d = new Date();
             setYm({ y: d.getFullYear(), m: d.getMonth() });
+          } else if (view === 'week') {
+            setWeekOf(today);
           } else {
             goToday();
           }

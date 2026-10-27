@@ -1,6 +1,7 @@
 import { SourceIcons } from '../SourceIcons.js';
 import React, { useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../text.js';
 import { useDb } from '../store.js';
 import { useDesign, Surface, Button } from '../design.js';
 import { todayStr } from '../util.js';

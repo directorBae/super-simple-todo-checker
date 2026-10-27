@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Text, TextInput } from '../text.js';
 const teamOf = (db, t) => db.projects.find(p => p.id === t.projectId)?.teamId || t.teamId || null;
 function Button({ children, onPress, disabled }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.button, disabled && { opacity: 0.4 }]}><Text>{children}</Text></Pressable>; }
 function Preview({ todo }) { return <View style={s.card}><Text style={s.bold}>{todo.title}</Text><Text>{todo.date || '날짜 없음'} {todo.startTime || '시간 없음'} {todo.endDate || ''} {todo.endTime || ''} · {todo.status === 'done' ? '완료' : '미완료'}</Text><Text>{todo.integration?.targetLabel || '앱'} · {todo.notes || '메모 없음'}</Text></View>; }

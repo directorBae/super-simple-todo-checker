@@ -6,6 +6,8 @@
  * - 행마다 updated_at(기기 ms)으로 마지막 수정이 이긴다(LWW). 삭제는 deleted_at을 채운 행(tombstone).
  * - 가져오기는 서버 시계인 synced_at 기준이라 기기 시계가 달라도 빠뜨리지 않는다.
  * - meta.known['todos:<id>']는 서버에 있다고 알고 있는 updated_at. 그보다 새 로컬 항목만 올린다.
+ * - DB가 기준이다: 한 번도 동기화한 적 없는 기기(meta.pulledAt 없음)는 로컬 할 일·팀·프로젝트를 버리고
+ *   서버 내용을 그대로 받는다. 연결 전에 기기에 쌓인 옛 데이터가 DB로 올라가지 않게 하기 위해서다.
  */
 const COLLECTIONS = ['teams', 'projects', 'todos'];
 const COLUMNS = {
@@ -37,8 +39,10 @@ function client({ url, key, fetch: request = globalThis.fetch }) {
   const headers = { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' };
   return async (path, init = {}) => {
     const res = await request(base + path, { ...init, headers: { ...headers, ...(init.headers || {}) } });
-    if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + (await res.text()).slice(0, 200));
-    return res.status === 204 ? null : res.json();
+    const text = await res.text();
+    if (!res.ok) throw new Error('Supabase ' + res.status + ': ' + text.slice(0, 200));
+    // Writes with Prefer: return=minimal answer 200/201 with an empty body.
+    return text ? JSON.parse(text) : null;
   };
 }
 
@@ -108,6 +112,15 @@ async function pushRemote(cfg, push, meta, batch = 500) {
   return count;
 }
 
+// First sync on a device: drop its local teams, projects and to-dos (and deletion marks) so the server's copy wins whole.
+function adoptRemote(state) {
+  for (const coll of COLLECTIONS) (state[coll] ||= []).splice(0);
+  state.tombstones = [];
+}
+const firstSync = (meta) => !meta?.pulledAt;
+// Watermark for a database that was still empty, so the device counts as synced from then on.
+const EPOCH = new Date(0).toISOString();
+
 function freshMeta(meta) {
   return { pulledAt: meta?.pulledAt || null, known: { ...(meta?.known || {}) } };
 }
@@ -117,9 +130,11 @@ async function syncSupabase(state, meta, cfg) {
   const next = freshMeta(meta);
   try {
     const { remote, newest } = await pullRemote(cfg, next);
-    const changed = applyRemote(state, remote, next);
+    const first = firstSync(next);
+    if (first) adoptRemote(state);
+    const changed = applyRemote(state, remote, next) || first;
     const pushed = await pushRemote(cfg, collectPush(state, next), next);
-    next.pulledAt = newest;
+    next.pulledAt = newest || EPOCH;
     return { ok: true, changed, pushed, meta: next };
   } catch (e) {
     return { ok: false, error: e.message, changed: false, meta: next };
@@ -128,4 +143,4 @@ async function syncSupabase(state, meta, cfg) {
 
 const configured = (cfg) => !!(cfg && cfg.url && cfg.key);
 
-module.exports = { COLLECTIONS, COLUMNS, toRow, fromRow, pullRemote, applyRemote, collectPush, pushRemote, syncSupabase, freshMeta, configured };
+module.exports = { COLLECTIONS, COLUMNS, toRow, fromRow, pullRemote, applyRemote, adoptRemote, firstSync, EPOCH, collectPush, pushRemote, syncSupabase, freshMeta, configured };

@@ -10,6 +10,13 @@ function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// The three days before `today` (yesterday, 2 and 3 days ago) — older ones are left out of the morning note.
+const OVERDUE_DAYS = 3;
+function recentDays(today) {
+  const [y, m, d] = today.split('-').map(Number);
+  return Array.from({ length: OVERDUE_DAYS }, (_, i) => localDateStr(new Date(y, m - 1, d - 1 - i)));
+}
+
 function dueMs(dateStr, timeStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const [hh, mm] = timeStr.split(':').map(Number);
@@ -42,7 +49,8 @@ function collectDue(db, now) {
       const due = dueMs(today, db.settings.dailySummaryTime || '09:00');
       if (due <= now) {
         const count = db.todos.filter((t) => t.status === 'todo' && t.date === today).length;
-        out.push({ key, todoId: null, type: 'daily', due, count });
+        const days = new Set(recentDays(today)), overdue = db.todos.filter((t) => t.status === 'todo' && days.has(t.date));
+        out.push({ key, todoId: null, type: 'daily', due, count, overdue });
       }
     }
   }
@@ -88,8 +96,12 @@ function runTick(store, broadcast, openView) {
       entry.ackAt = now; // 데일리 요약/마무리는 밀린 알림 목록에 쌓지 않음
       db.notifLog.push(entry);
       if (late > DAILY_LATE_MS) continue;
-      if (d.type === 'daily' && d.count > 0) {
-        notify('오늘 할 일', `오늘 예정된 할 일이 ${d.count}건 있어요.`, () => openView('today'));
+      // Morning: today's count, plus what was left undone in the last three days.
+      if (d.type === 'daily' && (d.count > 0 || d.overdue.length > 0)) {
+        const lines = [];
+        if (d.count > 0) lines.push(`오늘 예정된 할 일이 ${d.count}건 있어요.`);
+        if (d.overdue.length) lines.push(`지난 3일 동안 못 한 일 ${d.overdue.length}건: ${listNames(d.overdue, 3)}`);
+        notify('오늘 할 일', lines.join('\n'), () => openView('today'));
       }
       if (d.type === 'wrapup') {
         const done = d.doneList.length;
@@ -142,4 +154,4 @@ function start(store, broadcast, openView) {
   setInterval(tick, TICK_MS);
 }
 
-module.exports = { start };
+module.exports = { start, collectDue, recentDays };

@@ -1,8 +1,9 @@
-// Chrome's offline runner, with trees for cacti and the person's pet as the runner.
+// Chrome's offline runner, with trees for cacti and the person's pet as the runner (big after a mushroom).
 // Speeds up the longer you run, birds come at three heights, ↓ ducks (and drops fast in the air),
 // tapping jumps low and holding jumps high.
 export const FLOOR = 250, START_X = 64;
-const STAND = { w: 24, h: 28 }, DUCK = { w: 34, h: 16 };
+const STAND = { w: 24, h: 28 }, DUCK = { w: 34, h: 16 }, BIG = { w: 30, h: 40 }, BIG_DUCK = { w: 44, h: 22 };
+const sizeFor = (game, ducking) => (game?.runner?.big ? (ducking ? BIG_DUCK : BIG) : ducking ? DUCK : STAND);
 const START_SPEED = 260, MAX_SPEED = 640, ACCELERATION = 5, BIRD_SPEED = 330;
 const JUMP = -430, CUT = -250, GRAVITY = 1150, HOLD_GRAVITY = 0.55, DROP = 2600;
 const TREES = { small: { w: 16, h: 26 }, large: { w: 22, h: 40 }, pair: { w: 34, h: 26 }, grove: { w: 48, h: 40 } };
@@ -12,7 +13,7 @@ const BIRD_HEIGHTS = [FLOOR - 4, FLOOR - 26, FLOOR - 58];
 export function create(game, carry) {
   return {
     speed: carry?.speed || START_SPEED, distance: 0, gap: 220, obstacles: [], clouds: [{ x: 120, y: 60 }, { x: 330, y: 40 }, { x: 470, y: 80 }], ending: false,
-    player: { x: START_X, y: FLOOR - STAND.h, ...STAND, vy: 0, onGround: true, held: false, ducking: false },
+    player: { x: START_X, y: FLOOR - sizeFor(game).h, ...sizeFor(game), vy: 0, onGround: true, held: false, ducking: false },
   };
 }
 
@@ -41,11 +42,13 @@ export function step(st, dt, keys, game, random = Math.random) {
   if (!p.held && p.vy < CUT) p.vy = CUT;
   p.vy += (GRAVITY * (p.held && p.vy < 0 ? HOLD_GRAVITY : 1) + (down && !p.onGround ? DROP : 0)) * dt;
   p.y += p.vy * dt;
-  const ducking = down && p.onGround, size = ducking ? DUCK : STAND;
+  const ducking = down && p.onGround, size = sizeFor(game, ducking);
   if (p.y + p.h >= FLOOR || p.onGround) {
     p.onGround = p.y + p.h >= FLOOR - 0.5;
     if (p.onGround) { p.vy = 0; p.w = size.w; p.h = size.h; p.y = FLOOR - p.h; p.ducking = ducking; }
   }
+  // Shrinking (or growing) in the air keeps the feet where they are.
+  if (!p.onGround && p.h !== sizeFor(game, false).h) { const s = sizeFor(game, false); p.y += p.h - s.h; p.w = s.w; p.h = s.h; }
   // Obstacles and scenery
   st.gap -= st.speed * dt;
   if (st.gap <= 0 && !st.ending) spawn(st, random);
@@ -54,7 +57,7 @@ export function step(st, dt, keys, game, random = Math.random) {
     o.x -= (o.kind === 'bird' ? st.speed * 1.05 : st.speed) * dt;
     if (o.kind === 'bird') o.flap += dt;
     const inset = 4;
-    if (!(game.invincible > 0) && p.x + inset < o.x + o.w - inset && p.x + p.w - inset > o.x + inset && p.y + inset < o.y + o.h && p.y + p.h - 2 > o.y + inset) { hurt = true; o.hit = true; }
+    if (!(game.runner?.invincible > 0) && p.x + inset < o.x + o.w - inset && p.x + p.w - inset > o.x + inset && p.y + inset < o.y + o.h && p.y + p.h - 2 > o.y + inset) { hurt = true; o.hit = true; }
   }
   st.obstacles = st.obstacles.filter((o) => o.x > -70 && !o.hit);
   for (const c of st.clouds) { c.x -= st.speed * 0.12 * dt; if (c.x < -60) { c.x = 540 + random() * 80; c.y = 30 + random() * 70; } }
@@ -108,5 +111,5 @@ export function paint(ctx, st, game, drawRunner) {
     else if (o.kind === 'pair') { tree(ctx, o.x, o.y + 4, 16, o.h - 4); tree(ctx, o.x + 16, o.y, 18, o.h); }
     else { pine(ctx, o.x, o.y, 22, o.h); tree(ctx, o.x + 20, o.y + 12, 16, o.h - 12); pine(ctx, o.x + 30, o.y + 4, 18, o.h - 4); }
   }
-  drawRunner(st.player.x, st.player.ducking);
+  drawRunner(st.player.x, st.player.y + st.player.h, { ducking: st.player.ducking, onGround: st.player.onGround });
 }

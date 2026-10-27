@@ -2,8 +2,9 @@
 // Pure so the same rules are shared by the desktop/web notebook and the phone app, and unit-tested.
 
 const teamOf = (todo, db) => {
-  const p = db.projects.find((x) => x.id === todo.projectId);
-  return (p && p.teamId) || todo.teamId || null;
+  const p = db.projects.find((x) => x.id === todo.projectId), id = (p && p.teamId) || todo.teamId || null;
+  // A team that no longer exists counts as no team, so its lines still show (first, with the lines without a team).
+  return id && db.teams.some((t) => t.id === id) ? id : null;
 };
 
 // Same order the notebook shows: timed lines first by time, then the hand-made order.
@@ -13,6 +14,23 @@ export const lineSort = (a, b) => {
   if (ka !== kb) return ka < kb ? -1 : 1;
   return (a.sortOrder ?? a.createdAt ?? 0) - (b.sortOrder ?? b.createdAt ?? 0);
 };
+
+// Calendar order (week and month): grouped by team like the day page — lines without a team first, then each team
+// in its own order — and within a team the notebook order.
+export const teamSort = (db) => {
+  const rank = new Map(db.teams.map((t, i) => [t.id, i + 1]));
+  return (a, b) => (rank.get(teamOf(a, db)) ?? 0) - (rank.get(teamOf(b, db)) ?? 0) || lineSort(a, b);
+};
+// The same lines split into those groups: [{ team, list }] (team is null for lines without one).
+export function teamGroups(db, list) {
+  const sorted = [...list].sort(teamSort(db)), groups = [];
+  for (const t of sorted) {
+    const team = db.teams.find((x) => x.id === teamOf(t, db)) || null;
+    if (groups.at(-1)?.team !== team) groups.push({ team, list: [] });
+    groups.at(-1).list.push(t);
+  }
+  return groups;
+}
 
 // A project tied to another team would override the new team, so the link is dropped.
 const teamPatch = (todo, teamId, db) => {
@@ -66,11 +84,4 @@ export function dropPatches(db, ids, drop, sort = lineSort) {
     put(t, patch);
   });
   return [...out].map(([id, patch]) => ({ id, patch }));
-}
-
-// Shift-click range over the rows as they appear on screen.
-export function selectRange(order, anchor, id) {
-  const a = order.indexOf(anchor), b = order.indexOf(id);
-  if (a < 0 || b < 0) return [id];
-  return order.slice(Math.min(a, b), Math.max(a, b) + 1);
 }
