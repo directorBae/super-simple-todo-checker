@@ -123,7 +123,8 @@ test('notion: connect, pick a database, a webhook imports its rows through GPT a
   assert.match(start.url, /api\.notion\.com\/v1\/oauth\/authorize/);
   assert.equal((await w.request('/oauth/start', { body: { provider: 'notion' } })).status, 401, 'needs a login');
   const cb = await w.request(`/oauth/callback/notion?code=c1&state=${encodeURIComponent(state)}`, { method: 'GET' });
-  assert.equal(cb.status, 200); assert.match(await cb.text(), /노션을 연결했어요/);
+  assert.equal(cb.status, 302); const landed = new URL(cb.headers.get('location'));
+  assert.deepEqual([landed.host, landed.pathname, landed.searchParams.get('title')], ['checker.baejeongwon.com', '/connected', '노션을 연결했어요']);
   assert.equal(w.rest.tables.connections[0].meta.workspace_id, 'ws1');
   // Picker and subscribe (the first import starts right away).
   assert.equal((await (await w.request('/notion/pages', { method: 'GET', headers: app })).json()).pages[0].type, 'database');

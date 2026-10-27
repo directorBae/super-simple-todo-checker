@@ -14,10 +14,12 @@ import { syncSubscription, pushBack } from './sync.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
-const page = (title, text, ok = true) => new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
-<body style="font-family:Pretendard,system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;background:#eef2fb;color:#141a2e">
-<div style="text-align:center;padding:24px"><div style="font-size:44px">${ok ? '✓' : '!'}</div><h1 style="font-size:22px">${title}</h1><p style="color:#4f5670">${text}</p>
-<p><a href="todochecker://settings/tools" style="color:#5b5bd6">앱으로 돌아가기</a></p></div><script>setTimeout(()=>{try{window.close()}catch(e){}},2500)</script></body>`, { status: ok ? 200 : 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+// The page people land on after connecting. Supabase serves function responses on supabase.co as plain text (no
+// HTML there), so the result goes to the checker site, which shows it.
+const page = (title, text, ok = true) => new Response(null, {
+  status: 302,
+  headers: { Location: 'https://checker.baejeongwon.com/connected?' + new URLSearchParams({ ok: ok ? '1' : '0', title, text }) },
+});
 
 const later = (env, promise) => env.waitUntil(promise.catch((e) => console.error(e)));
 const channelToken = (env, id) => hmac(env.STATE_SECRET, 'channel:' + id);
