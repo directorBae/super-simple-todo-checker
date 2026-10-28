@@ -7,6 +7,8 @@ import { BlurView } from 'expo-blur';
 import { DbProvider, useDb } from './src/store.js';
 import { ToolsProvider } from './src/tools.js';
 import JobToast from './src/JobToast.js';
+import { ImportTypingProvider } from './src/ImportTyping.js';
+import RainbowEdge from './src/RainbowEdge.js';
 import { DesignProvider, useDesign, Surface, Button, Sheet, Icon } from './src/design.js';
 import Board from './src/screens/Board.js';
 import Integrations from './src/screens/Integrations.js';
@@ -88,6 +90,6 @@ function Shell() {
 // With Supabase on, nothing shows until someone is signed in (blank while the saved session is read).
 function Themed() {
  const { db, account, loginRequired } = useDb();
- return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <ToolsProvider key={account?.id || account?.email || 'local'}><Shell /></ToolsProvider> : account === null ? <Login /> : null}</DesignProvider>;
+ return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <ToolsProvider key={account?.id || account?.email || 'local'}><ImportTypingProvider><Shell /><RainbowEdge /></ImportTypingProvider></ToolsProvider> : account === null ? <Login /> : null}</DesignProvider>;
 }
 export default function App() { return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }

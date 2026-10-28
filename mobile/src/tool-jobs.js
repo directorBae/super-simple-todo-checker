@@ -48,3 +48,20 @@ export function subscriptionLine(sub, now = Date.now()) {
   const when = ago(sub.last_synced_at, now);
   return { text: '지켜보는 중' + (when ? ` · ${when} 읽음` : '') };
 }
+
+// One tool's connected accounts, oldest first, each with the pages / calendars it watches. A watched item whose
+// connection is unknown (made before several accounts were possible) goes with the tool's first account.
+export function accountsOf(state, provider) {
+  const conns = (state?.connections || []).filter((c) => c.provider === provider);
+  const accounts = conns.map((conn) => ({ conn, subs: [] }));
+  const byId = new Map(accounts.map((a) => [a.conn.id, a]));
+  for (const sub of state?.subscriptions || []) {
+    if (sub.provider !== provider) continue;
+    (byId.get(sub.connection_id) || accounts[0])?.subs.push(sub);
+  }
+  return accounts;
+}
+
+// While a sign-in is open in the browser: has an account of this tool shown up that wasn't there before?
+export const newConnection = (connections, provider, known = []) =>
+  (connections || []).some((c) => c.provider === provider && !known.includes(c.id));

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, ScrollView, View, Keyboard } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Text, TextInput } from '../text.js';
@@ -9,6 +9,7 @@ import { useDesign, Sheet, Button, Icon } from '../design.js';
 import { todayStr, localDateStr } from '../util.js';
 import { datePatch, splitLine } from '../notepad.js';
 import { touch } from '../gesture.js';
+import { CHAR_MS, ERASE_MS, rewriteAt, TICK_MS, CHIP_MS, CARET_MS, STRIKE_MS, FOLD_MS } from '../import-typing.js';
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const teamOf = (todo, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return (p && p.teamId) || todo.teamId || null; };
 // A project tied to another team would override the new team, so the link is dropped.
@@ -20,7 +21,49 @@ const teamPatch = (todo, teamId, db) => { const p = db.projects.find((x) => x.id
 //   · hold the text, then slide up/down — select the lines the finger passes over
 //   · hold the empty part, then move — carry the line (or all the selected ones) to another place, a team, the bin or the clock
 const HOLD_MS = 350;
-export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal }) {
+const native = Platform.OS !== 'web';
+// A line the AI is writing (Notion / Google Calendar): first erased backwards, one character at a time behind a caret,
+// down to what the old and the new title start with alike, then the rest typed in (one character every 40 ms) — a new
+// line is all typing, a removed one all erasing. A small pencil moves along the end of the text, back while it erases.
+// The caret blinks a moment when it is done (`linger` ms), then `onDone`.
+function WrittenTitle({ from = '', to = '', style, accent, onLayout, onDone, linger = CARET_MS }) {
+ const [now,setNow] = useState(() => rewriteAt(from, to, 0)), [caret,setCaret] = useState(true), [end,setEnd] = useState(null), [box,setBox] = useState(null);
+ const finish = useRef(onDone), bob = useRef(new Animated.Value(0)).current;
+ finish.current = onDone;
+ useEffect(() => {
+  const t0 = Date.now(); let blink = null, hold = null;
+  const step = setInterval(() => {
+   const s = rewriteAt(from, to, Date.now() - t0); setNow(s);
+   if(s.done) { clearInterval(step); let b = 0; blink = setInterval(() => { b += 1; setCaret(b % 2 === 0); }, 260); hold = setTimeout(() => finish.current?.(), linger); }
+  }, Math.min(ERASE_MS, CHAR_MS));
+  const loop = Animated.loop(Animated.sequence([Animated.timing(bob,{ toValue:1,duration:150,useNativeDriver:native }),Animated.timing(bob,{ toValue:0,duration:150,useNativeDriver:native })]));
+  loop.start();
+  return () => { clearInterval(step); clearInterval(blink); clearTimeout(hold); loop.stop(); };
+ }, [from, to]);
+ const at = end || { x:box?.width ?? 0, y:0 }; // the web has no line layout: the end of the box
+ return <View onLayout={onLayout} style={{ flexShrink:1,maxWidth:'64%',minWidth:28 }}>
+  <Text onLayout={e => setBox(e.nativeEvent.layout)} onTextLayout={e => { const l = e.nativeEvent.lines?.at(-1); if(l) setEnd({ x:l.x + l.width, y:l.y }); }} style={{ ...style, maxWidth:undefined, minWidth:undefined, paddingVertical:2 }}>{now.text}<Text style={{ color:caret ? accent : 'transparent', fontWeight:'400', textDecorationLine:'none' }}>|</Text></Text>
+  <Animated.Text pointerEvents="none" accessible={false} style={{ position:'absolute', left:at.x - 3, top:at.y - 10, fontSize:13, opacity:now.done ? 0 : 1, transform:[{ translateY:bob.interpolate({ inputRange:[0,1],outputRange:[0,-2] }) },{ rotate:bob.interpolate({ inputRange:[0,1],outputRange:now.erasing ? ['0deg','12deg'] : ['0deg','-10deg'] }) }] }}>✏️</Animated.Text>
+ </View>;
+}
+// The little "10/29 → 10/30" chip by a line whose day or time the AI changed, while it is being written.
+function MoveChip({ text, d }) {
+ const fade = useRef(new Animated.Value(0)).current;
+ useEffect(() => { Animated.timing(fade,{ toValue:1,duration:220,useNativeDriver:native }).start(); }, []);
+ return <Animated.View accessibilityLabel={'바뀜 '+text} style={{ opacity:fade, transform:[{ translateY:fade.interpolate({ inputRange:[0,1],outputRange:[4,0] }) }], paddingHorizontal:7,paddingVertical:2,borderRadius:99,borderWidth:1,borderColor:'#c4b5fdcc',backgroundColor:'#ffffffd9' }}>
+  <Text style={{ fontSize:11,fontWeight:'700',color:d.accent,fontVariant:['tabular-nums'] }}>{text}</Text>
+ </Animated.View>;
+}
+// The checkbox, which pops with a little sparkle when the AI ticks (or unticks) it.
+function Check({ done, d, pop, onPress, label }) {
+ const box = <Pressable accessibilityRole="checkbox" accessibilityState={{ checked:done }} accessibilityLabel={label} hitSlop={6} onPress={onPress} style={{ width:19,height:19,borderRadius:6,borderWidth:1.5,borderColor:done?d.accent:d.muted, backgroundColor:done?d.accent:'transparent',alignItems:'center',justifyContent:'center' }}>{done && <Icon name="check" size={15} color={d.dark?'#172842':'#fff'} />}</Pressable>;
+ if(!pop) return box;
+ return <View>
+  <Animated.View style={{ transform:[{ scale:pop.interpolate({ inputRange:[0,0.35,0.7,1],outputRange:[0.6,1.35,0.95,1] }) }] }}>{box}</Animated.View>
+  <Animated.Text pointerEvents="none" accessible={false} style={{ position:'absolute', left:9, top:-12, fontSize:12, opacity:pop.interpolate({ inputRange:[0,0.15,0.75,1],outputRange:[0,1,1,0] }), transform:[{ translateY:pop.interpolate({ inputRange:[0,1],outputRange:[4,-8] }) },{ scale:pop.interpolate({ inputRange:[0,0.4,1],outputRange:[0.4,1.15,0.9] }) }] }}>✨</Animated.Text>
+ </View>;
+}
+export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal, typing = null, onTyped }) {
  const d = useDesign(), latest = useRef(null), input = useRef(null), sel = useRef({ start:0,end:0 }), [value,setValue] = useState(todo.title);
  const translate = useRef(new Animated.ValueXY()).current, [lifted,setLifted] = useState(false), [carried,setCarried] = useState(false), mode = useRef('idle'), dropped = useRef(false);
  // Where the text and the date button sit inside the line (from layout), to tell the text from the empty part.
@@ -77,19 +120,38 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
      const pos=previous.title.length; api.updateTodo(previous.id,{ title:previous.title+value }); api.deleteTodo(todo.id); onFocusLine({ id:previous.id,position:pos });
    }
  };
- const done = todo.status==='done';
+ // What the AI changed here, played in place (Board.js / import-typing.js): `typing` is { mode, … } while it waits or
+ // plays — 'wait' a new or moved-in line still blank; 'hold' an edited line still as it was (`look`); 'write' erased
+ // back and retyped, then maybe the checkbox ticks (`tick`), with the day/time chip (`chip`) showing; 'glow' (Reduce
+ // Motion) it only lights up. While it is written it glows like a line being edited.
+ const typed = editing ? null : typing, layoutText = e => { box.current.textX = e.nativeEvent.layout.x; box.current.textW = e.nativeEvent.layout.width; };
+ const [ticked,setTicked] = useState(null), pop = useRef(new Animated.Value(1)).current, timers = useRef([]);
+ useEffect(() => () => timers.current.forEach(clearTimeout), []);
+ const after = (fn, ms) => timers.current.push(setTimeout(fn, ms));
+ const written = () => {
+   const t = typed; if(!t) return;
+   const end = () => onTyped?.(t.key), chipEnd = () => (t.chip ? after(end, CHIP_MS) : end());
+   if(t.tick) { setTicked(t.key); pop.setValue(0); Animated.timing(pop,{ toValue:1,duration:TICK_MS - 100,useNativeDriver:native }).start(); after(chipEnd, TICK_MS); }
+   else chipEnd();
+ };
+ const ticking = !!typed?.tick && ticked === typed.key;
+ const face = typed?.mode==='hold' ? { ...todo, ...typed.look } : typed?.mode==='write' && typed.look && !ticking ? { ...todo, status:typed.look.status } : todo;
+ const done = face.status==='done';
  const textStyle = { flexShrink:1,maxWidth:'64%',minWidth:28,fontSize:15,lineHeight:21,color:done?d.muted:d.text,textDecorationLine:done?'line-through':'none',padding:0,minHeight:25 };
+ const busy = typed?.mode==='write' ? 'type' : typed?.mode;
  return <View ref={rowRef} collapsable={false} style={{ zIndex:lifted ? 20 : 1, borderRadius:16, marginVertical:3 }}>
    <GestureDetector gesture={gesture} enabled={!editing}>
-   <Animated.View accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={todo.title} accessibilityHint="눌러서 고치기 · 글자를 꾹 눌러 쓸면 여러 줄 선택 · 빈 곳을 꾹 눌러 옮기기" style={{ transform:translate.getTranslateTransform(), opacity:carried?0.35:1, borderRadius:16,borderWidth:1,borderColor:selected?'#ffffffcc':editing||lifted?d.edge:'transparent',backgroundColor:lifted ? '#ffffffd9' : selected ? '#c4b5fd73' : editing ? '#ffffff8c' : 'transparent', shadowColor:'#1e1b4b',shadowOpacity:lifted?0.18:0,shadowRadius:12,shadowOffset:{ width:0,height:6 },elevation:lifted?6:0 }}>
+   <Animated.View accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={todo.title} accessibilityHint="눌러서 고치기 · 글자를 꾹 눌러 쓸면 여러 줄 선택 · 빈 곳을 꾹 눌러 옮기기" style={{ transform:translate.getTranslateTransform(), opacity:carried?0.35:1, borderRadius:16,borderWidth:1,borderColor:selected||busy==='glow'?'#ffffffcc':busy==='type'?'#c4b5fdcc':editing||lifted?d.edge:'transparent',backgroundColor:lifted ? '#ffffffd9' : selected ? '#c4b5fd73' : editing||busy==='type' ? '#ffffff8c' : busy==='glow' ? '#c4b5fd59' : 'transparent', shadowColor:'#1e1b4b',shadowOpacity:lifted?0.18:0,shadowRadius:12,shadowOffset:{ width:0,height:6 },elevation:lifted?6:0 }}>
    <View pointerEvents="box-none" style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5 }}>
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked:done }} accessibilityLabel={todo.title+' 완료'} hitSlop={6} onPress={() => api.updateTodo(todo.id,{ status:done?'todo':'done' })} style={{ width:19,height:19,borderRadius:6,borderWidth:1.5,borderColor:done?d.accent:d.muted, backgroundColor:done?d.accent:'transparent',alignItems:'center',justifyContent:'center' }}>{done && <Icon name="check" size={15} color={d.dark?'#172842':'#fff'} />}</Pressable>
+    <Check done={done} d={d} pop={ticking ? pop : null} label={todo.title+' 완료'} onPress={() => api.updateTodo(todo.id,{ status:todo.status==='done'?'todo':'done' })} />
     {/* Narrow text that wraps onto more lines; the rest of the line is free to hold and move. */}
     {editing
       ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
-      : <Text onLayout={e => { box.current.textX = e.nativeEvent.layout.x; box.current.textW = e.nativeEvent.layout.width; }} style={{ ...textStyle, paddingVertical:2 }}>{todo.title}</Text>}
+      : typed?.mode==='write' ? <WrittenTitle key={typed.key} from={typed.from} to={typed.to} linger={typed.from===typed.to ? 240 : CARET_MS} style={textStyle} accent={d.accent} onLayout={layoutText} onDone={written} />
+      : <Text onLayout={layoutText} style={{ ...textStyle, paddingVertical:2, opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.title}</Text>}
+    {!!typed?.chip && (typed.mode==='write' || typed.mode==='glow') && <MoveChip key={typed.key} text={typed.chip} d={d} />}
     <View style={{ flex:1,alignSelf:'stretch',minWidth:28 }} />
-    {!!todo.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'] }}>{todo.startTime}{todo.endTime?`~${todo.endTime}`:''}</Text>}
+    {!!face.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'],opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.startTime}{face.endTime?`~${face.endTime}`:''}</Text>}
     <Pressable onLayout={e => { box.current.calX = e.nativeEvent.layout.x; }} accessibilityLabel={todo.title+' 날짜'} hitSlop={8} onPress={() => onDate(todo)}><Icon name="calendar" size={15} color={d.muted} /></Pressable>
     {/* Right of the date button, so the line's tap (which stops there) leaves it alone: a tap opens the original. */}
     <SourceMark todo={todo} size={14}/>
@@ -104,6 +166,36 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
     </Pressable>; })}
    </ScrollView>}
  </View>;
+}
+
+// A line that is no longer in the data — the AI removed it, or moved it to another day — still showing at its old place
+// until its turn (presentation only, from the snapshot before the change; it cannot be touched). Its turn (`show`):
+// 'leave' — erased backwards, struck through when removed, then it folds away; 'fade' (Reduce Motion) — a quick fade.
+// Then `onDone(show.key)`.
+export function LeavingLine({ todo, show = null, rowRef, onDone }) {
+ const d = useDesign(), height = useRef(0), fold = useRef(new Animated.Value(1)).current, strike = useRef(new Animated.Value(0)).current, [folding,setFolding] = useState(false);
+ const finish = useRef(onDone), key = show?.key;
+ finish.current = onDone;
+ const foldAway = (ms) => { setFolding(true); Animated.timing(fold,{ toValue:0,duration:ms,useNativeDriver:false }).start(({ finished }) => { if(finished) finish.current?.(key); }); };
+ useEffect(() => { if(show?.mode==='fade') foldAway(FOLD_MS); }, [key]);
+ const erased = () => { if(show?.strike) Animated.timing(strike,{ toValue:1,duration:STRIKE_MS,useNativeDriver:false }).start(() => foldAway(FOLD_MS)); else foldAway(FOLD_MS); };
+ const done = todo.status==='done', writing = show?.mode==='leave';
+ const textStyle = { flexShrink:1,maxWidth:'64%',minWidth:28,fontSize:15,lineHeight:21,color:done?d.muted:d.text,textDecorationLine:done?'line-through':'none',padding:0,minHeight:25 };
+ return <Animated.View ref={rowRef} collapsable={false} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+   onLayout={e => { if(!folding) height.current = e.nativeEvent.layout.height; }}
+   style={folding ? { height:fold.interpolate({ inputRange:[0,1],outputRange:[0,height.current] }), marginVertical:fold.interpolate({ inputRange:[0,1],outputRange:[0,3] }), opacity:fold, overflow:'hidden', borderRadius:16 } : { marginVertical:3, borderRadius:16 }}>
+  <View style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5,borderRadius:16,borderWidth:1,borderColor:writing?'#c4b5fdcc':'transparent',backgroundColor:writing?'#ffffff8c':'transparent' }}>
+   <View style={{ width:19,height:19,borderRadius:6,borderWidth:1.5,borderColor:done?d.accent:d.muted,backgroundColor:done?d.accent:'transparent',alignItems:'center',justifyContent:'center' }}>{done && <Icon name="check" size={15} color={d.dark?'#172842':'#fff'} />}</View>
+   {writing ? <WrittenTitle key={key} from={show.from} to="" style={textStyle} accent={d.accent} linger={160} onDone={erased} />
+     : <Text style={{ ...textStyle, paddingVertical:2 }}>{todo.title}</Text>}
+   <View style={{ flex:1,minWidth:28 }} />
+   {!!todo.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'] }}>{todo.startTime}{todo.endTime?`~${todo.endTime}`:''}</Text>}
+   <Icon name="calendar" size={15} color={d.muted} />
+   <SourceMark todo={todo} size={14}/>
+   {/* Crossed off: a pen stroke drawn across the emptied line before it folds away. */}
+   <Animated.View style={{ position:'absolute', left:4, top:'50%', height:2, marginTop:-1, borderRadius:1, backgroundColor:d.text, opacity:0.55, width:strike.interpolate({ inputRange:[0,1],outputRange:['0%','97%'] }) }} />
+  </View>
+ </Animated.View>;
 }
 
 export function DateSheet({ todo, api, onClose }) {

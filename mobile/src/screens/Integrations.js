@@ -3,10 +3,11 @@ import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { Text, TextInput } from '../text.js';
 import { useDesign, Surface, Sheet, Button, ProviderIcon } from '../design.js';
 import { useTools } from '../tools.js';
-import { subscriptionLine } from '../tool-jobs.js';
+import { subscriptionLine, accountsOf } from '../tool-jobs.js';
 
-// 도구 연결: each person connects their own Notion and Google Calendar (OAuth in the browser), then picks the Notion
-// pages or databases to watch; every Google calendar is watched. New and changed to-dos come in by themselves.
+// 도구 연결: each person connects their own Notion and Google Calendar (OAuth in the browser; several accounts per
+// tool, e.g. personal + work), then picks the Notion pages or databases to watch per workspace; every Google
+// calendar is watched. New and changed to-dos come in by themselves.
 const PROVIDERS = [['notion', '노션'], ['google', '구글 캘린더']];
 const SIGN_IN = /^https:\/\/(api\.notion\.com|accounts\.google\.com)\//;
 const RED = '#cc4057';
@@ -42,22 +43,22 @@ function Watched({ sub, busy, act }) {
   </View>;
 }
 
-// Notion pages and databases this connection may read, newest first; a tap starts watching one.
-function PagePicker({ onClose }) {
-  const d = useDesign(), { client, state, refresh } = useTools();
+// Notion pages and databases one workspace may read, newest first; a tap starts watching one.
+function PagePicker({ account, onClose }) {
+  const d = useDesign(), { client, state, refresh } = useTools(), connectionId = account.conn.id;
   const [q, setQ] = useState(''), [list, setList] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState('');
   useEffect(() => {
     let live = true;
-    const t = setTimeout(() => client.pages(q.trim()).then((p) => { if (live) { setList(p || []); setError(''); } }, (e) => { if (live) { setList([]); setError(e.message); } }), q ? 350 : 0);
+    const t = setTimeout(() => client.pages(q.trim(), connectionId).then((p) => { if (live) { setList(p || []); setError(''); } }, (e) => { if (live) { setList([]); setError(e.message); } }), q ? 350 : 0);
     return () => { live = false; clearTimeout(t); };
-  }, [q]);
-  const watched = new Set((state?.subscriptions || []).filter((s) => s.provider === 'notion').map((s) => s.resource_id));
+  }, [q, connectionId]);
+  const watched = new Set((accountsOf(state, 'notion').find((a) => a.conn.id === connectionId)?.subs || account.subs).map((s) => s.resource_id));
   const pick = async (item) => {
     if (watched.has(item.id) || busy) return;
     setBusy(item.id); setError('');
-    try { await client.subscribe(item.id, item.type); await refresh(); } catch (e) { setError(e.message); } finally { setBusy(''); }
+    try { await client.subscribe(item.id, item.type, connectionId); await refresh(); } catch (e) { setError(e.message); } finally { setBusy(''); }
   };
-  return <Sheet title="지켜볼 페이지 고르기" onClose={onClose}>
+  return <Sheet title={account.conn.account ? `${account.conn.account} 페이지 고르기` : '지켜볼 페이지 고르기'} onClose={onClose}>
     <TextInput accessibilityLabel="노션 페이지 검색" placeholder="페이지나 DB 이름으로 찾기" placeholderTextColor={d.muted} value={q} onChangeText={setQ} autoCapitalize="none" autoCorrect={false} returnKeyType="search" style={{ padding: 13, borderRadius: 14, color: d.text, backgroundColor: d.input, fontSize: 15 }} />
     {!!error && <Text accessibilityRole="alert" style={{ color: RED }}>{error}</Text>}
     {list === null ? <Text style={{ color: d.muted }}>불러오는 중…</Text>
@@ -74,15 +75,31 @@ function PagePicker({ onClose }) {
   </Sheet>;
 }
 
+// One connected account: its name and own 연결 끊기, then what it watches.
+function Account({ provider, account, busy, act, onPick }) {
+  const d = useDesign(), { client } = useTools(), { conn, subs } = account, label = conn.account || '이름 없는 계정';
+  const disconnect = () => confirm(`"${label}" 연결을 끊을까요?`, '이 계정에서는 더 이상 새 할 일을 가져오지 않아요.', '연결 끊기', () => act('disconnect:' + conn.id, () => client.disconnect(conn.id)));
+  return <View style={{ gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#ffffff99' }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <Text numberOfLines={1} style={{ flex: 1, color: d.accent, fontWeight: '700', fontSize: 13 }}>{label}</Text>
+      <Link title="연결 끊기" color={RED} disabled={!!busy} onPress={disconnect} />
+    </View>
+    {provider === 'notion' && <Button title="지켜볼 페이지 고르기" onPress={onPick} />}
+    {!subs.length && <Text style={{ color: d.muted, fontSize: 12 }}>{provider === 'notion' ? '아직 고른 페이지가 없어요.' : '캘린더를 찾는 중이에요.'}</Text>}
+    {subs.map((sub) => <Watched key={sub.id} sub={sub} busy={busy} act={act} />)}
+  </View>;
+}
+
 export default function Integrations() {
   const d = useDesign(), { client, state, error, waiting, refresh, waitFor } = useTools();
-  const [busy, setBusy] = useState(''), [problem, setProblem] = useState(''), [picker, setPicker] = useState(false);
+  const [busy, setBusy] = useState(''), [problem, setProblem] = useState(''), [picker, setPicker] = useState(null);
   if (!client) return <Text style={{ color: d.muted }}>로그인하면 노션과 구글 캘린더를 연결할 수 있어요.</Text>;
   const act = async (key, fn) => {
     setBusy(key); setProblem('');
     try { await fn(); await refresh(); return true; } catch (e) { setProblem(e.message); return false; } finally { setBusy(''); }
   };
-  // The browser opens the tool's sign-in page; back in the app, the connection shows up by itself.
+  // The browser opens the tool's sign-in page (Google always asks which account); back in the app, the new
+  // account shows up by itself.
   const connect = (provider) => {
     const tab = Platform.OS === 'web' ? window.open('', '_blank') : null; // opened during the tap, or the browser blocks it
     act('connect:' + provider, async () => {
@@ -92,29 +109,25 @@ export default function Integrations() {
       if (tab) tab.location.href = url; else await Linking.openURL(url);
     }).then((ok) => { if (!ok) tab?.close(); });
   };
-  const disconnect = (provider, name) => confirm(`${name} 연결을 끊을까요?`, '더 이상 새 할 일을 가져오지 않아요.', '연결 끊기', () => act('disconnect:' + provider, () => client.disconnect(provider)));
+  const pickerAccount = picker && accountsOf(state, 'notion').find((a) => a.conn.id === picker);
   return <View style={{ gap: 12 }}>
     <Text style={{ color: d.muted, fontSize: 12 }}>연결해 두면 새로 생긴 할 일을 알아서 가져와요.</Text>
     {!!(problem || (error && !state)) && <Text accessibilityRole="alert" style={{ color: RED, fontSize: 13 }}>{problem || error}</Text>}
     {PROVIDERS.map(([provider, name]) => {
-      const conn = state?.connections.find((c) => c.provider === provider);
-      const subs = (state?.subscriptions || []).filter((s) => s.provider === provider);
-      const wait = waiting === provider && !conn;
+      const accounts = accountsOf(state, provider), wait = waiting === provider;
       return <Surface key={provider} native contentStyle={{ padding: 16, gap: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <ProviderIcon provider={provider} size={38} />
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: d.text, fontWeight: '700', fontSize: 16 }}>{name}</Text>
-            <Text numberOfLines={1} style={{ color: conn ? d.accent : d.muted, fontSize: 12 }}>{!state && !error ? '확인하는 중…' : conn ? (conn.account || '연결됨') : wait ? '브라우저에서 연결을 마쳐 주세요' : '연결 안 됨'}</Text>
+            <Text numberOfLines={1} style={{ color: accounts.length && !wait ? d.accent : d.muted, fontSize: 12 }}>{!state && !error ? '확인하는 중…' : wait ? '브라우저에서 연결을 마쳐 주세요' : accounts.length > 1 ? `계정 ${accounts.length}개 연결됨` : accounts.length ? '연결됨' : '연결 안 됨'}</Text>
           </View>
-          {!!conn && <Link title="연결 끊기" color={RED} disabled={!!busy} onPress={() => disconnect(provider, name)} />}
+          {!!accounts.length && <Link title={wait ? '기다리는 중…' : '+ 계정 추가'} disabled={!!busy || wait} onPress={() => connect(provider)} />}
         </View>
-        {!!(state || error) && !conn && <Button title={wait ? '연결 기다리는 중…' : '연결하기'} primary={!wait} disabled={!!busy} onPress={() => connect(provider)} />}
-        {!!conn && provider === 'notion' && <Button title="지켜볼 페이지 고르기" onPress={() => setPicker(true)} />}
-        {!!conn && !subs.length && <Text style={{ color: d.muted, fontSize: 12 }}>{provider === 'notion' ? '아직 고른 페이지가 없어요.' : '캘린더를 찾는 중이에요.'}</Text>}
-        {!!conn && subs.map((sub) => <Watched key={sub.id} sub={sub} busy={busy} act={act} />)}
+        {!!(state || error) && !accounts.length && <Button title={wait ? '연결 기다리는 중…' : '연결하기'} primary={!wait} disabled={!!busy} onPress={() => connect(provider)} />}
+        {accounts.map((account) => <Account key={account.conn.id} provider={provider} account={account} busy={busy} act={act} onPick={() => setPicker(account.conn.id)} />)}
       </Surface>;
     })}
-    {picker && <PagePicker onClose={() => setPicker(false)} />}
+    {!!pickerAccount && <PagePicker account={pickerAccount} onClose={() => setPicker(null)} />}
   </View>;
 }

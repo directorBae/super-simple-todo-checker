@@ -6,7 +6,7 @@ const API = 'https://www.googleapis.com/calendar/v3';
 export const SCOPES = 'openid email https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly';
 
 export function authorizeUrl(env, state) {
-  const q = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.redirect('google'), response_type: 'code', scope: SCOPES, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state });
+  const q = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: env.redirect('google'), response_type: 'code', scope: SCOPES, access_type: 'offline', prompt: 'select_account consent', include_granted_scopes: 'true', state });
   return 'https://accounts.google.com/o/oauth2/v2/auth?' + q;
 }
 const token = (env, params) => json(env.fetch, 'https://oauth2.googleapis.com/token', {
@@ -16,7 +16,7 @@ const token = (env, params) => json(env.fetch, 'https://oauth2.googleapis.com/to
 export async function exchange(env, code, now = Date.now()) {
   const r = await token(env, { code, grant_type: 'authorization_code', redirect_uri: env.redirect('google') });
   const email = r.id_token ? JSON.parse(atob(r.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).email : null;
-  return { account: email || 'Google Calendar', meta: {}, secret: { access_token: r.access_token, refresh_token: r.refresh_token, expires_at: now + (r.expires_in || 3600) * 1000 } };
+  return { account: email || 'Google Calendar', key: email || 'google', meta: {}, secret: { access_token: r.access_token, refresh_token: r.refresh_token, expires_at: now + (r.expires_in || 3600) * 1000 } };
 }
 // A usable access token; returns the new secret when it had to be refreshed (the caller stores it).
 export async function fresh(env, secret, now = Date.now()) {
@@ -52,6 +52,11 @@ export async function watch(env, access, calendarId, channelId, channelToken, no
 export async function stop(env, access, channel) {
   if (!channel?.id) return;
   await call(env, access, '/channels/stop', { method: 'POST', body: JSON.stringify({ id: channel.id, resourceId: channel.resourceId }) }).catch(() => {});
+}
+// Deletes an event (it sits in Google Calendar's bin for 30 days). Already gone is fine.
+export async function deleteEvent(env, access, calendarId, eventId) {
+  await call(env, access, `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' })
+    .catch((e) => { if (![404, 410].includes(e.status)) throw e; });
 }
 // Moves an event to the to-do's date/time (a to-do without a time becomes an all-day event).
 export async function moveEvent(env, access, calendarId, eventId, { date, start_time, end_time }, timeZone) {

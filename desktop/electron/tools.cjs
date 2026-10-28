@@ -21,13 +21,16 @@ const client = ({ url, key, fetch }, token) => (url && key ? createToolsClient({
 
 const provider = (p) => { if (!PROVIDERS.includes(p)) throw new Error('연결할 도구를 골라 주세요.'); return p; };
 const id = (v) => { const s = String(v || ''); if (!s || s.length > 200) throw new Error('항목을 찾을 수 없어요.'); return s; };
+// Several accounts per tool: an optional connection id picks the Notion workspace / the one account to drop.
+const conn = (v) => (v ? id(v) : undefined);
 const ACTIONS = {
   state: (c) => c.state(),
   start: async (c, p) => { const url = safeUrl(await c.start(provider(p.provider)), AUTH_HOSTS); if (!url) throw new Error('계정 연결 주소가 올바르지 않아요.'); return { url }; },
-  pages: async (c, p) => ({ pages: await c.pages(String(p.q || '').slice(0, 200)) }),
-  subscribe: async (c, p) => ({ subscription: await c.subscribe(id(p.resourceId), p.type === 'database' ? 'database' : 'page') }),
+  pages: async (c, p) => ({ pages: await c.pages(String(p.q || '').slice(0, 200), conn(p.connectionId)) }),
+  subscribe: async (c, p) => ({ subscription: await c.subscribe(id(p.resourceId), p.type === 'database' ? 'database' : 'page', conn(p.connectionId)) }),
   unsubscribe: (c, p) => c.unsubscribe(id(p.id)),
-  disconnect: (c, p) => c.disconnect(provider(p.provider)),
+  // { id } drops that one account, { provider } every account of the tool.
+  disconnect: (c, p) => c.disconnect(p.id ? id(p.id) : provider(p.provider)),
   sync: (c, p) => c.syncNow(p.id ? id(p.id) : undefined),
 };
 // Always answers { ok, ... } or { ok: false, error } — errors are already in Korean.

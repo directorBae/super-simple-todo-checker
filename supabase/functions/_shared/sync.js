@@ -37,7 +37,8 @@ const summaryOf = (sub, c) => {
   return `${NAMES[sub.provider]} "${sub.title}"` + (parts.length ? `에서 ${parts.join(', ')}` : ' — 바뀐 할 일 없음');
 };
 
-export async function syncSubscription(env, subId) {
+// quiet: the Monday/Thursday check-up — no pet job, so nothing shows; the to-dos just come out right.
+export async function syncSubscription(env, subId, { quiet = false } = {}) {
   const store = db(env), now = env.now();
   const [sub] = await store.select('subscriptions', 'id=' + eq(subId) + '&select=*');
   if (!sub) return null;
@@ -49,8 +50,8 @@ export async function syncSubscription(env, subId) {
   sub.meta = { ...sub.meta, syncing_at: new Date(now).toISOString(), pending: false };
   await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'syncing', meta: sub.meta });
   const [conn] = await store.select('connections', 'id=' + eq(sub.connection_id) + '&select=*');
-  const [job] = await store.insert('pet_jobs', [{ user_id: sub.user_id, subscription_id: sub.id, provider: sub.provider, state: 'reading', summary: `${NAMES[sub.provider]} "${sub.title}" 읽는 중` }]);
-  const step = (state, extra = {}) => store.update('pet_jobs', 'id=' + eq(job.id), { state, updated_at: new Date(env.now()).toISOString(), ...extra });
+  const [job] = quiet ? [] : await store.insert('pet_jobs', [{ user_id: sub.user_id, subscription_id: sub.id, provider: sub.provider, state: 'reading', summary: `${NAMES[sub.provider]} "${sub.title}" 읽는 중` }]);
+  const step = (state, extra = {}) => (job ? store.update('pet_jobs', 'id=' + eq(job.id), { state, updated_at: new Date(env.now()).toISOString(), ...extra }) : Promise.resolve());
   const counts = { created: 0, updated: 0, deleted: 0 };
   try {
     if (!conn) throw new Error('연결이 끊겼어요. 다시 연결해 주세요.');
@@ -63,7 +64,9 @@ export async function syncSubscription(env, subId) {
     await step('thinking');
     const desired = (await plan(env, { sub, raw, existing, week, window })).map((d) => ({ ...d, url: urls.get(d.external_id) || (sub.resource_type === 'page' ? sub.url : null) }));
     const ids = new Set(raw.map((x) => x.external_id || x.id));
-    const { create, update, remove, adopt } = diff(desired, existing, ids, week);
+    // Deleted in the app a moment ago and not yet gone at the source: don't bring it back meanwhile.
+    const justDeleted = new Set((await store.select('todos', `user_id=${eq(sub.user_id)}&origin->>subscription=${eq(sub.id)}&deleted_at=gte.${now - 10 * 60_000}&select=origin`)).map((t) => t.origin?.id));
+    const { create, update, remove, adopt } = diff(desired.filter((d) => !justDeleted.has(d.external_id)), existing, ids, week);
     await step('writing');
     const stamp = env.now();
     if (create.length) await store.insert('todos', create.map((d) => newRow(env, sub, d, stamp)));
@@ -73,7 +76,7 @@ export async function syncSubscription(env, subId) {
       if ('done' in patch) { row.status = patch.done ? 'done' : 'todo'; row.completed_at = patch.done ? stamp : null; }
       await store.update('todos', 'id=' + eq(todo.id), row);
     }
-    for (const t of remove) await store.update('todos', 'id=' + eq(t.id), { deleted_at: stamp, updated_at: stamp });
+    for (const t of remove) await store.update('todos', 'id=' + eq(t.id), { deleted_at: stamp, updated_at: stamp, origin: { ...t.origin, remote: { ...(t.origin.remote || {}), deleted: true } } });
     // The same work the person already wrote down: it gets the source attached and follows the source's schedule.
     for (const { todo, d } of adopt) {
       const row = { updated_at: stamp, origin: { type: 'external', provider: sub.provider, subscription: sub.id, id: d.external_id, url: d.url || null, remote: remoteOf(d) } };
@@ -90,8 +93,23 @@ export async function syncSubscription(env, subId) {
   }
   // Changes arrived while this ran: once more.
   const [after] = await store.select('subscriptions', 'id=' + eq(sub.id) + '&select=meta').catch(() => []);
-  if (after?.meta?.pending) return syncSubscription(env, sub.id);
+  if (after?.meta?.pending) return syncSubscription(env, sub.id, { quiet });
   return counts;
+}
+
+// Deleted in the app → deleted at the source too (Google: the event, into Google's bin; Notion: the row's page to
+// the trash, or the to-do line from the page).
+async function deleteBack(env, store, t) {
+  const o = t.origin;
+  const [sub] = await store.select('subscriptions', 'id=' + eq(o.subscription) + '&select=*');
+  const [conn] = sub ? await store.select('connections', 'id=' + eq(sub.connection_id) + '&select=*') : [];
+  if (!sub || !conn) return 'skip';
+  if (sub.provider === 'google') await google.deleteEvent(env, await googleAccess(env, store, conn), sub.resource_id, o.id);
+  else if (sub.resource_type === 'database') await notion.trashPage(env, conn.secret.access_token, o.id);
+  else await notion.deleteBlock(env, conn.secret.access_token, o.id);
+  await store.update('todos', 'id=' + eq(t.id), { origin: { ...o, remote: { ...(o.remote || {}), deleted: true } } });
+  await store.insert('pet_jobs', [{ user_id: t.user_id, subscription_id: sub.id, provider: sub.provider, kind: 'push', state: 'done', summary: `"${t.title}" — ${sub.provider === 'google' ? '구글 캘린더에서 지웠어요' : '노션에서 지웠어요'}` }]);
+  return 'deleted';
 }
 
 // App → source: the date/time (and a page to-do's check box) of an imported to-do.
@@ -99,8 +117,11 @@ export async function pushBack(env, todoId) {
   const store = db(env);
   const [t] = await store.select('todos', 'id=' + eq(todoId) + '&select=*');
   const o = t?.origin;
-  if (!t || !o?.provider || !o.subscription || t.deleted_at) return 'skip';
+  if (!t || !o?.provider || !o.subscription) return 'skip';
   const remote = o.remote || {}, now = { date: t.date, start_time: t.start_time, end_time: t.end_time, done: t.status === 'done' };
+  // Brought back (Ctrl+Z) after its source item was deleted: it stays in the app as an ordinary to-do.
+  if (!t.deleted_at && remote.deleted) { await store.update('todos', 'id=' + eq(t.id), { origin: null, updated_at: env.now() }); return 'detached'; }
+  if (t.deleted_at) return remote.deleted ? 'same' : deleteBack(env, store, t);
   const moved = ['date', 'start_time', 'end_time'].some((f) => (now[f] ?? null) !== (remote[f] ?? null)), checked = now.done !== !!remote.done;
   if (!moved && !checked) return 'same';
   const [sub] = await store.select('subscriptions', 'id=' + eq(o.subscription) + '&select=*');

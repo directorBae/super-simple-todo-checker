@@ -28,6 +28,8 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
   });
   const ready = keeper ? keeper.account().then((a) => { account = a; }) : Promise.resolve();
   // 노션 · 구글 캘린더 연결: the same person's token. The browser opens the OAuth page itself (web-api.js).
+  // The morning alert time goes to the server too (the Monday/Thursday check-up runs just before it).
+  const sharePrefs = () => { if (account) tools?.savePrefs?.(settings, Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {}); };
   const tools = authRequired ? toolsApi.client(authCfg, async () => (await keeper.current())?.accessToken || null) : null, importDone = toolsApi.doneWatcher();
   async function toolsAction(p) {
     const result = await toolsApi.run(tools, String(p.action || ''), p);
@@ -53,7 +55,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
         return { ok: true, state: state() };
       } else throw error('요청을 찾을 수 없습니다.', 404);
     } catch (e) { if (e instanceof authApi.AuthError) return { ok: false, error: e.message }; throw e; }
-    account = await keeper.account(); history.clear();
+    account = await keeper.account(); history.clear(); sharePrefs();
     await core.supabase?.sync(); // another account: its data replaces what was here before the window shows it
     return { ok: true, state: state() };
   }
@@ -125,7 +127,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       if (url.pathname.startsWith('/api/')) {
         const method = url.pathname.slice(5);
         if (req.method === 'GET' && method === 'state') { await ready; return send(res, 200, state()); }
-        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.2.0-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
+        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.3.0-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
         if (req.method === 'GET' && method === 'integrations') return send(res, 200, { ok: true, ...core.integrations.state() });
         if (req.method === 'GET' && method === 'wallpaper-image') { const image = await fsp.readFile(wallpaperFile); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' }); return res.end(image); }
         if (req.method !== 'POST') throw error('요청을 찾을 수 없습니다.', 404);
@@ -147,7 +149,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
           if (method === 'settings') {
             const allowed = [...Object.keys(defaults), 'focusPet', 'arcadeBest', 'wallpaper', 'music'];
             settings = { ...settings, ...Object.fromEntries(Object.entries(p).filter(([key]) => allowed.includes(key))), autoLaunch: false };
-            await fsp.writeFile(settingsFile + '.tmp', JSON.stringify(settings), 'utf8'); await fsp.rename(settingsFile + '.tmp', settingsFile); return state();
+            await fsp.writeFile(settingsFile + '.tmp', JSON.stringify(settings), 'utf8'); await fsp.rename(settingsFile + '.tmp', settingsFile); sharePrefs(); return state();
           }
           if (method === 'ack') return state();
           if (method === 'integrations') return core.integrations.action(p);

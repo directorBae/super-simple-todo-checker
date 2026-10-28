@@ -21,7 +21,7 @@ export async function exchange(env, code) {
     method: 'POST', headers: { Authorization: 'Basic ' + basic, 'Content-Type': 'application/json', 'Notion-Version': VERSION },
     body: JSON.stringify({ grant_type: 'authorization_code', code, redirect_uri: env.redirect('notion') }),
   });
-  return { account: r.workspace_name || 'Notion', meta: { workspace_id: plainId(r.workspace_id), bot_id: r.bot_id }, secret: { access_token: r.access_token, refresh_token: r.refresh_token || null } };
+  return { account: r.workspace_name || 'Notion', key: plainId(r.workspace_id), meta: { workspace_id: plainId(r.workspace_id), bot_id: r.bot_id }, secret: { access_token: r.access_token, refresh_token: r.refresh_token || null } };
 }
 
 const richText = (parts) => (parts || []).map((t) => t.plain_text).join('');
@@ -91,6 +91,13 @@ export async function writeDate(env, token, pageId, dateProp, { date, start_time
   if (!dateProp) throw new HttpError('이 DB에는 날짜 속성이 없어요.', 400);
   const value = !date ? null : { start: start_time ? `${date}T${start_time}:00${offset}` : date, end: start_time && end_time ? `${date}T${end_time}:00${offset}` : null };
   await call(env, token, `/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify({ properties: { [dateProp]: { date: value } } }) });
+}
+// Deleted in the app: a database row's page goes to Notion's trash; a to-do line is removed from its page.
+export async function trashPage(env, token, pageId) {
+  await call(env, token, `/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) }).catch((e) => { if (e.status !== 404) throw e; });
+}
+export async function deleteBlock(env, token, blockId) {
+  await call(env, token, `/blocks/${blockId}`, { method: 'DELETE' }).catch((e) => { if (e.status !== 404) throw e; });
 }
 export async function writeChecked(env, token, blockId, checked) {
   await call(env, token, `/blocks/${blockId}`, { method: 'PATCH', body: JSON.stringify({ to_do: { checked } }) });

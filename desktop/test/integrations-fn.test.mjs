@@ -11,7 +11,7 @@ const NOW = Date.parse('2026-10-28T03:00:00Z'); // Wednesday, 12:00 in Seoul
 
 // PostgREST in miniature: the filters the function uses (eq, in, is.null, gte/lte, ->> paths) over in-memory tables.
 function fakeRest() {
-  const tables = { connections: [], subscriptions: [], pet_jobs: [], todos: [], webhook_keys: [] };
+  const tables = { connections: [], subscriptions: [], pet_jobs: [], todos: [], webhook_keys: [], user_prefs: [] };
   const read = (row, path) => path.split(/->>|->/).reduce((v, k, i) => (i === 0 ? row[k] : v?.[k]), null);
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
@@ -57,7 +57,7 @@ function world({ gpt = null } = {}) {
     if (u.hostname === 'x.supabase.co' && u.pathname.startsWith('/rest/')) return rest.fetch(url, init);
     if (u.pathname === '/auth/v1/user') return init.headers.Authorization === 'Bearer user-token' ? reply({ id: 'user-1', email: 'me@x.com' }) : reply({ msg: 'bad jwt' }, 401);
     if (u.hostname === 'api.notion.com') {
-      if (u.pathname === '/v1/oauth/token') return reply({ access_token: 'ntn', workspace_id: 'ws-1', workspace_name: '내 워크스페이스', bot_id: 'b' });
+      if (u.pathname === '/v1/oauth/token') { const code = JSON.parse(init.body).code; return reply({ access_token: 'ntn-' + code, workspace_id: code === 'c1' ? 'ws-1' : 'ws-' + code, workspace_name: code === 'c1' ? '내 워크스페이스' : '회사 워크스페이스', bot_id: 'b' }); }
       if (u.pathname === '/v1/databases/db1') return reply({ object: 'database', url: 'https://notion.so/db1', title: [{ plain_text: '주간 업무' }], properties: { 이름: { type: 'title' }, 날짜: { type: 'date' }, 완료: { type: 'checkbox' } } });
       if (u.pathname === '/v1/databases/db1/query') return reply({ results: notionDb.map((r) => ({ id: r.id, url: 'https://notion.so/' + r.id, last_edited_time: '2026-10-27T00:00:00Z', properties: { 이름: { title: [{ plain_text: r.title }] }, 날짜: { date: r.date ? { start: r.date } : null }, 완료: { type: 'checkbox', checkbox: !!r.done } } })), has_more: false });
       if (u.pathname.startsWith('/v1/pages/') && init.method === 'PATCH') { patches.push({ id: u.pathname.split('/').pop(), body: JSON.parse(init.body) }); return reply({}); }
@@ -189,4 +189,74 @@ test('no duplicates: a row GPT matches to a hand-written to-do attaches to it, o
   await w.request('/sync', { body: { id: sub.id }, headers: app });
   await w.settle();
   assert.equal(todos.find((t) => t.id === 'old').deleted_at, null);
+});
+
+test('several accounts: a second Notion workspace connects next to the first, and pages are listed per workspace', async () => {
+  const w = world();
+  const connect = async (code) => {
+    const { url } = await (await w.request('/oauth/start', { body: { provider: 'notion' }, headers: app })).json();
+    return w.request(`/oauth/callback/notion?code=${code}&state=${encodeURIComponent(new URL(url).searchParams.get('state'))}`, { method: 'GET' });
+  };
+  await connect('c1'); await connect('c2'); await connect('c2');
+  const conns = w.rest.tables.connections;
+  assert.deepEqual(conns.map((c) => c.account), ['내 워크스페이스', '회사 워크스페이스'], 'reconnecting the same workspace updates it, a new one is added');
+  await w.request('/notion/pages?connection=' + conns[1].id, { method: 'GET', headers: app });
+  assert.equal(w.calls.filter((c) => c.url.includes('/v1/search')).at(-1).init.headers.Authorization, 'Bearer ntn-c2');
+  await w.request('/disconnect', { body: { id: conns[0].id }, headers: app });
+  assert.deepEqual(w.rest.tables.connections.map((c) => c.account), ['회사 워크스페이스']);
+});
+
+test('Monday/Thursday check-up: 15 minutes before the morning alert (9:00 without one), once a day, quietly', async () => {
+  const { sweepTime, sweepDue } = await import('../../supabase/functions/_shared/sweep.js');
+  assert.equal(sweepTime({ morning_on: true, morning_time: '08:30' }), '08:15');
+  assert.equal(sweepTime({ morning_on: false, morning_time: '08:30' }), '09:00');
+  assert.equal(sweepTime(null), '09:00');
+  const at = (iso) => Date.parse(iso);
+  // 2026-11-02 is a Monday; Seoul is UTC+9.
+  assert.equal(sweepDue(null, at('2026-11-01T23:59:00Z'), 'Asia/Seoul'), null, '8:59 Monday: not yet');
+  assert.equal(sweepDue(null, at('2026-11-02T00:00:00Z'), 'Asia/Seoul'), '2026-11-02', '9:00 Monday');
+  assert.equal(sweepDue({ morning_on: true, morning_time: '07:00' }, at('2026-11-01T21:45:00Z'), 'Asia/Seoul'), '2026-11-02', '6:45 before a 7:00 alert');
+  assert.equal(sweepDue({ last_sweep: '2026-11-02' }, at('2026-11-02T03:00:00Z'), 'Asia/Seoul'), null, 'once a day');
+  assert.equal(sweepDue(null, at('2026-11-03T03:00:00Z'), 'Asia/Seoul'), null, 'Tuesday: no');
+  assert.equal(sweepDue(null, at('2026-11-05T03:00:00Z'), 'Asia/Seoul'), '2026-11-05', 'Thursday');
+  // A due person: every subscription is read again without any pet job.
+  const w = world();
+  w.env.now = () => at('2026-11-02T00:05:00Z');
+  w.notionDb.push({ id: 'p1', title: '월요일 회의', date: '2026-11-02' });
+  w.rest.tables.connections.push({ id: 'c1', user_id: 'user-1', provider: 'notion', meta: { workspace_id: 'ws1' }, secret: { access_token: 'ntn' } });
+  w.rest.tables.subscriptions.push({ id: 's1', user_id: 'user-1', connection_id: 'c1', provider: 'notion', resource_type: 'database', resource_id: 'db1', title: '주간 업무', meta: { titleProp: '이름', dateProp: '날짜' }, state: 'idle' });
+  assert.equal((await w.request('/sweep', { body: {} })).status, 401);
+  const r = await (await w.request('/sweep', { body: {}, headers: { 'X-Hook-Secret': 'hook' } })).json();
+  await w.settle();
+  assert.equal(r.due, 1);
+  assert.deepEqual(w.rest.tables.todos.map((t) => t.title), ['월요일 회의']);
+  assert.equal(w.rest.tables.pet_jobs.length, 0, 'quiet: the pet does not show it');
+  assert.equal(w.rest.tables.user_prefs[0].last_sweep, '2026-11-02');
+  assert.equal((await (await w.request('/sweep', { body: {}, headers: { 'X-Hook-Secret': 'hook' } })).json()).due, 0, 'not twice the same day');
+});
+
+test('deleting in the app deletes at the source; a row the import itself cleaned up is not deleted twice; Ctrl+Z keeps it as a plain to-do', async () => {
+  const w = world();
+  w.notionDb.push({ id: 'p1', title: '지울 일', date: '2026-10-29' }, { id: 'p2', title: '사라질 일', date: '2026-10-30' });
+  w.rest.tables.connections.push({ id: 'c1', user_id: 'user-1', provider: 'notion', meta: { workspace_id: 'ws1' }, secret: { access_token: 'ntn' } });
+  const sub = (await (await w.request('/subscribe', { body: { resource_id: 'db1', type: 'database' }, headers: app })).json()).subscription;
+  await w.settle();
+  const todos = w.rest.tables.todos, hook = { 'X-Hook-Secret': 'hook' };
+  const one = todos.find((t) => t.origin.id === 'p1');
+  one.deleted_at = NOW + 1;
+  assert.equal((await (await w.request('/push-back', { body: { id: one.id }, headers: hook })).json()).result, 'deleted');
+  assert.deepEqual(w.patches.at(-1), { id: 'p1', body: { archived: true } }, 'the Notion row goes to the trash');
+  assert.match(w.rest.tables.pet_jobs.at(-1).summary, /노션에서 지웠어요/);
+  assert.equal((await (await w.request('/push-back', { body: { id: one.id }, headers: hook })).json()).result, 'same', 'once only');
+  // p2 vanished in Notion → the import removes the to-do; the trigger's call must not touch Notion again.
+  w.notionDb.splice(1, 1); const patches = w.patches.length;
+  await w.request('/sync', { body: { id: sub.id }, headers: app }); await w.settle();
+  const gone = todos.find((t) => t.origin?.id === 'p2');
+  assert.ok(gone.deleted_at);
+  assert.equal((await (await w.request('/push-back', { body: { id: gone.id }, headers: hook })).json()).result, 'same');
+  assert.equal(w.patches.length, patches);
+  // Undo in the app brings p1 back: it stays, as an ordinary to-do.
+  one.deleted_at = null;
+  assert.equal((await (await w.request('/push-back', { body: { id: one.id }, headers: hook })).json()).result, 'detached');
+  assert.equal(one.origin, null);
 });

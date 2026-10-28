@@ -1,0 +1,7 @@
+/* 도구 카드 안의 계정들 — glass.css 의 .tool-sub / .tool-pick 과 같은 결. */
+.tool-account { display: flex; flex-direction: column; gap: 8px; }
+.tool-account + .tool-account { padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.45); }
+.tool-account-head { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
+.tool-account-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-account-head .ghost { flex-shrink: 0; padding: 5px 10px; border-radius: 10px; font-size: 12px; }
+.tool-picker-title { padding: 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); }

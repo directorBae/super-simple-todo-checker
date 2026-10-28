@@ -41,6 +41,14 @@ create table if not exists public.subscriptions (
 );
 create index if not exists subscriptions_resource_idx on public.subscriptions (provider, resource_id);
 
+-- 여러 계정: 한 사람이 구글 계정(이메일)·노션 워크스페이스를 여러 개 연결할 수 있다. 구독은 연결(계정)마다.
+alter table public.connections add column if not exists account_key text;
+update public.connections set account_key = coalesce(meta->>'workspace_id', account, provider) where account_key is null;
+alter table public.connections drop constraint if exists connections_user_id_provider_key;
+create unique index if not exists connections_account_idx on public.connections (user_id, provider, account_key);
+alter table public.subscriptions drop constraint if exists subscriptions_user_id_provider_resource_id_key;
+create unique index if not exists subscriptions_connection_resource_idx on public.subscriptions (connection_id, resource_id);
+
 create table if not exists public.pet_jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -80,7 +88,7 @@ begin
     execute format('grant delete on public.%I to authenticated', t);
   end loop;
 end $$;
-grant select (id, user_id, provider, account, meta, created_at) on public.connections to authenticated;
+grant select (id, user_id, provider, account, account_key, meta, created_at) on public.connections to authenticated;
 grant select on public.subscriptions, public.pet_jobs to authenticated;
 revoke all on public.webhook_keys from anon, authenticated;
 
@@ -111,11 +119,38 @@ end $$;
 drop trigger if exists todos_push_back on public.todos;
 create trigger todos_push_back after update on public.todos for each row execute function public.todo_push_back();
 
+-- 아침 점검(월·목): 각자의 아침 알림 시간(앱이 적어 둔다) 15분 전, 알림이 꺼져 있으면 9시에 연결된 계정을 조용히 다시 읽는다.
+create table if not exists public.user_prefs (
+  user_id uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  morning_on boolean not null default true,
+  morning_time text not null default '09:00',
+  time_zone text,
+  last_sweep date,
+  updated_at timestamptz not null default now()
+);
+alter table public.user_prefs enable row level security;
+drop policy if exists "own read" on public.user_prefs;
+drop policy if exists "own write" on public.user_prefs;
+drop policy if exists "own change" on public.user_prefs;
+create policy "own read" on public.user_prefs for select to authenticated using (user_id = auth.uid());
+create policy "own write" on public.user_prefs for insert to authenticated with check (user_id = auth.uid());
+create policy "own change" on public.user_prefs for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.user_prefs from anon, authenticated;
+grant select, insert, update (morning_on, morning_time, time_zone, updated_at, user_id) on public.user_prefs to authenticated;
+grant select on public.user_prefs to authenticated;
+
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$
 begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.unschedule(jobid) from cron.job where jobname = 'renew-google-channels';
+    perform cron.unschedule(jobid) from cron.job where jobname in ('renew-google-channels', 'morning-sweep');
+    perform cron.schedule('morning-sweep', '*/10 * * * *', $cron$
+      select net.http_post(
+        url := (select value from public.function_settings where key = 'functions_url') || '/sweep',
+        body := '{}'::jsonb,
+        headers := jsonb_build_object('Content-Type', 'application/json', 'X-Hook-Secret', (select value from public.function_settings where key = 'hook_secret'))
+      )
+    $cron$);
     perform cron.schedule('renew-google-channels', '17 4 * * *', $cron$
       select net.http_post(
         url := (select value from public.function_settings where key = 'functions_url') || '/renew',

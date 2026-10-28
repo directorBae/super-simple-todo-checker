@@ -40,3 +40,20 @@ test('subscription status line', () => {
   assert.equal(ago(at(10_000), now), '방금');
   assert.equal(ago(at(3 * 3600_000), now), '3시간 전');
 });
+
+test('accounts group their watched items; unknown connections go with the first account', async () => {
+  const { accountsOf, newConnection } = await import('../src/tool-jobs.js');
+  const state = {
+    connections: [{ id: 'g1', provider: 'google', account: 'me@gmail.com' }, { id: 'n1', provider: 'notion', account: '개인' }, { id: 'n2', provider: 'notion', account: '회사' }],
+    subscriptions: [{ id: 's1', provider: 'notion', connection_id: 'n2' }, { id: 's2', provider: 'notion', connection_id: null }, { id: 's3', provider: 'google', connection_id: 'g1' }, { id: 's4', provider: 'notion', connection_id: 'n1' }],
+  };
+  const notion = accountsOf(state, 'notion');
+  assert.deepEqual(notion.map((a) => [a.conn.id, a.subs.map((s) => s.id)]), [['n1', ['s2', 's4']], ['n2', ['s1']]]);
+  assert.deepEqual(accountsOf(state, 'google').map((a) => a.subs.length), [1]);
+  assert.deepEqual(accountsOf({ connections: [], subscriptions: [{ id: 'x', provider: 'google' }] }, 'google'), []);
+  assert.deepEqual(accountsOf(null, 'notion'), []);
+  assert.equal(newConnection(state.connections, 'notion', ['n1', 'n2']), false);
+  assert.equal(newConnection(state.connections, 'notion', ['n1']), true);
+  assert.equal(newConnection(state.connections, 'google', []), true);
+  assert.equal(newConnection([], 'google', []), false);
+});

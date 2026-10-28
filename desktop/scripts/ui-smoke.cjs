@@ -30,9 +30,13 @@ ipcMain.handle('smoke:integrations',(_,p)=>{
 });
 ipcMain.handle('smoke:tools',(_,{action,payload={}})=>{
  toolCalls.push({action,...payload});
- if(action==='start'){tools.connections.push({id:'c-'+payload.provider,provider:payload.provider,account:payload.provider==='notion'?'Studio 워크스페이스':'me@studio.com'});return {ok:true,url:'https://api.notion.com/v1/oauth/authorize?state=x'};}
+ // Several accounts per tool: each start adds one more (the second Google account comes with its own calendar).
+ if(action==='start'){const n=tools.connections.filter(c=>c.provider===payload.provider).length,id='c-'+payload.provider+'-'+n;tools.connections.push({id,provider:payload.provider,account:payload.provider==='notion'?'Studio 워크스페이스':['me@studio.com','me@work.com'][n]||'me'+n+'@x.com'});
+  if(payload.provider==='google'&&n)tools.subscriptions.push({id:'s-cal-'+n,connection_id:id,provider:'google',resource_type:'calendar',resource_id:'work',title:'업무 캘린더',url:null,state:'idle',last_error:null,last_synced_at:new Date().toISOString()});
+  return {ok:true,url:'https://api.notion.com/v1/oauth/authorize?state=x'};}
+ if(action==='disconnect'){const gone=tools.connections.filter(c=>payload.id?c.id===payload.id:c.provider===payload.provider).map(c=>c.id);tools.connections=tools.connections.filter(c=>!gone.includes(c.id));tools.subscriptions=tools.subscriptions.filter(x=>!gone.includes(x.connection_id));return {ok:true};}
  if(action==='pages')return {ok:true,pages:[{id:'p1',type:'database',title:'주간 업무',icon:'📋'},{id:'p2',type:'page',title:'회의록',icon:null}].filter(p=>!payload.q||p.title.includes(payload.q))};
- if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
+ if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,connection_id:payload.connectionId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
  if(action==='unsubscribe'){tools.subscriptions=tools.subscriptions.filter(x=>x.id!==payload.id);return {ok:true};}
  if(action==='state')return JSON.parse(JSON.stringify(tools));
  return {ok:true};
@@ -60,7 +64,8 @@ app.whenReady().then(async()=>{
   await click('+ 지켜볼 페이지 고르기');await pause(250);
   {const pages=await js('[...document.querySelectorAll(".tool-page")].map(e=>e.innerText.replace(/\\s+/g," ").trim()).join("|")');if(pages!=='📋 주간 업무 DB|📄 회의록 페이지')throw Error('Notion pages missing: '+pages);}
   await js('document.querySelector(".tool-page").click()');await pause(300);
-  if(!toolCalls.some(c=>c.action==='subscribe'&&c.resourceId==='p1'&&c.type==='database'))throw Error('Picking a page must subscribe');
+  if(!toolCalls.some(c=>c.action==='subscribe'&&c.resourceId==='p1'&&c.type==='database'&&c.connectionId==='c-notion-0'))throw Error('Picking a page must subscribe in that workspace');
+  if(!toolCalls.some(c=>c.action==='pages'&&c.connectionId==='c-notion-0'))throw Error('The picker must list that workspace pages');
   if(!(await js('document.querySelector(".tool-sub")?.innerText||""')).includes('읽는 중'))throw Error('Subscription state missing');
   await snap('desktop-provider');
   await click('지금은 건너뛰기');
@@ -190,6 +195,19 @@ app.whenReady().then(async()=>{
   for(const hidden of ['OpenAI','개인 메모리','전송 작업','AI 목적지'])if(text.includes(hidden))throw Error('Tool screen leaked '+hidden);
   if(await js('document.querySelectorAll(".settings-pane .tool-card").length')!==2||!text.includes('지켜보는 중')&&!text.includes('읽는 중'))throw Error('Settings must show the two tools and the watched page');
   await snap('desktop-tools');
+  // Several accounts per tool: 연결하기, then "+ 계정 추가" waits for the NEW account; each account has its own 연결 끊기 and calendars.
+  const gcard=`document.querySelector('.tool-card[aria-label="구글 캘린더"]')`,gbtn=t=>js(`[...${gcard}.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)}).click()`);
+  await gbtn('연결하기');await pause(400);
+  if(await js(`${gcard}.querySelector('.tool-head > button').textContent.trim()`)!=='+ 계정 추가')throw Error('A connected tool must offer + 계정 추가');
+  await gbtn('+ 계정 추가');await pause(2600);
+  {const g=await js(`(()=>{const c=${gcard};return {accounts:[...c.querySelectorAll('.tool-account')].map(a=>({name:a.querySelector('.tool-account-name').textContent,leave:[...a.querySelectorAll('button')].filter(b=>b.textContent.trim()==='연결 끊기').length,subs:[...a.querySelectorAll('.tool-sub-title')].map(e=>e.textContent)})),head:c.querySelector('.tool-head').innerText};})()`);
+   if(JSON.stringify(g.accounts)!==JSON.stringify([{name:'me@studio.com',leave:1,subs:[]},{name:'me@work.com',leave:1,subs:['업무 캘린더']}])||!g.head.includes('+ 계정 추가')||g.head.includes('기다리는'))throw Error('Two Google accounts, each with its own 연결 끊기 and calendars, and + 계정 추가: '+JSON.stringify(g));}
+  await snap('desktop-tools-accounts');
+  await js('window.__confirm=window.confirm;window.__asked="";window.confirm=m=>{window.__asked=m;return true;};0');
+  await js(`[...${gcard}.querySelectorAll('.tool-account')][1].querySelector('.tool-account-head button').click()`);await pause(400);
+  if(!(await js('window.__asked')).includes('me@work.com')||!toolCalls.some(c=>c.action==='disconnect'&&c.id==='c-google-1'))throw Error('연결 끊기 must name and drop only that account');
+  await js('window.confirm=window.__confirm;0');
+  if(await js(`${gcard}.querySelectorAll('.tool-account').length`)!==1)throw Error('The other Google account must stay');
   if(errors.length)throw Error(errors.join('\n'));
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='일').click()`);await pause(300);
   // Dragging the mouse across several lines' text selects those lines; Delete removes them all, with undo.
@@ -264,12 +282,88 @@ app.whenReady().then(async()=>{
   tools.jobs=[{id:'j1',provider:'notion',kind:'import',state:'thinking',summary:'노션 "주간 업무" 읽는 중',updated_at:new Date().toISOString()}];
   db.auth={required:true,loading:false,email:'smoke@checker.test'};win.webContents.send('smoke:db',db);await pause(2600);
   if(!await js('!!document.querySelector(".roaming-pet[data-work=thinking] .pet-work.thinking")'))throw Error('The pet must think while the job thinks');
+  // While the AI works, the window's edge glows in turning rainbow light (thin, over everything, never in the way).
+  {const edge=await js(`(()=>{const e=document.querySelector('.ai-edge.on'),s=e&&getComputedStyle(e),r=e?.getBoundingClientRect();return e&&{pe:s.pointerEvents,z:Number(s.zIndex),w:Math.round(r.width),h:Math.round(r.height),line:getComputedStyle(e.querySelector('.ai-edge-line')).paddingTop}})()`);
+   if(!edge||edge.pe!=='none'||edge.z<1000||edge.w!==await js('innerWidth')||edge.h!==await js('innerHeight')||parseFloat(edge.line)>3)throw Error('The rainbow edge must show around the window while a job runs: '+JSON.stringify(edge));}
   await snap('desktop-pet-thinking');
   Object.assign(tools.jobs[0],{state:'done',summary:'노션 "주간 업무"에서 2개 추가',counts:{created:2},updated_at:new Date().toISOString()});await pause(4400);
   const said=await js('document.querySelector(".roaming-pet .pet-say")?.textContent||""');
   if(!said.includes('2개 추가'))throw Error('The pet must say the summary when the job is done: '+said);
   await snap('desktop-pet-done');
-  console.log('UI UX smoke passed: tool connections (connect, pick a Notion page), source marks, pet jobs, onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  // The to-dos that import just added are written out one at a time: scrolled to, the pet beside them with its
+  // pencil, the title a letter at a time with a caret — the rows were already there (only the letters are masked).
+  {
+    const add=(id,title,k)=>({id,title,kind:'todo',status:'todo',date:today,teamId:'team',createdAt:Date.now()+k,updatedAt:Date.now()+k,origin:{type:'external',provider:'notion',subscription:'s-p1',id:'row-'+id,url:'https://www.notion.so/'+id}});
+    const first='다음 주 실험 일정 노션에서 옮겨 적기',second='팀 회의 자료 정리';
+    db.todos.push(add('imp-1',first,0),add('imp-2',second,1));win.webContents.send('smoke:db',db);
+    const seen=new Set();let mid=null,shot=false;
+    for(let t=0;t<14000;t+=60){
+      const s=await js(`(()=>{const q=id=>document.querySelector('.memo-line[data-todo-id="'+id+'"] .memo-title');const v=el=>{if(!el)return null;const c=el.cloneNode(true);c.querySelectorAll('.type-rest').forEach(x=>x.remove());return c.textContent;};
+        const a=q('imp-1'),b=q('imp-2'),r=a?.closest('.memo-line').getBoundingClientRect();return {a:v(a),b:v(b),caret:!!a?.querySelector('.type-caret'),waitB:!!b?.querySelector('.type-wait'),full:a?.textContent,inView:r&&r.top>=0&&r.bottom<=innerHeight,edge:!!document.querySelector('.ai-edge.on'),pet:document.querySelector('.roaming-pet')?.dataset.work||''};})()`);
+      seen.add(s.a);
+      if(!mid&&s.caret&&s.a&&s.a.length>4&&s.a.length<first.length-3)mid=s;
+      if(mid&&!shot&&s.a.length>=first.length*0.55){shot=true;await snap('desktop-typing-edge');}
+      if(s.a===first&&s.b===second&&!s.caret&&!await js(`!!document.querySelector('.type-caret,.type-wait')`))break;
+      await pause(60);
+    }
+    if(!mid)throw Error('An imported line must be typed out a letter at a time: '+JSON.stringify([...seen]));
+    if(mid.full!==first)throw Error('The row holds its whole title while it is typed (no layout jump): '+mid.full);
+    if(!mid.waitB||!mid.inView||!mid.edge||mid.pet!=='writing')throw Error('Typing: the next line waits, the line is scrolled into view, the edge glows and the pet writes: '+JSON.stringify(mid));
+    const end=await js(`[...['imp-1','imp-2']].map(id=>document.querySelector('.memo-line[data-todo-id="'+id+'"] .memo-title').innerText).join('|')`);
+    if(end!==first+'|'+second||await js(`!!document.querySelector('.type-caret,.type-wait')`))throw Error('Each typed line must end with its full title: '+end);
+    await pause(700);
+    if(await js(`!!document.querySelector('.ai-edge.on')`))throw Error('The edge fades away once nothing is running');
+    // A third line, and a press: the queue finishes at once (editing / dragging takes over).
+    db.todos.push(add('imp-3','하나 더 가져온 일',2),add('imp-4','마지막으로 가져온 일',3));win.webContents.send('smoke:db',db);await pause(400);
+    if(!await js(`!!document.querySelector('.type-caret,.type-wait')`))throw Error('A new import line must be typed too');
+    await js(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:3}))`);await pause(120);
+    if(await js(`!!document.querySelector('.type-caret,.type-wait')`)||await js(`document.querySelector('.memo-line[data-todo-id="imp-4"] .memo-title').innerText`)!=='마지막으로 가져온 일')throw Error('A press must finish the typing at once');
+    // On a phone (no pet) the line is still scrolled to and typed out, with the edge glowing.
+    win.setSize(420,860);await pause(500);
+    if(await js(`!!document.querySelector('.roaming-pet')`))throw Error('No pet at phone width');
+    db.todos.push(add('imp-5','휴대폰에서도 옮겨 적기',4));win.webContents.send('smoke:db',db);
+    let phone=null;
+    for(let t=0;t<6000;t+=60){const s=await js(`(()=>{const el=document.querySelector('.memo-line[data-todo-id="imp-5"] .memo-title');return {caret:!!el?.querySelector('.type-caret'),edge:!!document.querySelector('.ai-edge.on'),text:el?.innerText}})()`);
+      if(!phone&&s.caret&&s.edge&&s.text.length>4){phone=s;await pause(150);await snap('phone-typing-edge');}if(phone&&!s.caret&&s.text==='휴대폰에서도 옮겨 적기')break;await pause(60);}
+    if(!phone||await js(`document.querySelector('.memo-line[data-todo-id="imp-5"] .memo-title').innerText`)!=='휴대폰에서도 옮겨 적기')throw Error('Typing must work at phone width too: '+JSON.stringify(phone));
+    win.setSize(1180,860);await pause(300);
+    // The next import changes rows already there, and the pet goes to each spot in turn: a renamed line is erased
+    // back (Backspace-like) and the new ending typed, a removed one is erased + struck out and folds away (the data is
+    // already gone: a leaving copy is drawn), a moved one is lifted off today and written on tomorrow, a done one ticked.
+    tools.jobs.push({id:'j2',provider:'notion',kind:'import',state:'writing',subscription_id:'s-p1',created_at:new Date(Date.now()-2000).toISOString(),summary:'노션 "주간 업무" 다시 읽는 중',updated_at:new Date().toISOString()});await pause(4400);
+    const tomorrow=new Date(Date.now()+864e5).toLocaleDateString('en-CA'),renamed='다음 주 실험 결과 노션에 정리',edited=t=>Object.assign(t,{updatedAt:Date.now()});
+    edited(db.todos.find(t=>t.id==='imp-1')).title=renamed;edited(db.todos.find(t=>t.id==='imp-3')).date=tomorrow;edited(db.todos.find(t=>t.id==='imp-4')).status='done';
+    db.todos=db.todos.filter(t=>t.id!=='imp-2');win.webContents.send('smoke:db',db);
+    const probe=`(()=>{const row=id=>document.querySelector('.memo-line[data-todo-id="'+id+'"]'),pet=document.querySelector('.roaming-pet')?.getBoundingClientRect();
+      const txt=el=>{if(!el)return null;const c=el.querySelector('.memo-title').cloneNode(true);c.querySelectorAll('.type-rest').forEach(x=>x.remove());return c.textContent;};
+      const near=el=>{if(!el||!pet)return false;const r=el.getBoundingClientRect(),t=el.querySelector('.memo-title').getBoundingClientRect();return Math.abs((pet.top+pet.bottom)/2-(r.top+r.bottom)/2)<64&&(Math.abs(pet.left-t.right)<140||Math.abs(pet.right-r.left)<140);};
+      const a=row('imp-1'),g=row('imp-2~was'),m=row('imp-3'),d=row('imp-4');
+      return {a:txt(a),erase:!!a?.querySelector('.type-caret.erase'),nearA:near(a),real2:!!row('imp-2'),ghost:g?txt(g):null,strike:!!g?.querySelector('.type-strike'),nearG:near(g),day3:m?.closest('.memo-day')?.id||null,was3:!!row('imp-3~was'),note:document.querySelector('.type-move-note')?.textContent||'',
+        tick:!!d?.querySelector('.type-tick'),nearD:near(d),done:!!d?.querySelector('input').checked,busy:!!document.querySelector('.type-caret,.type-wait,.type-strike,.type-tick,[data-todo-id$="~was"]'),edge:!!document.querySelector('.ai-edge.on'),pet:document.querySelector('.roaming-pet')?.dataset.work||''};})()`;
+    const saw={};let erased=false,last=null;
+    for(let t=0;t<22000;t+=50){
+      const s=last=await js(probe);
+      if(s.real2)throw Error('A removed line must only show as its leaving copy');
+      if(s.erase&&s.nearA&&s.edge&&s.pet==='writing'){saw.erase=s;if(!erased&&s.a.length<=12){erased=true;await snap('desktop-pet-erase');}}
+      if(s.a&&s.a.startsWith('다음 주 실험 결')&&!s.erase)saw.retype=true;
+      if(s.ghost===''&&s.strike&&s.nearG)saw.strike=s;
+      if(s.was3&&!s.day3)saw.lift=true;
+      if(/^\d+\/\d+ → \d+\/\d+$/.test(s.note)&&s.day3==='day-'+tomorrow)saw.note=s.note;
+      if(s.tick&&s.done&&s.nearD)saw.tick=s;
+      if(saw.tick&&!s.busy)break;
+      await pause(50);
+    }
+    if(!saw.erase||!erased)throw Error('A renamed import must be erased back with the pet beside it: '+JSON.stringify(last));
+    if(!saw.retype||!saw.strike||!saw.lift||!saw.note||!saw.tick)throw Error('Retype, strike-out, lift, carried note and tick must each play: '+JSON.stringify({saw,last}));
+    const fin=await js(probe);
+    if(fin.a!==renamed||fin.ghost!==null||fin.day3!=='day-'+tomorrow||fin.was3||!fin.done||fin.busy)throw Error('After the changes the rows must be in their real state: '+JSON.stringify(fin));
+    // A press in the middle: every change is simply done (the new title there, the leaving copy gone at once).
+    edited(db.todos.find(t=>t.id==='imp-4')).title='중간에 끝낸 일';db.todos=db.todos.filter(t=>t.id!=='imp-1');win.webContents.send('smoke:db',db);await pause(300);
+    if(!await js(`!!document.querySelector('[data-todo-id="imp-1~was"]')`))throw Error('The removed line must be played');
+    await js(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:4}))`);await pause(150);
+    if(await js(`!!document.querySelector('[data-todo-id="imp-1"],[data-todo-id$="~was"],.type-caret,.type-strike')`)||await js(`document.querySelector('.memo-line[data-todo-id="imp-4"] .memo-title').innerText`)!=='중간에 끝낸 일')throw Error('A press must finish the changes at once');
+  }
+  console.log('UI UX smoke passed: tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
-setTimeout(()=>app.exit(1),45000).unref();
+setTimeout(()=>app.exit(1),110000).unref();

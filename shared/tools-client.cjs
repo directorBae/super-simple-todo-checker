@@ -4,6 +4,11 @@
  * phone all use it with the signed-in person's token: it reads their connections, subscriptions and the pet's
  * jobs straight from the database (RLS shows only theirs) and calls the `integrations` Edge Function for the rest.
  */
+// What the server needs from the reminder settings (names shared by every device: shared/reminders.js).
+function prefsOf(settings = {}, timeZone) {
+  return { morning_on: settings.dailySummary !== false, morning_time: /^\d{2}:\d{2}$/.test(settings.dailySummaryTime || '') ? settings.dailySummaryTime : '09:00', time_zone: timeZone || null, updated_at: new Date().toISOString() };
+}
+
 function createToolsClient({ url, key, fetch: request = globalThis.fetch, token }) {
   const base = String(url || '').replace(/\/+$/, '');
   async function call(path, init = {}) {
@@ -23,18 +28,25 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
       const since = new Date(now - 10 * 60_000).toISOString();
       const [connections, subscriptions, jobs] = await Promise.all([
         rows('connections', 'select=id,provider,account,created_at&order=created_at.asc'),
-        rows('subscriptions', 'select=id,provider,resource_type,resource_id,title,url,state,last_error,last_synced_at&order=created_at.asc'),
-        rows('pet_jobs', `select=id,provider,kind,state,summary,counts,updated_at&updated_at=gte.${since}&order=updated_at.desc&limit=10`),
+        rows('subscriptions', 'select=id,connection_id,provider,resource_type,resource_id,title,url,state,last_error,last_synced_at&order=created_at.asc'),
+        rows('pet_jobs', `select=id,subscription_id,provider,kind,state,summary,counts,created_at,updated_at&updated_at=gte.${since}&order=updated_at.desc&limit=10`),
       ]);
       return { connections, subscriptions, jobs };
     },
     start: (provider) => fn('/oauth/start', { provider }).then((r) => r.url),
-    pages: (q = '') => fn('/notion/pages?q=' + encodeURIComponent(q)).then((r) => r.pages),
-    subscribe: (resourceId, type) => fn('/subscribe', { resource_id: resourceId, type }).then((r) => r.subscription),
+    // Several accounts per tool: `connectionId` picks the Notion workspace (default: the first one connected).
+    pages: (q = '', connectionId) => fn('/notion/pages?q=' + encodeURIComponent(q) + (connectionId ? '&connection=' + encodeURIComponent(connectionId) : '')).then((r) => r.pages),
+    subscribe: (resourceId, type, connectionId) => fn('/subscribe', { resource_id: resourceId, type, connection_id: connectionId }).then((r) => r.subscription),
     unsubscribe: (id) => fn('/unsubscribe', { id }),
-    disconnect: (provider) => fn('/disconnect', { provider }),
+    // One account by its connection id, or every account of a tool by 'notion' / 'google'.
+    disconnect: (idOrProvider) => fn('/disconnect', ['notion', 'google'].includes(idOrProvider) ? { provider: idOrProvider } : { id: idOrProvider }),
     syncNow: (id) => fn('/sync', id ? { id } : {}),
+    // The morning alert time, so the Monday/Thursday check-up runs just before it (or at 9:00 when it is off).
+    savePrefs: (settings, timeZone) => call('/rest/v1/user_prefs?on_conflict=user_id', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(prefsOf(settings, timeZone)),
+    }),
   };
 }
 
-module.exports = { createToolsClient };
+module.exports = { createToolsClient, prefsOf };

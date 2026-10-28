@@ -7,6 +7,7 @@ import supabaseEngine from '../../shared/supabase-sync.cjs';
 import supabaseAuth from '../../shared/supabase-auth.cjs';
 import toolsEngine from '../../shared/tools-client.cjs';
 import { rescheduleReminders } from './notifications.js';
+import { REMINDER_DEFAULTS } from '../../shared/reminders.js';
 
 // Every to-do except bucket items has a date; undated ones get the day they were made.
 const localDate = (ms = Date.now()) => { const t = new Date(ms); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
@@ -24,6 +25,19 @@ const keeper = supabaseAuth.createSessionKeeper(SUPABASE, {
 
 // Notion · Google Calendar connections of the signed-in person (Edge Function `integrations`, see src/tools.js).
 export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, key: SUPABASE.key, fetch: (...a) => fetch(...a), token: async () => (await keeper.current())?.accessToken }) : null;
+// The morning alert time goes to the server too, so the Monday/Thursday check-up runs just before it.
+let sentPrefs = '';
+function sharePrefs(settings) {
+  const s = { ...REMINDER_DEFAULTS, ...settings }, zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const key = JSON.stringify([s.dailySummary, s.dailySummaryTime, zone]);
+  if (!tools || key === sentPrefs) return;
+  sentPrefs = key;
+  tools.savePrefs(s, zone).catch(() => { sentPrefs = ''; });
+}
+
+// To-dos changed on this phone, and when (id → ms): the day list plays what an import job changes, never these.
+export const localTouches = new Map();
+const touchLocal = (todoId) => localTouches.set(todoId, Date.now());
 
 // 데스크톱 db.json과 같은 스키마 — server/를 통한 크로스 플랫폼 동기화(LWW + tombstone)에 사용
 const DEFAULTS = {
@@ -133,7 +147,7 @@ export function DbProvider({ children }) {
           });
           return d;
         }),
-      updateTodo: (todoId, patch) =>
+      updateTodo: (todoId, patch) => touchLocal(todoId) &&
         update((d) => {
           const t = d.todos.find((x) => x.id === todoId);
           if (t) {
@@ -146,13 +160,13 @@ export function DbProvider({ children }) {
           }
           return d;
         }),
-      deleteTodo: (todoId) =>
+      deleteTodo: (todoId) => touchLocal(todoId) &&
         update((d) => {
           d.todos = d.todos.filter((t) => t.id !== todoId);
           d.tombstones.push({ coll: 'todos', id: todoId, deletedAt: Date.now() });
           return d;
         }),
-      restoreTodo: todo => update(d => {
+      restoreTodo: todo => touchLocal(todo.id) && update(d => {
         d.tombstones = d.tombstones.filter(t => !(t.coll === 'todos' && t.id === todo.id));
         if (!d.todos.some(t => t.id === todo.id)) d.todos.push({ ...todo, updatedAt: Math.max(Date.now(), (todo.updatedAt || 0) + 1) });
         return d;
@@ -258,6 +272,7 @@ export function DbProvider({ children }) {
             if (remote.length || first) update((d) => { if (first) supabaseEngine.adoptRemote(d); if (supabaseEngine.applyRemote(d, remote, meta) || first) { migrateTeams(d); ensureDates(d); } return d; }, false);
             await supabaseEngine.pushRemote(cfg, supabaseEngine.collectPush(dbRef.current, meta), meta);
             meta.pulledAt = newest || supabaseEngine.EPOCH;
+            sharePrefs(dbRef.current?.settings);
             return { ok: true };
           } catch (e) {
             return { ok: false, error: e.message };

@@ -4,10 +4,12 @@ import { createPet, stepPet, summonPet, hidePet, movePetTo, releasePet, petHop, 
 import { PetWork, PetSay } from './PetWork.jsx';
 
 // working / bubble: the tool connections' job the pet is on and what it says when done (tools-state.js usePetJobs).
-export default function RoamingPet({ db, room = 0, working = null, bubble = null }) {
+// typing: the tool whose new to-dos it is writing out on screen right now (typing.jsx) — it goes to each line with its pencil.
+export default function RoamingPet({ db, room = 0, working = null, bubble = null, typing = null }) {
   const pet={...DEFAULT_PET,...db.settings.focusPet};
   const model=useRef(createPet(innerWidth,innerHeight)),element=useRef(null),drag=useRef(null),moved=useRef(false),reduced=useRef(false);
-  const busy=useRef(false);busy.current=!!(working||bubble);
+  const busy=useRef(false);busy.current=!!(working||bubble||typing);
+  const writing=useRef(null);writing.current=typing;const face=useRef(0);
   const instance=useRef('pet-'+Math.random().toString(36).slice(2)),view=useRef(room);view.current=room;
   const [sprite,setSprite]=useState({pose:'enter',frame:0,direction:-1,hidden:false});
   const completed=useRef(db.todos.filter(t=>t.status==='done').length);
@@ -17,16 +19,24 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
     if(count>completed.current)call();completed.current=count;
   },[db.todos]);
   // A new job or news: it comes over (with a hop) to where you are looking.
-  useEffect(()=>{if(working||bubble)call();},[working?.id,bubble?.id]);
+  useEffect(()=>{if((working||bubble)&&!writing.current)call();},[working?.id,bubble?.id]);
+  useEffect(()=>{if(!typing)face.current=0;},[typing]);
   useEffect(()=>{
     let frame,last=0,report=0;
     const media=matchMedia('(prefers-reduced-motion: reduce)');
     const preference=()=>{reduced.current=media.matches;};preference();media.addEventListener('change',preference);
     const leave=()=>hidePet(model.current,innerWidth);
-    window.addEventListener('checker:pet-call',call);window.addEventListener('checker:pet-hide',leave);
+    // Over to the line it is about to write (window coordinates in the main room): a hop when far, then a dash.
+    const goto=e=>{
+      if(view.current!==0||drag.current)return;
+      const s=model.current,{x,y}=e.detail,far=s.hidden||Math.hypot(x-s.x,y-s.y)>150;
+      face.current=e.detail.face||0;s.hidden=false;s.targetX=x;s.targetY=y;s.age=0;
+      if(reduced.current){s.x=x;s.y=y;s.mode='idle';}else if(far){s.mode='jump';s.afterJump='summon';}else s.mode='summon';
+    };
+    window.addEventListener('checker:pet-call',call);window.addEventListener('checker:pet-hide',leave);window.addEventListener('checker:pet-goto',goto);
     const tick=time=>{
       const s=model.current;
-      if(busy.current&&s.mode==='idle')s.wait=s.age+1; // stays put while it works or talks
+      if(busy.current&&s.mode==='idle'){s.wait=s.age+1;if(face.current)s.direction=face.current;} // stays put while it works or talks
       if(!document.hidden)stepPet(s,last?(time-last)/1000:0,innerWidth,innerHeight,Math.random,reduced.current,view.current);
       last=time;
       if(element.current){
@@ -41,7 +51,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
       frame=requestAnimationFrame(tick);
     };
     frame=requestAnimationFrame(tick);
-    return()=>{cancelAnimationFrame(frame);media.removeEventListener('change',preference);window.removeEventListener('checker:pet-call',call);window.removeEventListener('checker:pet-hide',leave);};
+    return()=>{cancelAnimationFrame(frame);media.removeEventListener('change',preference);window.removeEventListener('checker:pet-call',call);window.removeEventListener('checker:pet-hide',leave);window.removeEventListener('checker:pet-goto',goto);};
   },[]);
   // Rooms: teams/buckets (-1), main (0), clock (1). The room being viewed shows its pet on top; a
   // main-room pet stays visible but under the frosted side sheet; a pet in another side room is out of sight.
@@ -54,7 +64,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
   const grab=(e,s)=>{const spot=place(s)||s;drag.current={x:e.clientX-spot.x,y:e.clientY-spot.y,startX:e.clientX,startY:e.clientY};};
   const dragTo=e=>{const w=toWorld(e.clientX-drag.current.x,e.clientY-drag.current.y);movePetTo(model.current,w.x,w.y,innerWidth,innerHeight,view.current);};
   return <div className="pet-world" aria-label="화면을 돌아다니는 도트 펫">
-    <button ref={element} className="roaming-pet" data-pet-instance={instance.current} aria-label={`${pet.name} 도트 펫`} title={working?working.text:`${pet.name} · 끌어서 이동 · 우클릭하면 쉬러 가요`} data-work={working?.state||bubble?.mood||undefined} style={{visibility:'hidden'}}
+    <button ref={element} className="roaming-pet" data-pet-instance={instance.current} aria-label={`${pet.name} 도트 펫`} title={working?working.text:`${pet.name} · 끌어서 이동 · 우클릭하면 쉬러 가요`} data-work={typing?'writing':working?.state||bubble?.mood||undefined} data-typing={typing?'1':undefined} style={{visibility:'hidden'}}
       onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();grab(e,model.current);moved.current=false;movePetTo(model.current,model.current.x,model.current.y,innerWidth,innerHeight,view.current);try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}}}
       onPointerMove={e=>{if(!drag.current)return;e.preventDefault();e.stopPropagation();if(Math.hypot(e.clientX-drag.current.startX,e.clientY-drag.current.startY)>5)moved.current=true;dragTo(e);}}
       onPointerUp={e=>{if(!drag.current)return;e.stopPropagation();drag.current=null;releasePet(model.current);}}
@@ -62,7 +72,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
       onClick={()=>{if(moved.current){moved.current=false;return;}call();}}
       onContextMenu={e=>{if(e.ctrlKey)return;e.preventDefault();e.stopPropagation();hidePet(model.current,innerWidth);}}>
       <PetSprite pet={pet} pose={sprite.pose} frame={sprite.frame} direction={sprite.direction}/>
-      <PetWork pet={pet} work={bubble?.mood==='error'?{state:'error'}:working} direction={sprite.direction}/>
+      <PetWork pet={pet} work={bubble?.mood==='error'?{state:'error'}:typing?{state:'writing',provider:typing}:working} direction={sprite.direction}/>
       <PetSay say={bubble}/>
     </button>
     <span className="pet-live" role="status" aria-live="polite">{bubble?.text||''}</span>

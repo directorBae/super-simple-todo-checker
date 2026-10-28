@@ -11,6 +11,7 @@ import OfflineEgg from './focus/OfflineEgg.jsx';
 import MusicPlayer from './focus/MusicPlayer.jsx';
 import { PetToast } from './focus/PetWork.jsx';
 import { usePetJobs } from './tools-state.js';
+import { useTypingRunner, useTypingNow, AiEdge, MoveNote } from './typing.jsx';
 import { wallpaperSrc } from './wallpapers.js';
 import { startWebReminders } from './web-notify.js';
 import './focus/focus.css';
@@ -29,6 +30,10 @@ export default function App() {
  // The pet's work for the tool connections (노션 · 구글 캘린더): polled while someone is signed in.
  const signedIn = !!db?.auth?.email && new URLSearchParams(window.location.search).get('view') !== 'clock';
  const petJobs = usePetJobs(signedIn);
+ // What an import just did is played on screen (written, rewritten, carried, ticked, erased); the window edge glows
+ // while the AI is at it. The notebook draws `board`: the real data plus the rows still leaving or not written yet.
+ const board = useTypingRunner(db, signedIn);
+ const typing = useTypingNow();
  const wallpaper = wallpaperSrc(db?.settings.wallpaper);
  useEffect(() => { if(db) document.body.style.setProperty('--wallpaper', `url("${wallpaper}")`); }, [wallpaper, !!db]);
  if(!db || db.auth?.loading) return null;
@@ -48,12 +53,14 @@ export default function App() {
    </div>
   </header>
   {onboarding ? <main className="onboarding"><div className="welcome-mark">✓</div><p className="eyebrow">WELCOME TO CHECKER</p><h1>흩어진 일들을 한곳으로.</h1><p className="welcome-desc">쓰고 있는 도구를 연결해 시작하세요.<br />이제 할 일만 적으면 됩니다.</p><Integrations db={db} /><div className="welcome-actions"><button className="primary" onClick={finish}>시작하기 →</button><button className="ghost" onClick={finish}>지금은 건너뛰기</button></div></main> :
-   <main className="content notebook-content"><MemoBoard db={db} onOpenTeams={() => setRoom(-1)} /></main>}
+   <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>}
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />
-  {!onboarding && !phone && <RoamingPet db={db} room={room} working={petJobs.working} bubble={petJobs.bubble} />}
+  {!onboarding && !phone && <RoamingPet db={db} room={room} working={petJobs.working} bubble={petJobs.bubble} typing={typing} />}
   {!onboarding && phone && <PetToast working={petJobs.working} bubble={petJobs.bubble} />}
   {popup === 'settings' && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel settings-panel" role="dialog" aria-modal="true" aria-label="설정"><div className="popup-head"><h2>설정</h2><button className="icon-btn" aria-label="닫기" onClick={close}>✕</button></div><div className="popup-body"><Settings db={db} /></div></section></div>}
+  <MoveNote />
+  <AiEdge on={!!(petJobs.working || typing)} />
  </div>;
 }

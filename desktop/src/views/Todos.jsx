@@ -5,6 +5,7 @@ import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
 import { lineSort, teamSort, teamGroups } from '../../../shared/todo-drop.js';
 import { useTodoDrag } from './useTodoDrag.js';
+import { Typed } from '../typing.jsx';
 import {
   todayStr,
   addDays,
@@ -208,7 +209,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
           />
         ) : (
           <span className="memo-title" title={todo.title} onClick={onStartEdit}>
-            {compactTitle(todo.title)}
+            <Typed id={todo.id} text={compactTitle(todo.title)} />
           </span>
         )}
 
@@ -764,7 +765,7 @@ function calChip(t, db, showTime = false) {
       title={t.title}
     >
       {showTime && t.startTime && <span className="cal-chip-time">{t.startTime}</span>}
-      <span className="cal-chip-title">{compactTitle(t.title)}</span><SourceMark todo={t} size={12} />
+      <span className="cal-chip-title"><Typed id={t.id} text={compactTitle(t.title)} /></span><SourceMark todo={t} size={12} />
     </div>
   );
 }

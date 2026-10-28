@@ -52,6 +52,7 @@ async function run(store) {
     db.notifLog = db.notifLog.filter((n) => !n.todoId || alive.has(n.todoId));
   }
   store.save();
+  if (result.ok) sharePrefs(db.settings);
   if (!result.ok) console.error('Supabase sync failed:', result.error);
   return result;
 }
@@ -88,5 +89,13 @@ const recover = (email) => attempt(() => keeper.recover(email));
 // The signed-in person's token for the tool connections (노션 · 구글 캘린더); null when nobody is in.
 const accessToken = async () => (await keeper.current())?.accessToken || null;
 const tools = require('./tools.cjs').client(cfg, accessToken);
+// Tell the server when the morning alert goes off (for the Monday/Thursday check-up) — whenever it changes.
+let sentPrefs = '';
+function sharePrefs(settings) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, key = JSON.stringify([settings.dailySummary, settings.dailySummaryTime, zone]);
+  if (key === sentPrefs) return;
+  sentPrefs = key;
+  tools.savePrefs?.(settings, zone).catch(() => { sentPrefs = ''; });
+}
 
 module.exports = { syncNow, configured: () => engine.configured(cfg), ready: refreshAccount, status, signIn, signUp, signOut, recover, accessToken, tools };
