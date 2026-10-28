@@ -6,7 +6,8 @@
 //   100m — rivets: walk (or jump) over all eight yellow rivets; each leaves a gap you must jump from then on.
 //          The last one brings the structure down and DK falls on his head.
 // The arcade board is portrait (224 px wide), so x is doubled to 448 px and the floors are ~40 px apart.
-// ← → walk, ↑ ↓ climb, Space jumps (committed arcade jump; falling more than about a girder = 'fell').
+// ← → walk, ↑ ↓ climb at a ladder, ↑ elsewhere jumps (committed arcade jump; falling more than about a girder =
+// 'fell'). Space brings the hammer down (one swing per press) — as in every game here, ↑ jumps and Space acts.
 // A hit costs a heart (the engine blinks the pet) and whatever hit it bursts; the pet carries on from the
 // same spot. A fall puts the pet back at the start and clears the barrels / springs (rivets stay pulled).
 import { giveHammer } from './runner.mjs';
@@ -18,6 +19,8 @@ const THICK = 7, WALK = 80, CLIMB = 42, GRAVITY = 800, JUMP_V = 185, MAX_FALL = 
 // stepping off any girder end ~30.
 export const FALL_LIMIT = 26;
 export const HAMMER_TIME = 8;
+// How long one swing of the hammer is down in front of the pet (only then does it smash).
+export const SWING_TIME = 0.3;
 const BARREL_SPEED = 100, BARREL_LADDER = 70, FIRE_SPEED = 28, FOX_SPEED = 34, SPRING_HOP = 190, SPRING_RUN = 85;
 // The arcade's bonus timer: counts down 100 every 2 s; what is left is paid when the board is cleared.
 export const BONUS_START = 5000, BONUS_STEP = 100, BONUS_EVERY = 2;
@@ -97,7 +100,7 @@ const dims = (game) => { const cell = game?.runner?.big ? 1.2 : 1; return { cell
 const invincible = (game) => game?.runner?.invincible > 0;
 function placePet(st, game) {
   const { w } = dims(game), x = st.board.start, s = supportNear(st, x + w / 2, 272, 20, false);
-  st.pet = { x, y: surfaceAt(s, x + w / 2), on: s, mode: 'walk', vx: 0, vy: 0, face: 1, peak: 0, takeoff: 0, ladder: null, hammer: 0, walking: false, jumpHeld: false, cleared: new Set() };
+  st.pet = { x, y: surfaceAt(s, x + w / 2), on: s, mode: 'walk', vx: 0, vy: 0, face: 1, peak: 0, takeoff: 0, ladder: null, hammer: 0, swing: 0, walking: false, jumpHeld: false, swingHeld: false, cleared: new Set() };
 }
 
 export function create(game, { stage = 0, lap = 0 } = {}) {
@@ -139,8 +142,11 @@ function startFall(p) { Object.assign(p, { mode: 'fall', vy: 0, vx: 0, peak: p.y
 function stepPet(st, dt, keys, game) {
   const p = st.pet, { w } = dims(game), cx = () => p.x + w / 2;
   const dir = Number(keys.has('ArrowRight')) - Number(keys.has('ArrowLeft')), up = keys.has('ArrowUp'), down = keys.has('ArrowDown');
-  const jump = keys.has('Space') && !p.jumpHeld; p.jumpHeld = keys.has('Space');
+  // ↑ is the jump key too: a fresh press away from a ladder jumps; holding it on a ladder only climbs.
+  const jump = up && !p.jumpHeld; p.jumpHeld = up;
+  const swing = keys.has('Space') && !p.swingHeld; p.swingHeld = keys.has('Space');
   p.hammer = Math.max(0, p.hammer - dt);
+  p.swing = p.hammer > 0 ? (swing ? SWING_TIME : Math.max(0, p.swing - dt)) : 0;
   p.walking = false;
   if (p.mode === 'walk') {
     if (p.on?.lift) { if (p.on.wrapped) { startFall(p); return null; } p.y += p.on.dy; }
@@ -382,8 +388,8 @@ export function step(st, dt, keys, game, random = Math.random) {
   if (st.oil) st.oil.flare = Math.max(0, st.oil.flare - dt);
 
   const p = st.pet, { w } = dims(game), me = petBox(st, game), cx = p.x + w / 2;
-  // Hammer: swinging in front of the pet; things that run into it are smashed.
-  const reach = p.hammer > 0 ? { x0: p.face > 0 ? cx : cx - w / 2 - 14, x1: p.face > 0 ? cx + w / 2 + 14 : cx, y0: me.y0 - 14, y1: me.y1 } : null;
+  // Hammer: while a swing is down (Space), things in front of the pet or just above it are smashed.
+  const reach = p.swing > 0 ? { x0: p.face > 0 ? cx : cx - w / 2 - 14, x1: p.face > 0 ? cx + w / 2 + 14 : cx, y0: me.y0 - 14, y1: me.y1 } : null;
   for (const h of st.hazards) {
     if (h.dead) continue;
     const hb = box(h);
@@ -566,11 +572,11 @@ export function paint(ctx, st, game, drawRunner) {
 
   for (const h of st.hazards) (h.kind === 'barrel' ? drawBarrel(ctx, h) : h.kind === 'fire' ? drawFire(ctx, h, st.time) : drawSpring(ctx, h));
 
-  // The pet, swinging the hammer while it has one (it flashes in the last two seconds).
+  // The pet holds the hammer up and brings it down on Space (it flashes in the last two seconds).
   const pz = pose(st, game), p = st.pet, { w, h } = dims(game);
   drawRunner(pz.x, pz.bottom, { onGround: pz.onGround, flip: pz.flip, cell: pz.cell });
   if (p.hammer > 0) {
-    const down = Math.floor(st.time / 0.14) % 2 === 0, flash = p.hammer < 2 && Math.floor(st.time * 8) % 2 === 0;
+    const down = p.swing > SWING_TIME / 3, flash = p.hammer < 2 && Math.floor(st.time * 8) % 2 === 0;
     if (down) drawHammer(ctx, p.face > 0 ? p.x + w - 4 : p.x - 11, p.y, true, flash);
     else drawHammer(ctx, p.x + w / 2 - 5 + p.face * 4, p.y - h + 4, false, flash);
   }

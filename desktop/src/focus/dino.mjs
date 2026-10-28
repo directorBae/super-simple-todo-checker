@@ -1,9 +1,10 @@
 // Chrome's offline runner, with trees for cacti and the person's pet as the runner (big after a mushroom).
 // Speeds up the longer you run, birds come at three heights, ↓ ducks (and drops fast in the air),
 // tapping jumps low and holding jumps high.
-// What the pet brought from the other games works here too: with the fire flower Space throws bouncing fireballs
-// (↑ jumps) that burn trees and birds — but from then on bone birds fly as well, and fire doesn't touch them;
-// hammer swings smash whatever the pet runs into (bone birds included); wings give a second jump in the air.
+// ↑ jumps, Space acts (the same in every game). What the pet brought from the other games works here too: with the
+// fire flower Space throws bouncing fireballs that burn trees and birds — but from then on bone birds fly as well, and
+// fire doesn't touch them; with the hammer Space swings it (one swing per press), smashing whatever is just ahead
+// (bone birds included); wings give a second jump in the air.
 export const FLOOR = 250, START_X = 64;
 const STAND = { w: 24, h: 28 }, DUCK = { w: 34, h: 16 }, BIG = { w: 30, h: 40 }, BIG_DUCK = { w: 44, h: 22 };
 const sizeFor = (game, ducking) => (game?.runner?.big ? (ducking ? BIG_DUCK : BIG) : ducking ? DUCK : STAND);
@@ -16,6 +17,9 @@ const BIRD_HEIGHTS = [FLOOR - 4, FLOOR - 26, FLOOR - 58];
 export const MAX_FIRE = 2;
 const FIRE_SPEED = 300, FIRE_BOUNCE = -270, FIRE_SIZE = 8, BURN = 0.5;
 const POINTS = { tree: 50, bird: 100, smash: 300 };
+// One hammer swing: down for this long, smashing what is within REACH px ahead of the pet.
+export const SWING_TIME = 0.3;
+const REACH = 26;
 // Once bone birds fly, this share of the birds are bone.
 const BONE_SHARE = 0.45;
 const flying = (o) => o.kind === 'bird' || o.kind === 'bone';
@@ -23,7 +27,7 @@ const flying = (o) => o.kind === 'bird' || o.kind === 'bone';
 export function create(game, carry) {
   return {
     speed: carry?.speed || START_SPEED, distance: 0, gap: 220, obstacles: [], clouds: [{ x: 120, y: 60 }, { x: 330, y: 40 }, { x: 470, y: 80 }], ending: false,
-    fireballs: [], puffs: [], popups: [], fireHeld: false, jumpHeld: false,
+    fireballs: [], puffs: [], popups: [], fireHeld: false, jumpHeld: false, swing: 0,
     player: { x: START_X, y: FLOOR - sizeFor(game).h, ...sizeFor(game), vy: 0, onGround: true, held: false, ducking: false, doubled: false },
   };
 }
@@ -49,11 +53,12 @@ const award = (st, game, o, points) => { game.score += points; st.popups.push({ 
 
 export function step(st, dt, keys, game, random = Math.random) {
   const p = st.player, runner = game.runner || {}, down = keys.has('ArrowDown');
-  // With the fire flower, Space is the fire button and ↑ jumps; otherwise both jump (like Chrome).
-  const jump = keys.has('ArrowUp') || (!runner.fire && keys.has('Space')), fire = !!runner.fire && keys.has('Space');
+  // ↑ jumps; Space throws a fireball (fire flower) and swings the hammer (if it has swings left), one per press.
+  const jump = keys.has('ArrowUp'), act = keys.has('Space'), pressed = act && !st.fireHeld;
   const jumpPressed = jump && !st.jumpHeld; st.jumpHeld = jump;
-  if (fire && !st.fireHeld && st.fireballs.length < MAX_FIRE) st.fireballs.push({ x: p.x + p.w - 4, y: p.y + p.h * 0.35, vy: 60, spin: 0 });
-  st.fireHeld = fire;
+  if (pressed && runner.fire && st.fireballs.length < MAX_FIRE) st.fireballs.push({ x: p.x + p.w - 4, y: p.y + p.h * 0.35, vy: 60, spin: 0 });
+  if (pressed && runner.hammer > 0) { runner.hammer--; st.swing = SWING_TIME; }
+  st.fireHeld = act;
   st.speed = Math.min(MAX_SPEED, st.speed + ACCELERATION * dt);
   st.distance += st.speed * dt;
   if (!st.ending) game.score += dt * st.speed * 0.11;
@@ -81,11 +86,9 @@ export function step(st, dt, keys, game, random = Math.random) {
     if (flying(o)) o.flap += dt;
     if (o.burn !== undefined) { o.burn += dt; continue; } // burning: harmless, gone in a moment
     const inset = 4;
-    if (!(runner.invincible > 0) && p.x + inset < o.x + o.w - inset && p.x + p.w - inset > o.x + inset && p.y + inset < o.y + o.h && p.y + p.h - 2 > o.y + inset) {
-      o.hit = true;
-      if (runner.hammer > 0) { runner.hammer--; smash(st, o); award(st, game, o, POINTS.smash); } // a hammer swing instead of a hit
-      else hurt = true;
-    }
+    // A swing that is down smashes what is just ahead of (or on) the pet.
+    if (st.swing > 0 && o.x < p.x + p.w + REACH && o.x + o.w > p.x && p.y < o.y + o.h && p.y + p.h > o.y) { o.hit = true; smash(st, o); award(st, game, o, POINTS.smash); continue; }
+    if (!(runner.invincible > 0) && p.x + inset < o.x + o.w - inset && p.x + p.w - inset > o.x + inset && p.y + inset < o.y + o.h && p.y + p.h - 2 > o.y + inset) { o.hit = true; hurt = true; }
   }
   stepFire(st, dt, game);
   st.obstacles = st.obstacles.filter((o) => o.x > -70 && !o.hit && !(o.burn > BURN));
@@ -96,7 +99,6 @@ export function step(st, dt, keys, game, random = Math.random) {
 }
 
 function smash(st, o) {
-  st.swing = 0.25;
   for (const [vx, vy] of [[-90, -240], [70, -280], [-30, -180], [120, -200]]) st.puffs.push({ x: o.x + o.w / 2, y: o.y + o.h / 2, vx, vy, t: 0, debris: o.kind });
 }
 // Fireballs bounce along the road; trees and birds catch fire, bone birds just put the fireball out.

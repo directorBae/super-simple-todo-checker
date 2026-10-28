@@ -68,9 +68,9 @@ test('DK: a barrel rolling into the pet hurts (once, not during the blink); jump
   assert.equal(st.hazards.length, 0, 'the barrel that hit bursts');
   game.runner.invincible = 1.5; st.hazards.push(barrelAt(st, 0, st.pet.x + 40));
   assert.equal(run(st, game, 1), null, 'no second hit during the blink');
-  // Jump a barrel on the bottom girder.
+  // Jump a barrel on the bottom girder (↑ jumps; Space doesn't).
   const b = quiet(0); b.st.hazards.push(barrelAt(b.st, 0, b.st.pet.x + 120));
-  const r = run(b.st, b.game, 3, () => (b.st.hazards[0] && b.st.hazards[0].x - b.st.pet.x < 28 ? new Set(['Space']) : new Set()), () => b.game.score > 0);
+  const r = run(b.st, b.game, 3, () => (b.st.hazards[0] && b.st.hazards[0].x - b.st.pet.x < 28 ? new Set(['ArrowUp']) : new Set()), () => b.game.score > 0);
   assert.equal(r, 'until'); assert.equal(b.game.score, 100);
 });
 
@@ -83,15 +83,21 @@ test('DK: DK throws barrels — the first one is the wild blue one that lights t
   assert.ok(st.hazards.some((h) => h.kind === 'barrel' && h.mode === 'roll' && h.on.level >= 4), 'barrels roll down from the top');
 });
 
-test('DK: grabbing the hammer hands the pet hammer swings; smashing a barrel pays 300/500/800; no climbing with it', () => {
+test('DK: grabbing the hammer hands the pet hammer swings; Space brings it down — a smash pays 300/500/800; no climbing with it', () => {
   const { game, st } = quiet(0);
   putPet(st, 1, 400);
-  assert.equal(run(st, game, 1, (i) => new Set(i < 2 ? ['Space'] : []), () => st.pet.hammer > 0), 'until');
+  assert.equal(run(st, game, 1, () => new Set(['Space'])), null); assert.equal(st.pet.mode, 'walk', 'Space never jumps');
+  assert.equal(run(st, game, 1, (i) => new Set(i < 2 ? ['ArrowUp'] : []), () => st.pet.hammer > 0), 'until');
   assert.equal(game.runner.hammer, HAMMER_SWINGS); assert.ok(game.runner.hammer > 0);
   assert.ok(st.hammers[0].taken);
   run(st, game, 0.6);
-  st.pet.face = -1; st.hazards.push(barrelAt(st, 1, st.pet.x - 70)); // rolls right, into the swing
-  assert.equal(run(st, game, 2, () => new Set(), () => game.score > 0), 'until');
+  // Held up, the hammer doesn't stop a barrel.
+  st.pet.face = -1; st.hazards.push(barrelAt(st, 1, st.pet.x - 70));
+  assert.equal(run(st, game, 2), 'hurt'); assert.equal(game.score, 0);
+  // Brought down (Space, tapped) as the barrel rolls in, it smashes it.
+  game.runner.invincible = 0; st.hazards.push(barrelAt(st, 1, st.pet.x - 70));
+  const near = () => st.hazards[0] && st.pet.x - st.hazards[0].x < 30;
+  assert.equal(run(st, game, 2, (i) => new Set(near() && i % 2 ? ['Space'] : []), () => game.score > 0), 'until');
   assert.ok([300, 500, 800].includes(game.score)); assert.equal(st.hazards.length, 0);
   // Can't climb while swinging.
   putPet(st, 1, 218); run(st, game, 1, () => new Set(['ArrowUp'])); assert.equal(st.pet.mode, 'walk');
@@ -113,7 +119,7 @@ test('DK: walking off a girder end is a deadly fall — the pet goes back to the
   assert.equal(run(st, game, 3, () => new Set(['ArrowRight'])), 'fell');
   assert.equal(st.pet.on.level, 0); assert.ok(st.pet.x < 120);
   // A plain jump on the girder is fine.
-  assert.equal(run(st, game, 1.5, (i) => new Set(i < 3 ? ['Space'] : [])), null); assert.equal(st.pet.mode, 'walk');
+  assert.equal(run(st, game, 1.5, (i) => new Set(i < 3 ? ['ArrowUp'] : [])), null); assert.equal(st.pet.mode, 'walk');
 });
 
 test('DK 100m: pulling rivets pays 100 and leaves holes; the eighth one brings DK down', () => {
@@ -126,7 +132,7 @@ test('DK 100m: pulling rivets pays 100 and leaves holes; the eighth one brings D
   assert.equal(run(st, game, 2, () => new Set(['ArrowLeft'])), 'fell');
   // Jumping over a rivet pulls it too.
   putPet(st, 2, 110);
-  run(st, game, 1, (i) => new Set(i < 2 ? ['Space', 'ArrowRight'] : []), () => st.pet.mode === 'walk' && st.pet.x > 120);
+  run(st, game, 1, (i) => new Set(i < 2 ? ['ArrowUp', 'ArrowRight'] : []), () => st.pet.mode === 'walk' && st.pet.x > 120);
   assert.ok(st.rivets.find((r) => r.level === 2 && r.x === 130).pulled);
   for (const r of st.rivets) if (!r.pulled && !(r.level === 3 && r.x === 370)) { r.pulled = true; level(st, r.level, r.x).gaps.push(r.x); }
   putPet(st, 3, 390);

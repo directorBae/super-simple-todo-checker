@@ -77,9 +77,9 @@ export default function Arcade({ db, active = true }) {
   return <section className="arcade-card" aria-label="오프라인 게임">
     <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}{stats.gear && <i className="arcade-gear">{stats.gear}</i>}</span><span className="arcade-stage">{stats.title}</span><span><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
     <div className="arcade-screen"><canvas ref={canvas} width="500" height="280" tabIndex="0" aria-label="게임" onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onBlur={() => { keys.current.clear(); }}
-      onPointerDown={e => { if (!running) { start(); return; } keys.current.add('Space'); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={() => keys.current.delete('Space')} onPointerCancel={() => keys.current.delete('Space')} />
+      onPointerDown={e => { if (!running) { start(); return; } keys.current.add('ArrowUp'); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={() => keys.current.delete('ArrowUp')} onPointerCancel={() => keys.current.delete('ArrowUp')} />
       {!running && <button className="arcade-start" aria-label={stats.over || stats.score ? '다시 시작' : '게임 시작'} onClick={start}>{stats.over ? '↻' : '▶'}</button>}
     </div>
-    <div className="touch-controls">{[['ArrowLeft', '←'], ['ArrowUp', '↑'], ['ArrowDown', '↓'], ['ArrowRight', '→'], ['Space', '점프 / 발사']].map(([code, label]) => <button key={code} disabled={!running} aria-label={'게임 ' + label} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); keys.current.add(code); }} onPointerUp={() => keys.current.delete(code)} onPointerCancel={() => keys.current.delete(code)} onLostPointerCapture={() => keys.current.delete(code)}>{label}</button>)}</div>
+    <div className="touch-controls">{[['ArrowLeft', '←'], ['ArrowUp', '↑ 점프'], ['ArrowDown', '↓'], ['ArrowRight', '→'], ['Space', '발사 / 망치']].map(([code, label]) => <button key={code} disabled={!running} aria-label={'게임 ' + label} onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); keys.current.add(code); }} onPointerUp={() => keys.current.delete(code)} onPointerCancel={() => keys.current.delete(code)} onLostPointerCapture={() => keys.current.delete(code)}>{label}</button>)}</div>
   </section>;
 }

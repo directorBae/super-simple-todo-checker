@@ -255,9 +255,9 @@ function throwFireball(level, p) {
 function stepMario(s, dt, keys, game, random) {
   const level = s.level, p = s.player, runner = game.runner, safe = runner?.invincible > 0;
   fitBox(p, sizeFor(game)); // grew from a mushroom, or shrank from a hit
-  // With the fire flower Space throws (one per press) and ↑ jumps; otherwise both jump.
+  // ↑ jumps (the same in every game); with the fire flower Space throws, one per press.
   const fire = !!runner?.fire, space = keys.has('Space'), up = keys.has('ArrowUp');
-  const left = keys.has('ArrowLeft'), right = keys.has('ArrowRight'), action = fire ? up : space || up;
+  const left = keys.has('ArrowLeft'), right = keys.has('ArrowRight');
   const dir = Number(right) - Number(left);
   if (dir) p.face = dir;
   if (fire && space && !s.fireHeld) throwFireball(level, p);
@@ -273,8 +273,8 @@ function stepMario(s, dt, keys, game, random) {
 
   if (dir) p.vx = Math.max(-MAX_RUN, Math.min(MAX_RUN, p.vx + dir * ACCEL * dt));
   else p.vx = Math.sign(p.vx) * Math.max(0, Math.abs(p.vx) - FRICTION * dt);
-  if (action && p.onGround) { p.vy = JUMP; p.held = true; p.onGround = false; p.lift = null; }
-  if (!action) p.held = false;
+  if (up && p.onGround) { p.vy = JUMP; p.held = true; p.onGround = false; p.lift = null; }
+  if (!up) p.held = false;
   if (!p.held && p.vy < CUT) p.vy = CUT;
   p.vy = Math.min(MAX_FALL, p.vy + GRAVITY * (p.held && p.vy < 0 ? HOLD_GRAVITY : 1) * dt);
   const feet = p.y + p.h;

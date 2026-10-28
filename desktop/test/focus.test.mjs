@@ -122,9 +122,22 @@ test('dino: speeds up like Chrome, birds only once fast, ↓ ducks, and a held j
   const slow = dino.create(game); slow.gap = 0; dino.step(slow, 1 / 600, new Set(), game, () => 0.01); assert.notEqual(slow.obstacles[0].kind, 'bird');
   const fast = dino.create(game, { speed: 500 }); fast.gap = 0; dino.step(fast, 1 / 60, new Set(), game, () => 0.01); assert.equal(fast.obstacles[0].kind, 'bird');
   const duck = dino.create(game); dino.step(duck, 1 / 60, new Set(['ArrowDown']), game); assert.equal(duck.player.ducking, true); assert.ok(duck.player.h < 20);
-  const peak = (hold) => { const s = dino.create(game); let top = s.player.y; for (let i = 0; i < 60; i++) { dino.step(s, 1 / 60, new Set(i < hold ? ['Space'] : []), game, () => 0.99); s.obstacles = []; top = Math.min(top, s.player.y); } return dino.FLOOR - 28 - top; };
+  const peak = (hold) => { const s = dino.create(game); let top = s.player.y; for (let i = 0; i < 60; i++) { dino.step(s, 1 / 60, new Set(i < hold ? ['ArrowUp'] : []), game, () => 0.99); s.obstacles = []; top = Math.min(top, s.player.y); } return dino.FLOOR - 28 - top; };
   const tap = peak(1), held = peak(20);
   assert.ok(tap > 26, 'a tap clears a small tree: ' + tap); assert.ok(held > tap * 2, `hold ${held} vs tap ${tap}`);
+});
+test('dino: ↑ jumps and Space acts — with the hammer, a tree is smashed only by a swing (one per press)', () => {
+  const game = { score: 0, runner: createRunner() };
+  const s = dino.create(game); dino.step(s, 1 / 60, new Set(['Space']), game, () => 0.99); assert.equal(s.player.onGround, true, 'Space never jumps');
+  const tree = (st) => { st.gap = 1e9; st.obstacles = [{ kind: 'small', x: st.player.x + st.player.w + 10, y: dino.FLOOR - 26, w: 16, h: 26 }]; };
+  game.runner.hammer = 2;
+  const held = dino.create(game); tree(held);
+  let hit = null; for (let i = 0; i < 30 && !hit; i++) hit = dino.step(held, 1 / 60, new Set(), game, () => 0.99);
+  assert.equal(hit, 'hurt', 'no swing: it hits');
+  assert.equal(game.runner.hammer, 2);
+  const swung = dino.create(game); tree(swung); const before = game.score;
+  assert.equal(dino.step(swung, 1 / 60, new Set(['Space']), game, () => 0.99), null);
+  assert.equal(swung.obstacles.length, 0); assert.equal(game.runner.hammer, 1); assert.ok(game.score - before >= 300);
 });
 test('mario 1-1: moves only by hand, ? blocks pay 100, chained stomps double, the flag ends the stage', () => {
   const game = { score: 0, runner: createRunner() }, st = mario.create(game), x = st.player.x;
@@ -132,7 +145,7 @@ test('mario 1-1: moves only by hand, ? blocks pay 100, chained stomps double, th
   run((k) => mario.step(st, 1 / 60, k, game), 0.5, () => new Set(['ArrowRight'])); assert.ok(st.player.x > x + 20);
   // ? block at tile 16, four tiles up.
   Object.assign(st.player, { x: 16 * mario.TILE + 1, y: mario.GROUND * mario.TILE - 28, vx: 0, vy: 0, onGround: true });
-  run((k) => { mario.step(st, 1 / 60, k, game); return game.score >= 100; }, 1.5, (i) => new Set(i < 30 ? ['Space'] : []));
+  run((k) => { mario.step(st, 1 / 60, k, game); return game.score >= 100; }, 1.5, (i) => new Set(i < 30 ? ['ArrowUp'] : []));
   assert.equal(game.score, 100);
   // Three goombas in a row without touching the ground: 100, 200, 400.
   const st2 = mario.create(game); game.score = 0; st2.level.goombas = []; Object.assign(st2.player, { x: 95, y: 120, vy: 0, onGround: false });
@@ -184,7 +197,7 @@ test('mario: a mushroom block grows the pet and adds a heart; a big pet breaks b
   const game = { score: 0, runner: createRunner() }, st = mario.create(game);
   // ? block at tile 21 (four tiles up) holds a mushroom.
   Object.assign(st.player, { x: 21 * mario.TILE + 1, y: mario.GROUND * mario.TILE - 28, vx: 0, vy: 0, onGround: true });
-  run((k) => { mario.step(st, 1 / 60, k, game); return st.level.items.length > 0; }, 1.5, (i) => new Set(i < 30 ? ['Space'] : []));
+  run((k) => { mario.step(st, 1 / 60, k, game); return st.level.items.length > 0; }, 1.5, (i) => new Set(i < 30 ? ['ArrowUp'] : []));
   assert.equal(st.level.items.length, 1, 'a mushroom comes out');
   run(() => { mario.step(st, 1 / 60, new Set(), game); return game.runner.big; }, 2, () => new Set());
   if (!game.runner.big) { const m = st.level.items[0]; Object.assign(st.player, { x: m.x, y: m.y }); mario.step(st, 1 / 60, new Set(), game); }
@@ -193,7 +206,7 @@ test('mario: a mushroom block grows the pet and adds a heart; a big pet breaks b
   const st2 = mario.create(game), brick = () => mario.tileAt(st2.level, 20, mario.GROUND - 4);
   Object.assign(st2.player, { x: 20 * mario.TILE + 1, vx: 0, vy: 0, onGround: true }); st2.player.y = mario.GROUND * mario.TILE - st2.player.h;
   const solid = brick();
-  run((k) => { mario.step(st2, 1 / 60, k, game); return brick() !== solid; }, 1.5, (i) => new Set(i < 30 ? ['Space'] : []));
+  run((k) => { mario.step(st2, 1 / 60, k, game); return brick() !== solid; }, 1.5, (i) => new Set(i < 30 ? ['ArrowUp'] : []));
   assert.equal(brick(), 0, 'the brick is gone'); assert.ok(st2.level.debris.length > 0);
 });
 test('pac-man: dots 10, energizer 50 and frightened ghosts worth 200 then 400; a normal ghost catches you', () => {

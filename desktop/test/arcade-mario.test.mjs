@@ -88,7 +88,7 @@ test('mario 1-2: a lift carries the pet; the side pipe leads outside to the flag
   assert.equal(st2.player.y + st2.player.h, (GROUND - 2) * TILE, 'standing on the pipe it came out of');
   assert.equal(paintCalls(st2, game).length, 1);
   game.score = 0;
-  assert.equal(run(st2, game, 20, () => keys('ArrowRight', 'Space')), 'done', 'flag, walk, castle');
+  assert.equal(run(st2, game, 20, () => keys('ArrowRight', 'ArrowUp')), 'done', 'flag, walk, castle');
   assert.ok(game.score >= 100);
 });
 
@@ -96,7 +96,7 @@ test('mario castle: the ? block always holds a fire flower; with fire, Space thr
   const game = newGame(), st = mario.create(game, { stage: 2 });
   assert.equal(st.level.theme, 'castle');
   stand(st, 21 * TILE + 1);
-  run(st, game, 1.5, (i) => (i < 30 ? keys('Space') : NONE), () => st.level.items.length > 0);
+  run(st, game, 1.5, (i) => (i < 30 ? keys('ArrowUp') : NONE), () => st.level.items.length > 0);
   assert.equal(st.level.items[0].kind, 'flower', 'a flower even for a small pet');
   run(st, game, 1.5, () => NONE, () => st.level.items[0].rise <= 0);
   const f = st.level.items[0]; Object.assign(st.player, { x: f.x, y: f.y });
