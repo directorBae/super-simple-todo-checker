@@ -42,11 +42,14 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
   const authFailures = new Map();
   const stamp = r => r.updatedAt || r.createdAt || 0;
   const snapshot = () => ({ teams: db.teams, projects: db.projects, todos: db.todos.filter(t => !integrations.excluded(t.id)).map(t => integrations.decorate(t)), excludedTodoIds: db.todos.filter(t => integrations.excluded(t.id)).map(t => t.id), tombstones: db.tombstones });
-  function merge(client) {
+  // trusted: rows from Supabase (other devices' clocks may run ahead of this one; their times stand as they are, or
+  // an edit made here right after would look older than what it edits).
+  function merge(client, { trusted = false } = {}) {
+    const future = (t) => !trusted && t > Date.now() + 300000;
     if (!client || typeof client !== 'object' || Array.isArray(client)) throw new ApiError('상태 형식이 올바르지 않습니다.');
     for (const key of ['teams', 'projects', 'todos', 'tombstones']) if (client[key] !== undefined && (!Array.isArray(client[key]) || client[key].length > 100000)) throw new ApiError('잘못된 컬렉션: ' + key);
     for (const coll of ['teams', 'projects', 'todos']) for (const r of client[coll] || []) {
-      if (!r || typeof r.id !== 'string' || r.id.length > 200 || !Number.isFinite(stamp(r)) || stamp(r) > Date.now() + 300000) throw new ApiError('항목 ID와 기기 시간을 확인해 주세요.');
+      if (!r || typeof r.id !== 'string' || r.id.length > 200 || !Number.isFinite(stamp(r)) || future(stamp(r))) throw new ApiError('항목 ID와 기기 시간을 확인해 주세요.');
       if (coll === 'todos') {
         if (typeof r.title !== 'string' || r.title.length > 10000 || (r.notes && (typeof r.notes !== 'string' || r.notes.length > 50000))) throw new ApiError('할 일 제목 또는 메모가 너무 깁니다.');
         if (!['todo', 'done', 'bucket'].includes(r.status)) throw new ApiError('할 일 상태가 올바르지 않습니다.');
@@ -54,7 +57,7 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
     }
     const tombs = new Map(db.tombstones.map(t => [t.coll + ':' + t.id, t]));
     for (const t of client.tombstones || []) {
-      if (!t || !['teams', 'projects', 'todos'].includes(t.coll) || typeof t.id !== 'string' || !Number.isFinite(t.deletedAt) || t.deletedAt > Date.now() + 300000) throw new ApiError('삭제 기록이 올바르지 않습니다.');
+      if (!t || !['teams', 'projects', 'todos'].includes(t.coll) || typeof t.id !== 'string' || !Number.isFinite(t.deletedAt) || future(t.deletedAt)) throw new ApiError('삭제 기록이 올바르지 않습니다.');
       const key = t.coll + ':' + t.id;
       if (!tombs.has(key) || tombs.get(key).deletedAt < t.deletedAt) tombs.set(key, { coll: t.coll, id: t.id, deletedAt: t.deletedAt });
     }

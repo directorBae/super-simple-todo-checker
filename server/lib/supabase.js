@@ -32,13 +32,13 @@ function createSupabaseSync({ dir, env = process.env, merge, snapshot, fetch, au
         updates.tombstones.push({ coll, id: row.id, deletedAt: Number(row.deleted_at) });
       } else {
         const item = engine.fromRow(coll, row);
+        // Times stay as the database has them, even ahead of this computer's clock (merge trusts them): an edit made here
+        // is stamped after the version it edits, so every device agrees it is the newer one.
         next.known[coll + ':' + row.id] = item.updatedAt;
-        // A device whose clock runs ahead would make merge() reject the whole round; take its change as of now.
-        if (item.updatedAt > Date.now() + 60000) item.updatedAt = Date.now();
         updates[coll].push(item);
       }
     }
-    if (remote.length) merge(updates);
+    if (remote.length) merge(updates, { trusted: true });
     await engine.pushRemote(cfg, engine.collectPush(snapshot(), next), next);
     next.pulledAt = newest || engine.EPOCH;
     meta = next;

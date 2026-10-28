@@ -10,7 +10,7 @@ import { HttpError, hmac, safeEqual, signState, readState } from './http.js';
 import { db, eq, userOf } from './db.js';
 import * as notion from './notion.js';
 import * as google from './google.js';
-import { syncSubscription, pushBack } from './sync.js';
+import { syncSubscription, syncSoon, pushBack } from './sync.js';
 import { sweep } from './sweep.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
@@ -76,7 +76,7 @@ async function notionWebhook(env, req) {
   const conns = await store.select('connections', `provider=eq.notion&meta->>workspace_id=${eq(workspace)}&select=id`);
   if (!conns.length || !ids.length) return reply({ ok: true, matched: 0 });
   const subs = await store.select('subscriptions', `connection_id=in.(${conns.map((c) => c.id).join(',')})&resource_id=in.(${ids.join(',')})&select=id`);
-  for (const s of subs) later(env, syncSubscription(env, s.id));
+  for (const s of subs) later(env, syncSoon(env, s.id));
   return reply({ ok: true, matched: subs.length });
 }
 async function googleWebhook(env, req) {
@@ -84,7 +84,7 @@ async function googleWebhook(env, req) {
   if (!id || state === 'sync') return reply({ ok: true });
   if (!safeEqual(req.headers.get('x-goog-channel-token'), await channelToken(env, id))) throw new HttpError('채널이 맞지 않아요.', 401);
   const subs = await db(env).select('subscriptions', `meta->channel->>id=${eq(id)}&select=id`);
-  for (const s of subs) later(env, syncSubscription(env, s.id));
+  for (const s of subs) later(env, syncSoon(env, s.id));
   return reply({ ok: true });
 }
 // Google channels last a week at most: renew the ones ending within two days.
@@ -192,6 +192,6 @@ export function environment(get, extra = {}) {
     OPENAI_API_KEY: get('OPENAI_API_KEY'), OPENAI_MODEL: get('OPENAI_MODEL') || 'gpt-6.1-terra',
     STATE_SECRET: get('STATE_SECRET'), HOOK_SECRET: get('HOOK_SECRET'), TIME_ZONE: get('TIME_ZONE') || 'Asia/Seoul',
     base, redirect: (p) => `${base}/oauth/callback/${p}`, webhook: (p) => `${base}/webhook/${p}`,
-    fetch: globalThis.fetch.bind(globalThis), now: () => Date.now(), waitUntil: (p) => p, ...extra,
+    fetch: globalThis.fetch.bind(globalThis), now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)), waitUntil: (p) => p, ...extra,
   };
 }

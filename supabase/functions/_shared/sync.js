@@ -37,18 +37,29 @@ const summaryOf = (sub, c) => {
   return `${NAMES[sub.provider]} "${sub.title}"` + (parts.length ? `에서 ${parts.join(', ')}` : ' — 바뀐 할 일 없음');
 };
 
+// Webhooks: one edit often comes as two or three notices within a moment. Each notice only marks the subscription
+// pending; after a short settle the first call reads the final state once, and the later ones find nothing left to do.
+export const SETTLE_MS = 3000;
+export async function syncSoon(env, subId) {
+  await db(env).update('subscriptions', 'id=' + eq(subId), { pending: true });
+  await env.sleep(SETTLE_MS);
+  return syncSubscription(env, subId, { onlyIfPending: true });
+}
+
 // quiet: the Monday/Thursday check-up — no pet job, so nothing shows; the to-dos just come out right.
-export async function syncSubscription(env, subId, { quiet = false } = {}) {
+// onlyIfPending: a settled webhook call — it runs only if no other run has already picked the notices up.
+export async function syncSubscription(env, subId, { quiet = false, onlyIfPending = false } = {}) {
   const store = db(env), now = env.now();
-  const [sub] = await store.select('subscriptions', 'id=' + eq(subId) + '&select=*');
-  if (!sub) return null;
-  // Another run is on it: leave a note so it goes once more when it finishes.
-  if (sub.state === 'syncing' && now - Date.parse(sub.meta.syncing_at || 0) < 120_000) {
-    await store.update('subscriptions', 'id=' + eq(sub.id), { meta: { ...sub.meta, pending: true } });
+  // One run at a time per subscription, claimed in a single conditional update (two webhooks arriving together can't
+  // both start). A run stuck for 2 minutes counts as gone. Whoever finds it taken leaves `pending`, in its own column,
+  // so the run in progress goes once more when it finishes — nothing a webhook reports gets lost.
+  const stale = new Date(now - 120_000).toISOString();
+  const [sub] = await store.update('subscriptions', `id=${eq(subId)}${onlyIfPending ? '&pending=is.true' : ''}&or=(state.neq.syncing,syncing_since.is.null,syncing_since.lt.${stale})`,
+    { state: 'syncing', syncing_since: new Date(now).toISOString(), pending: false });
+  if (!sub) {
+    if (!onlyIfPending) await store.update('subscriptions', 'id=' + eq(subId), { pending: true });
     return null;
   }
-  sub.meta = { ...sub.meta, syncing_at: new Date(now).toISOString(), pending: false };
-  await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'syncing', meta: sub.meta });
   const [conn] = await store.select('connections', 'id=' + eq(sub.connection_id) + '&select=*');
   const [job] = quiet ? [] : await store.insert('pet_jobs', [{ user_id: sub.user_id, subscription_id: sub.id, provider: sub.provider, state: 'reading', summary: `${NAMES[sub.provider]} "${sub.title}" 읽는 중` }]);
   const step = (state, extra = {}) => (job ? store.update('pet_jobs', 'id=' + eq(job.id), { state, updated_at: new Date(env.now()).toISOString(), ...extra }) : Promise.resolve());
@@ -84,16 +95,18 @@ export async function syncSubscription(env, subId, { quiet = false } = {}) {
       await store.update('todos', 'id=' + eq(todo.id), row);
     }
     Object.assign(counts, { created: create.length, updated: update.length + adopt.length, deleted: remove.length });
-    await step('done', { counts, summary: summaryOf(sub, counts) });
-    await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'idle', last_error: null, last_synced_at: new Date(env.now()).toISOString(), meta: { ...sub.meta, syncing_at: null } });
+    // Nothing changed (a second notice for the same edit): the job just goes away instead of saying so.
+    if (job && !create.length && !update.length && !remove.length && !adopt.length) await store.remove('pet_jobs', 'id=' + eq(job.id));
+    else await step('done', { counts, summary: summaryOf(sub, counts) });
+    await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'idle', syncing_since: null, last_error: null, last_synced_at: new Date(env.now()).toISOString() });
   } catch (e) {
     console.error('동기화 실패', sub.id, e.message);
     await step('error', { summary: `${NAMES[sub.provider]} "${sub.title}"을 읽지 못했어요: ${e.message}` }).catch(() => {});
-    await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'error', last_error: e.message, meta: { ...sub.meta, syncing_at: null } }).catch(() => {});
+    await store.update('subscriptions', 'id=' + eq(sub.id), { state: 'error', syncing_since: null, last_error: e.message }).catch(() => {});
   }
   // Changes arrived while this ran: once more.
-  const [after] = await store.select('subscriptions', 'id=' + eq(sub.id) + '&select=meta').catch(() => []);
-  if (after?.meta?.pending) return syncSubscription(env, sub.id, { quiet });
+  const [after] = await store.select('subscriptions', 'id=' + eq(sub.id) + '&select=pending').catch(() => []);
+  if (after?.pending) return syncSubscription(env, sub.id, { quiet });
   return counts;
 }
 

@@ -15,12 +15,14 @@ function fakeRest() {
   const read = (row, path) => path.split(/->>|->/).reduce((v, k, i) => (i === 0 ? row[k] : v?.[k]), null);
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
+    if (key === 'or') return cond.slice(1, -1).split(',').some((part) => { const [k, ...rest] = part.split('.'); return match(row, [k, rest.join('.')]); });
     const v = read(row, key), [op, ...rest] = cond.split('.'), arg = decodeURIComponent(rest.join('.'));
     if (op === 'eq') return String(v) === arg;
-    if (op === 'is') return v === null || v === undefined;
+    if (op === 'is') return arg === 'null' ? v === null || v === undefined : String(!!v) === arg;
     if (op === 'neq') return String(v) !== arg;
     if (op === 'in') return arg.slice(1, -1).split(',').includes(String(v));
     if (op === 'gte') return v >= arg;
+    if (op === 'lt') return v < arg;
     if (op === 'lte') return v <= arg;
     throw new Error('filter ' + op);
   };
@@ -259,4 +261,23 @@ test('deleting in the app deletes at the source; a row the import itself cleaned
   one.deleted_at = null;
   assert.equal((await (await w.request('/push-back', { body: { id: one.id }, headers: hook })).json()).result, 'detached');
   assert.equal(one.origin, null);
+});
+
+test('two notices for one edit, close together: read once, after they settle, with the final state', async () => {
+  const w = world();
+  w.notionDb.push({ id: 'p1', title: '회의', date: '2026-10-29' });
+  w.rest.tables.connections.push({ id: 'c1', user_id: 'user-1', provider: 'notion', meta: { workspace_id: 'ws1' }, secret: { access_token: 'ntn' } });
+  await w.request('/subscribe', { body: { resource_id: 'db1', type: 'database' }, headers: app });
+  await w.settle();
+  const jobs = w.rest.tables.pet_jobs.length, reads = () => w.calls.filter((c) => c.url.includes('/databases/db1/query')).length, before = reads();
+  await w.request('/webhook/notion', { body: { verification_token: 'secret_v' } });
+  const send = async () => { const e = JSON.stringify({ type: 'page.properties_updated', workspace_id: 'ws-1', entity: { id: 'p1', type: 'page' }, data: { parent: { id: 'db1', type: 'database' } } }); return w.request('/webhook/notion', { body: e, headers: { 'X-Notion-Signature': 'sha256=' + (await hmac('secret_v', e)) } }); };
+  await send();
+  w.notionDb[0].date = '2026-10-30'; // the edit lands between the two notices
+  await send();
+  await w.settle();
+  assert.equal(reads() - before, 1, 'one read for both notices');
+  assert.equal(w.rest.tables.pet_jobs.length - jobs, 1);
+  assert.equal(w.rest.tables.todos[0].date, '2026-10-30', 'the final state');
+  assert.equal(w.rest.tables.subscriptions[0].pending, false);
 });

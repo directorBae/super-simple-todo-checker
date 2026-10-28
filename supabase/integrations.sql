@@ -40,6 +40,9 @@ create table if not exists public.subscriptions (
   unique (user_id, provider, resource_id)
 );
 create index if not exists subscriptions_resource_idx on public.subscriptions (provider, resource_id);
+-- 한 구독은 한 번에 하나만 읽는다(syncing_since로 잡고, 그사이 온 웹훅은 pending으로 남겨 끝난 뒤 한 번 더).
+alter table public.subscriptions add column if not exists pending boolean not null default false;
+alter table public.subscriptions add column if not exists syncing_since timestamptz;
 
 -- 여러 계정: 한 사람이 구글 계정(이메일)·노션 워크스페이스를 여러 개 연결할 수 있다. 구독은 연결(계정)마다.
 alter table public.connections add column if not exists account_key text;
