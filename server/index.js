@@ -17,6 +17,17 @@ function configuration(env = process.env) {
   }
   return { publicUrl, googleClientId: env.GOOGLE_CLIENT_ID, googleClientSecret: env.GOOGLE_CLIENT_SECRET, notionClientId: env.NOTION_CLIENT_ID, notionClientSecret: env.NOTION_CLIENT_SECRET, openaiKey: env.OPENAI_API_KEY, openaiModel: env.OPENAI_MODEL || 'gpt-4.1-mini', timeZone: env.TIME_ZONE || 'Asia/Seoul' };
 }
+// A to-do's source as the server keeps it: imports from Notion / Google Calendar keep what identifies the item there.
+const text = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : null);
+function originOf(o) {
+  if (o?.type === 'external' && ['notion', 'google'].includes(o.provider)) {
+    const r = o.remote && typeof o.remote === 'object' ? o.remote : {};
+    return { type: 'external', provider: o.provider, subscription: text(o.subscription, 100), id: text(o.id, 300), url: text(o.url, 2000),
+      remote: { title: text(r.title, 300), date: text(r.date, 10), start_time: text(r.start_time, 5), end_time: text(r.end_time, 5), done: !!r.done, ...(r.deleted ? { deleted: true } : {}) } };
+  }
+  return { type: o?.type === 'app' ? 'app' : 'legacy' };
+}
+
 function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'), token = process.env.SYNC_TOKEN, config = configuration(), overrides, loginPassword = process.env.PERSONAL_PASSWORD, supabaseEnv = process.env, supabaseFetch, supabaseAuth } = {}) {
   const store = new Storage(dir), db = store.data;
   const tokenPath = path.join(dir, 'token.txt');
@@ -70,11 +81,18 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
         }
         const patch = Object.fromEntries(editable.filter(k => k in incoming).map(k => [k, incoming[k]]));
         patch.kind = 'todo'; delete patch.channel;
+        // Where a to-do came from: a Notion/Google import keeps its source (the app marks it, the pet animates it and
+        // edits go back to the source through Supabase); 'origin: null' means it was detached from its source.
+        const origin = 'origin' in incoming ? originOf(incoming.origin) : null;
         if (!old) {
-          const todo = { ...patch, id: incoming.id, createdAt: incoming.createdAt || Date.now(), updatedAt: stamp(incoming), revision: 1, origin: { type: incoming.origin?.type === 'app' ? 'app' : 'legacy' } };
+          const todo = { ...patch, id: incoming.id, createdAt: incoming.createdAt || Date.now(), updatedAt: stamp(incoming), revision: 1, origin: origin || { type: 'legacy' } };
           map.set(todo.id, todo); integrations.changed(todo);
+        } else if (stamp(incoming) === stamp(old) && origin?.type === 'external' && JSON.stringify(origin) !== JSON.stringify(old.origin)) {
+          old.origin = origin; // same edit, but this copy had lost where it came from
         } else if (stamp(incoming) > stamp(old)) {
-          if (!editable.some(k => k in patch && (patch[k] ?? null) !== (old[k] ?? null))) continue;
+          const sourceChanged = origin && JSON.stringify(origin) !== JSON.stringify(old.origin);
+          if (sourceChanged && (origin.type === 'external' || old.origin?.type === 'external')) old.origin = origin;
+          if (!editable.some(k => k in patch && (patch[k] ?? null) !== (old[k] ?? null))) { if (sourceChanged) old.updatedAt = Math.max(stamp(old), stamp(incoming)); continue; }
           if (config.multiUser && ((incoming.syncRevision !== undefined && incoming.syncRevision !== old.revision) || (incoming.syncRevision === undefined && db.links.some(l => l.todoId === old.id)))) {
             old.clientConflict = { message: '다른 기기 또는 원본에서 먼저 수정했습니다.', incoming: patch }; continue;
           }
