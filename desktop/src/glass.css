@@ -654,3 +654,20 @@ button.tool-sub-title:hover { text-decoration: underline; }
   .memo-line:has(.type-tick) .memo-line-main > input, .memo-day .memo-line:has(.type-tick) .memo-line-main, .cal-chip:has(.type-tick) { animation: none; }
   .ai-edge-glow { opacity: 0.7; }
 }
+
+/* 음악 재생목록: 줄마다 제목(없으면 링크), 재생 중인 줄은 강조, 끌어서 순서 바꾸기 */
+.music-list { list-style: none; margin: 12px 0 0; padding: 0; max-height: 228px; overflow-y: auto; display: grid; gap: 2px; }
+.music-list li { display: flex; align-items: center; border-radius: 10px; cursor: grab; transition: background 0.15s; }
+.music-list li:hover { background: rgba(99, 102, 241, 0.06); }
+.music-list li.is-playing { background: rgba(99, 102, 241, 0.13); }
+.music-card .music-list li.is-playing button.music-row { color: #4f46e5; font-weight: 600; }
+.music-list li.is-dragging { opacity: 0.4; }
+.music-list li.is-drop { box-shadow: inset 0 2px 0 #6366f1; }
+.music-list li.is-drop-after { box-shadow: inset 0 -2px 0 #6366f1; }
+.music-card .music-list button.music-row { flex: 1; min-width: 0; padding: 8px 10px; border: 0; border-radius: 10px; background: none; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.music-card .music-list button.music-remove { flex-shrink: 0; width: 28px; height: 28px; margin-right: 2px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 12px; cursor: pointer; opacity: 0; transition: opacity 0.15s, background 0.15s; }
+.music-card .music-list li:hover button.music-remove,
+.music-card .music-list button.music-remove:focus-visible { opacity: 1; }
+.music-card .music-list button.music-remove:hover { background: rgba(10, 14, 30, 0.06); }
+@media (hover: none) { .music-card .music-list button.music-remove { opacity: 0.7; } }
+.music-card .music-list button.music-row:hover { background: none; }

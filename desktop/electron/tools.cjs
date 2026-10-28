@@ -2,7 +2,7 @@
  * Electron 메인과 웹 서버(scripts/web-server.cjs)가 같이 쓴다. 창에서 오는 값은 여기서 한 번 거른다. */
 // Packaged builds carry the shared files under app/shared; in the repo they sit two levels up.
 const shared = (name) => { try { return require('../shared/' + name); } catch { return require('../../shared/' + name); } };
-const { createToolsClient } = shared('tools-client.cjs');
+const { createToolsClient, cleanPlaylist } = shared('tools-client.cjs');
 
 const PROVIDERS = ['notion', 'google'];
 // Where an OAuth start may send the browser (the Edge Function builds these).
@@ -32,9 +32,27 @@ const ACTIONS = {
   // { id } drops that one account, { provider } every account of the tool.
   disconnect: (c, p) => c.disconnect(p.id ? id(p.id) : provider(p.provider)),
   sync: (c, p) => c.syncNow(p.id ? id(p.id) : undefined),
+  // 음악 재생목록: one per person. Only YouTube https links get through (the same rules the client applies).
+  playlist: async (c) => ({ playlist: cleanPlaylist(await c.playlist()) }),
+  savePlaylist: async (c, p) => {
+    if (!Array.isArray(p.list) || p.list.length > 200) throw new Error('재생목록을 저장할 수 없어요.');
+    await c.savePlaylist(cleanPlaylist(p.list));
+    return {};
+  },
 };
+const YOUTUBE = /^https:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//;
+// A YouTube link's title from oEmbed (the window's CSP can't reach youtube.com itself). Needs no account.
+async function musicTitle(p, request = globalThis.fetch) {
+  const url = String(p.url || '').slice(0, 500);
+  if (!YOUTUBE.test(url)) throw new Error('YouTube 링크가 아니에요.');
+  const res = await request('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url), { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) return { title: '' };
+  const body = await res.json().catch(() => null);
+  return { title: typeof body?.title === 'string' ? body.title.slice(0, 200) : '' };
+}
 // Always answers { ok, ... } or { ok: false, error } — errors are already in Korean.
 async function run(c, action, payload) {
+  if (action === 'musicTitle') return musicTitle(payload && typeof payload === 'object' ? payload : {}).then((r) => ({ ok: true, ...r }), (e) => ({ ok: false, error: e.message }));
   if (!Object.hasOwn(ACTIONS, action)) return { ok: false, error: '요청을 찾을 수 없어요.' };
   if (!c) return { ok: false, error: '연결 서버가 설정되지 않았어요.' };
   try { return { ok: true, ...(await ACTIONS[action](c, payload && typeof payload === 'object' ? payload : {})) }; }
@@ -52,4 +70,4 @@ function doneWatcher() {
   };
 }
 
-module.exports = { client, run, safeUrl, doneWatcher, AUTH_HOSTS };
+module.exports = { client, run, safeUrl, doneWatcher, musicTitle, AUTH_HOSTS };

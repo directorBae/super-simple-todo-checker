@@ -15,6 +15,7 @@ import Integrations from './src/screens/Integrations.js';
 import AppSettings from './src/screens/AppSettings.js';
 import Manage from './src/screens/Manage.js';
 import MusicPanel from './src/screens/Music.js';
+import { usePlaylist } from './src/usePlaylist.js';
 import ClockDrawer from './src/screens/ClockDrawer.js';
 import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
@@ -23,6 +24,7 @@ import { notificationPermission, rescheduleReminders } from './src/notifications
 function Shell() {
  const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
  const [music, setMusic] = useState(false), [musicMounted, setMusicMounted] = useState(false), [nowPlaying, setNowPlaying] = useState(null), musicControls = useRef(null);
+ const playlist = usePlaylist(); // my playlist, loaded at start (the same list as on PC and web)
  const onboarding = !db.settings.onboardingDone;
  // Rooms side by side: teams/buckets (-1) ← main (0) → clock (1). The phone app has no pet.
  const [room, setRoom] = useState(0), [clockTodo, setClockTodo] = useState(null), clock = useRef(null), latest = useRef(null);
@@ -83,7 +85,7 @@ function Shell() {
    </Animated.View>}
    {!onboarding&&<ClockDrawer ref={clock} visible={room===1} camera={camera} db={db} api={api} pending={clockTodo} onAssigned={()=>setClockTodo(null)} onClose={()=>setRoom(0)}/>}
    <JobToast />
-   {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} />}
+   {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} playlist={playlist} />}
    <StatusBar style="dark" />
  </View></SafeAreaView>;
 }

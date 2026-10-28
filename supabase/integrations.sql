@@ -141,6 +141,9 @@ create policy "own change" on public.user_prefs for update to authenticated usin
 revoke all on public.user_prefs from anon, authenticated;
 grant select, insert, update (morning_on, morning_time, time_zone, updated_at, user_id) on public.user_prefs to authenticated;
 grant select on public.user_prefs to authenticated;
+-- 음악 재생목록(계정당 하나): [{ id, url, videoId, listId, title }] — 기기끼리 같은 목록을 본다.
+alter table public.user_prefs add column if not exists playlist jsonb not null default '[]'::jsonb;
+grant insert (playlist), update (playlist) on public.user_prefs to authenticated;
 
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$

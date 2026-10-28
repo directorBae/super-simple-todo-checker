@@ -147,7 +147,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
         if (method === 'pair') return send(res, 200, { ok: true, ...await fetch(`http://127.0.0.1:${core.server.address().port}/pair/create`, { method: 'POST', headers: { Authorization: 'Bearer ' + core.token } }).then(r => r.json()) });
         const result = mutations.then(async () => {
           if (method === 'settings') {
-            const allowed = [...Object.keys(defaults), 'focusPet', 'arcadeBest', 'wallpaper', 'music'];
+            const allowed = [...Object.keys(defaults), 'focusPet', 'arcadeBest', 'wallpaper', 'music', 'musicSeeded'];
             settings = { ...settings, ...Object.fromEntries(Object.entries(p).filter(([key]) => allowed.includes(key))), autoLaunch: false };
             await fsp.writeFile(settingsFile + '.tmp', JSON.stringify(settings), 'utf8'); await fsp.rename(settingsFile + '.tmp', settingsFile); sharePrefs(); return state();
           }

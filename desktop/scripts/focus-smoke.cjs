@@ -13,7 +13,7 @@ const db = { todos: [
   { id: 'b', title: '오후 산책하고 좋아하는 음악 듣기', kind: 'todo', status: 'todo', date: today, createdAt: now + 1 },
   { id: 'c', title: '다음 주 읽을 책 고르기', kind: 'todo', status: 'todo', date: null, createdAt: now + 2 },
   { id: 'later', title: '사흘 뒤 할 일', kind: 'todo', status: 'todo', date: later, createdAt: now + 3 },
-], teams: [{ id: 'team', name: 'Studio', color: '#bc9f85' }], projects: [], gcalEvents: [], tombstones: [], notifLog: [{ key: 'k1', todoId: 'a', type: 'start', due: now - 3600000, firedAt: now, missed: true }], settings: { theme: 'light', onboardingDone: true, sync: {} } };
+], teams: [{ id: 'team', name: 'Studio', color: '#bc9f85' }], projects: [], gcalEvents: [], tombstones: [], notifLog: [{ key: 'k1', todoId: 'a', type: 'start', due: now - 3600000, firedAt: now, missed: true }], settings: { theme: 'light', onboardingDone: true, sync: {}, music: [{ id: 'lofi-study', videoId: '7NOSDKb0HlU', listId: null, title: 'lofi' }, { id: 'mine', videoId: '5yx6BWlEVcY', listId: null, title: '내 링크' }] } };
 const emit = () => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send('smoke:db', db); return db; };
 ipcMain.handle('smoke:state', () => db);
 ipcMain.handle('smoke:settings', (e, p) => { Object.assign(db.settings, p); return emit(e); });
@@ -26,7 +26,14 @@ ipcMain.handle('smoke:integrations', (_, p) => {
   if (p?.action === 'create-pet') return { ok: true, name: '구름', species: 'bunny', color: 'lavender', personality: '조용한 응원 친구', greeting: '오늘도 한 걸음씩.' };
   return { ok: true, configured: { openai: true, model: 'test-model' }, connections: [], targets: [], jobs: [] };
 });
-ipcMain.handle('smoke:tools', () => ({ ok: true, connections: [], subscriptions: [], jobs: [] }));
+// The account playlist starts empty; savePlaylist calls are kept for the checks.
+let playlist = []; const playlistSaves = [];
+ipcMain.handle('smoke:tools', (_, { action, payload = {} } = {}) => {
+  if (action === 'playlist') return { ok: true, playlist };
+  if (action === 'savePlaylist') { playlist = payload.list; playlistSaves.push(payload.list); return { ok: true }; }
+  if (action === 'musicTitle') return { ok: true, title: payload.url.includes('n61ULEU7CO0') ? 'Best of lofi 2021' : '' };
+  return { ok: true, connections: [], subscriptions: [], jobs: [] };
+});
 ipcMain.handle('smoke:open', () => ({ ok: true }));
 ipcMain.handle('smoke:wallpaper', (_, p) => { fs.writeFileSync(path.join(dir, 'checker-wallpaper.html'), wallpaperHtml(p)); return { ok: true }; });
 const pause = ms => new Promise(r => setTimeout(r, ms));
@@ -192,6 +199,23 @@ await snap('clock-drag-calendar');await js(`window.dispatchEvent(new PointerEven
     assert.ok(await js(`!document.querySelector('.manage-dock.is-open')&&!document.querySelector('.clock-dock.is-open')`));
     await js(`document.querySelector('[aria-label="메뉴"]').click()`);await click('음악');
     assert.equal(await js(`getComputedStyle(document.querySelector('.popup-overlay[aria-label="unused"]')||document.querySelector('[aria-label="음악"]').parentElement).display`),'flex');
+    // Playlist: this device's own link seeded the empty account list once (the built-in pick stays out).
+    await pause(700);
+    assert.deepEqual(playlistSaves.at(-1)?.map(x=>x.title),['내 링크']);assert.equal(db.settings.musicSeeded,true);
+    assert.deepEqual(await js(`[...document.querySelectorAll('.music-list li')].map(li=>li.innerText.replace('✕','').trim())`),['내 링크']);
+    // A pasted link is added as a row (titled from oEmbed) and saved to the account; nothing else on screen.
+    await click('음악 링크 넣기');
+    await js(`{const el=document.querySelector('[aria-label="YouTube 링크"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'https://youtu.be/n61ULEU7CO0');el.dispatchEvent(new Event('input',{bubbles:true}));}`);await pause(50);
+    await js(`document.querySelector('.music-add').requestSubmit()`);await pause(800);
+    assert.deepEqual(await js(`[...document.querySelectorAll('.music-list .music-row')].map(b=>b.textContent)`),['내 링크','Best of lofi 2021']);
+    assert.deepEqual(playlistSaves.at(-1).map(x=>[x.url,x.title]),[['https://www.youtube.com/watch?v=5yx6BWlEVcY','내 링크'],['https://www.youtube.com/watch?v=n61ULEU7CO0','Best of lofi 2021']]);
+    await snap('music-playlist');
+    // Alt+↑ moves a row up; ✕ removes one — each saved.
+    await js(`document.querySelectorAll('.music-list .music-row')[1].dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true}))`);await pause(700);
+    assert.deepEqual(playlistSaves.at(-1).map(x=>x.title),['Best of lofi 2021','내 링크']);
+    await js(`document.querySelectorAll('.music-list .music-remove')[1].click()`);await pause(700);
+    assert.deepEqual(playlistSaves.at(-1).map(x=>x.title),['Best of lofi 2021']);
+    assert.equal(await js(`document.querySelectorAll('.music-list li').length`),1);
     await js(`document.querySelector('[aria-label="음악 창 닫기"]').click()`);await pause(50);
     // Top bar: just the bell and the menu; the menu holds only music and settings.
     assert.ok(await js(`!document.querySelector('.sync-indicator,.connect-nav,.main-tabs')&&!!document.querySelector('.bell-btn')`));

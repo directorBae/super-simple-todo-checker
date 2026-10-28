@@ -39,6 +39,9 @@ ipcMain.handle('smoke:tools',(_,{action,payload={}})=>{
  if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,connection_id:payload.connectionId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
  if(action==='unsubscribe'){tools.subscriptions=tools.subscriptions.filter(x=>x.id!==payload.id);return {ok:true};}
  if(action==='state')return JSON.parse(JSON.stringify(tools));
+ if(action==='playlist')return {ok:true,playlist:[]};
+ if(action==='savePlaylist')return {ok:true};
+ if(action==='musicTitle')return {ok:true,title:''};
  return {ok:true};
 });
 ipcMain.handle('smoke:open',(_,url)=>{opened.push(url);return {ok:true};});

@@ -9,6 +9,13 @@ function prefsOf(settings = {}, timeZone) {
   return { morning_on: settings.dailySummary !== false, morning_time: /^\d{2}:\d{2}$/.test(settings.dailySummaryTime || '') ? settings.dailySummaryTime : '09:00', time_zone: timeZone || null, updated_at: new Date().toISOString() };
 }
 
+// What a playlist entry may hold (YouTube links only, at most 200 entries).
+function cleanPlaylist(list) {
+  const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+  return (Array.isArray(list) ? list : []).filter((x) => x && /^https:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//.test(x.url || '')).slice(0, 200)
+    .map((x) => ({ id: text(x.id, 64) || String(Math.random()).slice(2), url: text(x.url, 500), videoId: text(x.videoId, 20), listId: text(x.listId, 64), title: text(x.title, 200) }));
+}
+
 function createToolsClient({ url, key, fetch: request = globalThis.fetch, token }) {
   const base = String(url || '').replace(/\/+$/, '');
   async function call(path, init = {}) {
@@ -41,6 +48,12 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
     // One account by its connection id, or every account of a tool by 'notion' / 'google'.
     disconnect: (idOrProvider) => fn('/disconnect', ['notion', 'google'].includes(idOrProvider) ? { provider: idOrProvider } : { id: idOrProvider }),
     syncNow: (id) => fn('/sync', id ? { id } : {}),
+    // The music playlist (one per person, the same on every device).
+    playlist: () => rows('user_prefs', 'select=playlist').then((r) => (Array.isArray(r[0]?.playlist) ? r[0].playlist : [])),
+    savePlaylist: (list) => call('/rest/v1/user_prefs?on_conflict=user_id', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ playlist: cleanPlaylist(list), updated_at: new Date().toISOString() }),
+    }),
     // The morning alert time, so the Monday/Thursday check-up runs just before it (or at 9:00 when it is off).
     savePrefs: (settings, timeZone) => call('/rest/v1/user_prefs?on_conflict=user_id', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -49,4 +62,4 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
   };
 }
 
-module.exports = { createToolsClient, prefsOf };
+module.exports = { createToolsClient, prefsOf, cleanPlaylist };
