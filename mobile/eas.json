@@ -29,9 +29,12 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "REPLACE_WITH_APPLE_ID_EMAIL",
-        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "REPLACE_WITH_APPLE_TEAM_ID"
+        "appleId": "teamblackcoconut@gmail.com",
+        "ascAppId": "6827811845",
+        "appleTeamId": "F6A6QXBZAM",
+        "ascApiKeyPath": "./AuthKey_86DZ96WNSZ.p8",
+        "ascApiKeyIssuerId": "ce4330fc-d680-420e-847c-ef5743b1a906",
+        "ascApiKeyId": "86DZ96WNSZ"
       }
     }
   }

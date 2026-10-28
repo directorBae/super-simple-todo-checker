@@ -21,3 +21,6 @@ build/
 secret/
 # Supabase CLI working files
 supabase/.temp/
+
+# App Store Connect API keys (EAS submit)
+*.p8
