@@ -40,7 +40,14 @@
 .postpone-panel h2 { margin: 0; font-size: 18px; letter-spacing: -0.02em; color: var(--text); }
 .postpone-desc { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .postpone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.postpone-list li { padding: 7px 11px; border-radius: 12px; font-size: 13px; color: var(--text); background: rgba(255, 255, 255, 0.24); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.postpone-list li { padding: 7px 11px; border-radius: 12px; font-size: 13px; color: var(--text); background: rgba(255, 255, 255, 0.12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .postpone-list li.more { background: none; padding: 2px 11px; color: var(--muted); font-size: 12px; }
 .postpone-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .postpone-actions button { padding: 8px 16px; border-radius: 12px; font-size: 13px; }
+
+/* Tab while writing a line: the team it goes to, as a tag in front of the text (팀 없음 too). */
+.edit-team-tag { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; align-self: center; margin-right: 6px; padding: 2px 9px; border-radius: 99px;
+  font-size: 11.5px; font-weight: 700; color: var(--text); white-space: nowrap; animation: team-pill-in 0.14s ease-out;
+  background: color-mix(in srgb, var(--team, #6366f1) 16%, rgba(255, 255, 255, 0.3)); border: 1px solid color-mix(in srgb, var(--team, #6366f1) 35%, transparent); }
+.edit-team-tag.none { color: var(--muted); background: rgba(255, 255, 255, 0.28); border: 1px dashed rgba(20, 26, 46, 0.18); }
+.edit-team-tag .team-dot { width: 7px; height: 7px; }

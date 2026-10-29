@@ -72,6 +72,10 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
  const box = useRef({ textX:0, textW:0, calX:Infinity });
  latest.current = { todo, previous, next, selecting, onEdit, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle };
  useEffect(() => { if(!editing) setValue(todo.title); },[todo.title, editing]);
+ // The team picked while editing ('팀 →' above the keyboard, or the chips): only a tag in front of the text changes —
+ // the line stays where it is and moves under that team when the editing ends. undefined: not touched.
+ const [picked,setPicked] = useState(undefined), current = picked !== undefined ? picked : (teamOf(todo, db) || null);
+ useEffect(() => { if(!editing) setPicked(undefined); },[editing]);
  // Opening this line for editing: the caret goes where it was asked (end of the line by default).
  useEffect(() => { if(!editing) return; const t = setTimeout(() => { const at = Math.min(caret ?? value.length, value.length); input.current?.focus(); input.current?.setNativeProps({ selection:{ start:at,end:at } }); sel.current = { start:at,end:at }; reveal?.(input); }, 30); return () => clearTimeout(t); }, [editing, caret]);
  const settle = () => { if(mode.current==='held' || mode.current==='drag') latest.current.onGrab?.(false); mode.current='idle'; setLifted(false); setCarried(false); Animated.spring(translate,{ toValue:{ x:0,y:0 },useNativeDriver:false }).start(); };
@@ -147,8 +151,9 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    <View pointerEvents="box-none" style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5 }}>
     <Check done={done} d={d} pop={ticking ? pop : null} label={todo.title+' 완료'} onPress={() => api.updateTodo(todo.id,{ status:todo.status==='done'?'todo':'done' })} />
     {/* Narrow text that wraps onto more lines; the rest of the line is free to hold and move. */}
+    {editing && picked !== undefined && <TeamTag team={db.teams.find(t => t.id === picked)} d={d} />}
     {editing
-      ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} inputAccessoryViewID={Platform.OS==='ios' ? 'team-'+todo.id : undefined} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
+      ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} inputAccessoryViewID={Platform.OS==='ios' ? 'team-'+todo.id : undefined} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); else if(picked !== undefined && picked !== (teamOf(todo, db) || null)) api.updateTodo(todo.id, teamPatch(todo, picked, db)); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
       : typed?.mode==='write' ? <WrittenTitle key={typed.key} from={typed.from} to={typed.to} linger={typed.from===typed.to ? 240 : CARET_MS} style={textStyle} accent={d.accent} onLayout={layoutText} onDone={written} />
       : <Text onLayout={layoutText} style={{ ...textStyle, paddingVertical:2, opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.title}</Text>}
     {!!typed?.chip && (typed.mode==='write' || typed.mode==='glow') && <MoveChip key={typed.key} text={typed.chip} d={d} />}
@@ -162,11 +167,11 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    </View>
    </Animated.View>
    </GestureDetector>
-   {/* Above the keyboard while editing (iOS): '팀 →' moves the line to the next team (팀 없음 → each team → 팀 없음). */}
-   {editing && Platform.OS==='ios' && <TeamKey id={'team-'+todo.id} todo={todo} db={db} api={api} d={d} />}
+   {/* Above the keyboard while editing (iOS): '팀 →' picks the next team (팀 없음 → each team → 팀 없음) for the tag. */}
+   {editing && Platform.OS==='ios' && <TeamKey id={'team-'+todo.id} todo={todo} db={db} current={current} onPick={setPicked} d={d} />}
    {/* While editing: pick the line's team (팀 없음 takes it out). Taps here keep the keyboard up. */}
    {editing && !!db?.teams.length && <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:6, paddingVertical:5, paddingLeft:30, paddingRight:8 }}>
-    {[{ id:null, name:'팀 없음', color:null }, ...db.teams].map(t => { const on = (teamOf(todo, db) || null) === t.id; return <Pressable key={t.id||'none'} accessibilityRole="button" accessibilityState={{ selected:on }} onPress={() => api.updateTodo(todo.id, teamPatch(todo, t.id, db))} style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:10,paddingVertical:5,borderRadius:99,borderWidth:1,borderColor:on?(t.color||d.accent):d.edge,backgroundColor:on?'#ffffffe6':'#ffffff73' }}>
+    {[{ id:null, name:'팀 없음', color:null }, ...db.teams].map(t => { const on = current === t.id; return <Pressable key={t.id||'none'} accessibilityRole="button" accessibilityState={{ selected:on }} onPress={() => setPicked(t.id)} style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:10,paddingVertical:5,borderRadius:99,borderWidth:1,borderColor:on?(t.color||d.accent):d.edge,backgroundColor:on?'#ffffffe6':'#ffffff73' }}>
      {!!t.color && <View style={{ width:8,height:8,borderRadius:4,backgroundColor:t.color }} />}
      <Text style={{ fontSize:12,fontWeight:on?'700':'500',color:on?d.text:d.muted }}>{t.name}</Text>
     </Pressable>; })}
@@ -174,11 +179,19 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
  </View>;
 }
 
-function TeamKey({ id, todo, db, api, d }) {
- const team = db.teams.find(t => t.id === teamOf(todo, db)), next = cycleTeam(db, todo); // undefined: no teams, or set by its project
+// The picked team in front of the text being edited (팀 없음 is a tag too).
+function TeamTag({ team, d }) {
+ return <View style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:9,paddingVertical:3,borderRadius:99,borderWidth:1,borderStyle:team?'solid':'dashed',borderColor:team?team.color+'59':'#141a2e2e',backgroundColor:team?team.color+'29':'#ffffff47' }}>
+  {!!team && <View style={{ width:7,height:7,borderRadius:4,backgroundColor:team.color }} />}
+  <Text style={{ fontSize:12,fontWeight:'700',color:team?d.text:d.muted }}>{team ? team.name : '팀 없음'}</Text>
+ </View>;
+}
+
+function TeamKey({ id, todo, db, current, onPick, d }) {
+ const team = db.teams.find(t => t.id === current), next = cycleTeam(db, { ...todo, teamId:current }); // undefined: no teams, or set by its project
  return <InputAccessoryView nativeID={id}>
   <View style={{ flexDirection:'row',alignItems:'center',paddingHorizontal:10,paddingVertical:6,backgroundColor:'#eef2fbf2',borderTopWidth:1,borderTopColor:'#ffffff4d' }}>
-   <Pressable accessibilityRole="button" accessibilityLabel={'팀 바꾸기 · 지금 '+(team?.name||'팀 없음')} disabled={next === undefined} onPress={() => api.updateTodo(todo.id, { teamId:next })} style={({ pressed }) => ({ opacity:next === undefined ? 0.45 : 1, flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:6,borderRadius:99,borderWidth:1,borderColor:d.edge,backgroundColor:pressed?'#ffffffcc':d.input })}>
+   <Pressable accessibilityRole="button" accessibilityLabel={'팀 바꾸기 · 지금 '+(team?.name||'팀 없음')} disabled={next === undefined} onPress={() => onPick(next)} style={({ pressed }) => ({ opacity:next === undefined ? 0.45 : 1, flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:6,borderRadius:99,borderWidth:1,borderColor:d.edge,backgroundColor:pressed?'#ffffffcc':d.input })}>
     <Text style={{ fontSize:13,fontWeight:'700',color:d.accent }}>팀 →</Text>
     {!!team?.color && <View style={{ width:8,height:8,borderRadius:4,backgroundColor:team.color }} />}
     <Text style={{ fontSize:13,color:team?d.text:d.muted }}>{team?.name||'팀 없음'}</Text>

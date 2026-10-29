@@ -379,12 +379,21 @@ app.whenReady().then(async()=>{
     const key = (k, shift = false) => js(`document.querySelector('.memo-edit').dispatchEvent(new KeyboardEvent('keydown',{key:'${k}',shiftKey:${shift},bubbles:true,cancelable:true}))`);
     await js(`${row('rep-1')}.querySelector('.memo-title').click()`);await pause(200);
     if(!await js(`!!${row('rep-1')}.querySelector('.memo-edit')`))throw Error('Clicking a title must edit it');
-    await key('Tab');await pause(250);
-    if(db.todos.find(t=>t.id==='rep-1').teamId!=='team')throw Error('Tab must move the line to the next team');
-    if(!await js(`!!${row('rep-1')}?.querySelector('.memo-edit')`))throw Error('The line must stay in edit after Tab');
-    await key('Tab',true);await pause(250);
-    if(db.todos.find(t=>t.id==='rep-1').teamId!==null)throw Error('Shift+Tab must move it back');
-    await key('Escape');await pause(150);
+    // Tab only changes the tag in front of the text (팀 없음 → Studio → 팀 없음 …); the line stays put until editing ends.
+    const tag=()=>js(`${row('rep-1')}.querySelector('.edit-team-tag')?.textContent||''`);
+    await key('Tab');await pause(200);
+    if(await tag()!=='Studio'||db.todos.find(t=>t.id==='rep-1').teamId!==null)throw Error('Tab must show the Studio tag without moving the line yet: '+await tag());
+    await snap('desktop-team-tag');
+    await key('Tab');await pause(200);await key('Tab');await pause(200);
+    if(await tag()!=='팀 없음')throw Error('Going round (Studio → Lab → 팀 없음), 팀 없음 is a tag too: '+await tag());
+    await key('Tab',true);await pause(200);await key('Tab',true);await pause(200);
+    if(await tag()!=='Studio')throw Error('Shift+Tab goes back');
+    await key('Escape');await pause(250);
+    if(db.todos.find(t=>t.id==='rep-1').teamId!=='team')throw Error('Ending the edit must move the line under the picked team');
+    if(await js(`!!document.querySelector('.edit-team-tag')`))throw Error('The tag goes away with the editing');
+    await js(`${row('rep-1')}.querySelector('.memo-title').click()`);await pause(200);
+    await key('Tab',true);await pause(200);await key('Escape');await pause(250);
+    if(db.todos.find(t=>t.id==='rep-1').teamId!==null)throw Error('Back to 팀 없음 the same way');
     // ↻: the switch opens every n 일/주/월/년; 확정 sets it, the occurrences come, and the line shows ↻ 매주.
     await js(`${row('rep-1')}.querySelector('button[aria-label="반복"]').click()`);await pause(200);
     if(!await js(`!!document.querySelector('.repeat-editor')`))throw Error('↻ must open the repeat editor');
@@ -409,7 +418,7 @@ app.whenReady().then(async()=>{
     const tomorrowDay=new Date(Date.now()+864e5).toLocaleDateString('en-CA');
     if(!left.length||left.some(id=>db.todos.find(t=>t.id===id).date!==tomorrowDay)||await js(`!!document.querySelector('.postpone-panel')`))throw Error('내일로 미루기 must move every open to-do of today and close');
   }
-  console.log('UI UX smoke passed: Tab changes team while editing, repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  console.log('UI UX smoke passed: Tab team tag while editing (moves when done), repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
 setTimeout(()=>app.exit(1),110000).unref();
