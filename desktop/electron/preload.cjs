@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
 
   addTodo: (p) => invoke('todo:add', p),
   updateTodo: (id, patch) => invoke('todo:update', { id, patch }),
+  repeatTodo: (id, rule) => invoke('todo:repeat', { id, rule }),
   deleteTodo: (id) => invoke('todo:delete', id),
   undoTodo: () => invoke('todo:undo'),
   redoTodo: () => invoke('todo:redo'),

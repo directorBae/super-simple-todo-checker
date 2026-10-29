@@ -7,7 +7,9 @@ import supabaseEngine from '../../shared/supabase-sync.cjs';
 import supabaseAuth from '../../shared/supabase-auth.cjs';
 import toolsEngine from '../../shared/tools-client.cjs';
 import { rescheduleReminders } from './notifications.js';
-import { REMINDER_DEFAULTS } from '../../shared/reminders.js';
+import { REMINDER_DEFAULTS, postponePatches } from '../../shared/reminders.js';
+import repeatEngine from '../../shared/repeat.cjs';
+import { fillRepeats, applyRepeat } from './edit-helpers.js';
 
 // Every to-do except bucket items has a date; undated ones get the day they were made.
 const localDate = (ms = Date.now()) => { const t = new Date(ms); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
@@ -91,6 +93,7 @@ export function DbProvider({ children }) {
         next.todos = next.todos.map(t => ({ ...t, kind: 'todo', origin: t.origin || { type: 'legacy' } }));
         migrateTeams(next);
         ensureDates(next);
+        fillRepeats(next, localDate());
         dbRef.current = next;
         setDb(next);
       })
@@ -100,9 +103,11 @@ export function DbProvider({ children }) {
       });
   }, []);
 
-  // 변경 300ms 후 저장 (데스크톱 Store.save와 동일한 디바운스)
+  // 변경 300ms 후 저장 (데스크톱 Store.save와 동일한 디바운스). Every change also makes the repeating to-dos' next
+  // occurrences (they are the same rows on every device, so a pull that brings them first just finds them there).
   const update = (fn, send = true) => {
       const next = fn(clone(dbRef.current));
+      if (next.todos) fillRepeats(next, localDate());
       dbRef.current = next;
       setDb(next);
       clearTimeout(timerRef.current);
@@ -166,6 +171,22 @@ export function DbProvider({ children }) {
           d.tombstones.push({ coll: 'todos', id: todoId, deletedAt: Date.now() });
           return d;
         }),
+      // Repeat on (rule { every, unit }) or off (null): off — or a changed rule — deletes the open occurrences after this one.
+      setRepeat: (todoId, rule) => touchLocal(todoId) &&
+        update((d) => applyRepeat(d, repeatEngine.setRepeat(d.todos, todoId, rule, Date.now()))),
+      // The evening question: every open to-do of `date` moves to the next day. Returns how many moved.
+      postpone: (date) => {
+        const patches = postponePatches(dbRef.current?.todos, date);
+        if (patches.length) update((d) => {
+          for (const { id: todoId, patch } of patches) {
+            const t = d.todos.find((x) => x.id === todoId);
+            if (!t) continue;
+            Object.assign(t, patch); t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1); touchLocal(todoId);
+          }
+          return d;
+        });
+        return patches.length;
+      },
       restoreTodo: todo => touchLocal(todo.id) && update(d => {
         d.tombstones = d.tombstones.filter(t => !(t.coll === 'todos' && t.id === todo.id));
         if (!d.todos.some(t => t.id === todo.id)) d.todos.push({ ...todo, updatedAt: Math.max(Date.now(), (todo.updatedAt || 0) + 1) });

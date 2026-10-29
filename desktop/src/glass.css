@@ -7,27 +7,33 @@
   --text: #141a2e;
   --muted: #4f5670;
   --placeholder: #8a90a8;
-  --glass-edge: rgba(255, 255, 255, 0.55);
-  --panel: rgba(255, 255, 255, 0.3);
+  --glass-edge: rgba(255, 255, 255, 0.28);
+  --panel: rgba(255, 255, 255, 0.16);
   --panel-strong: rgba(255, 255, 255, 0.5);
-  --pop: rgba(255, 255, 255, 0.42);
-  --bar: rgba(255, 255, 255, 0.24);
-  --srf-1: rgba(255, 255, 255, 0.2);
-  --srf-2: rgba(255, 255, 255, 0.34);
+  --pop: rgba(255, 255, 255, 0.22);
+  --bar: rgba(255, 255, 255, 0.1);
+  --srf-1: rgba(255, 255, 255, 0.12);
+  --srf-2: rgba(255, 255, 255, 0.22);
   --srf-3: rgba(255, 255, 255, 0.58);
   --overlay: rgba(10, 14, 30, 0.18);
 
-  /* 재질 */
-  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.2));
-  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
-  --glass-panel: url(#lens) blur(18px) saturate(135%) brightness(1.04);
+  /* 재질 — 흰빛은 얇게, 번짐(블러)과 채도로 유리감을 낸다 */
+  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  --glass-panel: blur(16px) saturate(150%) url(#lens);
   /* 큰 판은 굴절 폭이 크기에 비례해 커지므로 약한 렌즈 + 강한 블러 */
-  --glass-pane: url(#lens-soft) blur(26px) saturate(135%) brightness(1.04);
-  --glass-control: url(#lens) blur(6px) saturate(125%) brightness(1.06);
-  --glass-sheet: blur(30px) saturate(130%) brightness(1.04);
-  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3), inset 0 0 26px rgba(255, 255, 255, 0.22);
+  --glass-pane: blur(22px) saturate(150%) url(#lens-soft);
+  --glass-control: blur(8px) saturate(140%) url(#lens);
+  --glass-sheet: blur(34px) saturate(145%);
+  /* Light caught in the glass: a top highlight, and a thin split of colour along the inside of the edge (warm on the
+     left and top, cool on the right and bottom), like light refracted through a thick pane. */
+  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -1px 1px rgba(255, 255, 255, 0.12),
+    inset 7px 0 9px -6px rgba(255, 80, 170, 0.6), inset -7px 0 9px -6px rgba(40, 190, 255, 0.65),
+    inset 0 7px 9px -6px rgba(255, 205, 90, 0.5), inset 0 -7px 9px -6px rgba(110, 120, 255, 0.55), inset 0 0 26px rgba(255, 255, 255, 0.04);
   --glass-drop: 0 16px 44px rgba(8, 14, 40, 0.2), 0 2px 6px rgba(8, 14, 40, 0.08);
-  --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.2) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0.6));
+  /* The rim: a prism instead of plain white — pink, gold and sky blue where the light catches it. */
+  --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.6), rgba(255, 130, 200, 0.6) 14%, rgba(255, 215, 120, 0.45) 27%, rgba(255, 255, 255, 0) 50%,
+    rgba(100, 210, 255, 0.45) 74%, rgba(160, 140, 255, 0.6) 90%, rgba(255, 255, 255, 0.35));
 }
 
 /* ---------- 글꼴: Pretendard (SIL OFL 1.1, assets/fonts/LICENSE-Pretendard.txt) ---------- */
@@ -82,8 +88,8 @@ button.ghost,
   background: var(--glass-tint);
   backdrop-filter: var(--glass-control);
   -webkit-backdrop-filter: var(--glass-control);
-  border: 1px solid rgba(255, 255, 255, 0.45);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.85), 0 3px 10px rgba(8, 14, 40, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 3px 10px rgba(8, 14, 40, 0.08);
 }
 button.ghost:hover,
 .cal-nav button:hover,
@@ -118,7 +124,7 @@ button.ghost:hover,
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  padding: 1.5px;
+  padding: 1px;
   background: var(--glass-rim);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
@@ -147,20 +153,33 @@ button.primary,
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 55%),
     linear-gradient(135deg, rgba(99, 102, 241, 0.88), rgba(139, 92, 246, 0.84));
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 8px 24px rgba(79, 70, 229, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 8px 24px rgba(79, 70, 229, 0.35);
   backdrop-filter: var(--glass-control);
   -webkit-backdrop-filter: var(--glass-control);
 }
 
 /* ---------- 상단바 ---------- */
+/* The bar's glass lives on ::before, not on the bar: an element with backdrop-filter limits what its children's
+   backdrop-filter can see to itself, so the bell and account menus (inside the bar) showed the to-dos behind them unblurred. */
 .topbar {
+  position: relative;
   border-width: 0 0 1px;
-  border-bottom-color: rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(24px) saturate(120%);
-  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border-bottom-color: rgba(255, 255, 255, 0.22);
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: 0 1px 0 rgba(8, 14, 40, 0.04);
+}
+.topbar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
 }
 .top-icons { gap: 4px; }
 .bell-btn { display: grid; place-items: center; width: 36px; height: 34px; padding: 0; color: var(--text); }
@@ -170,7 +189,7 @@ button.primary,
 .bell-pop { width: 340px; padding: 14px; overflow: hidden; display: flex; flex-direction: column; max-height: 70vh; }
 .bell-pop h3 { margin: 2px 4px 10px; font-size: 15px; }
 .missed-list { list-style: none; margin: 0 0 12px; padding: 0; overflow: auto; display: grid; gap: 6px; min-height: 0; }
-.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.7); }
+.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.22); }
 .missed-title { font-size: 13px; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
 .missed-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .missed-meta b { padding: 1px 7px; border-radius: 99px; font-weight: 600; font-size: 10.5px; color: #fff; background: #6366f1; }
@@ -186,9 +205,9 @@ button.primary,
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.44), rgba(244, 246, 255, 0.3));
-  backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
-  -webkit-backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.16), rgba(244, 246, 255, 0.06));
+  backdrop-filter: blur(64px) saturate(140%);
+  -webkit-backdrop-filter: blur(64px) saturate(140%);
 }
 .manage-col,
 .popup-panel,
@@ -201,13 +220,13 @@ button.primary,
 .month-view { padding: 0; }
 .cal-nav .view-toggle { margin: 0 4px; }
 .month-view .cal-cell:not(.blank) {
-  border-radius: 14px; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.38);
-  backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; transform: none;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 6px 18px rgba(8, 14, 40, 0.05); transform: none;
 }
 .month-view .cal-cell:not(.blank)::after { display: none; }
-.month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.42); border-color: rgba(255, 255, 255, 0.75); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8); transform: none; }
-.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.58); border-color: rgba(255, 255, 255, 0.9); box-shadow: inset 0 1px 1px #fff, 0 0 0 2px rgba(99, 102, 241, 0.32); }
-.month-view .cal-chip { background: rgba(255, 255, 255, 0.5); }
+.month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.3); border-color: rgba(255, 255, 255, 0.32); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35); transform: none; }
+.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.07); border-color: transparent; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 0 0 1.5px rgba(99, 102, 241, 0.32), 0 6px 18px rgba(8, 14, 40, 0.06); }
+.month-view .cal-chip { background: rgba(255, 255, 255, 0.07); }
 
 /* 내 팀 목록 */
 .team-side { position: sticky; top: 8px; padding: 2px 0; border-radius: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -269,8 +288,8 @@ button.primary,
 .memo-day .memo-line-main:hover,
 .memo-day .memo-line-main:focus-within {
   background: var(--glass-tint-strong);
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 6px 18px rgba(8, 14, 40, 0.12);
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 6px 18px rgba(8, 14, 40, 0.12);
   backdrop-filter: var(--glass-control);
   -webkit-backdrop-filter: var(--glass-control);
 }
@@ -326,20 +345,20 @@ button.primary,
 .clock-popup {
   border: 0;
   border-radius: 0;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.14));
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05));
   backdrop-filter: var(--glass-sheet);
   -webkit-backdrop-filter: var(--glass-sheet);
 }
-.clock-popup { border-left: 1px solid rgba(255, 255, 255, 0.7); box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.35), -24px 0 70px rgba(8, 14, 40, 0.18); }
-.manage-popup { border-right: 1px solid rgba(255, 255, 255, 0.7); box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.35), 24px 0 70px rgba(8, 14, 40, 0.18); }
+.clock-popup { border-left: 1px solid rgba(255, 255, 255, 0.3); box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.14), -24px 0 70px rgba(8, 14, 40, 0.18); }
+.manage-popup { border-right: 1px solid rgba(255, 255, 255, 0.3); box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.14), 24px 0 70px rgba(8, 14, 40, 0.18); }
 .manage-window { position: relative; min-height: 100%; padding: 64px 28px 28px; box-sizing: border-box; }
 .manage-head { position: absolute; }
 .manage-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; max-width: 1180px; margin: 0 auto; }
 .manage-col { position: relative; padding: 22px; border-radius: 28px; background: var(--glass-tint); box-shadow: var(--glass-light), var(--glass-drop); }
-.manage-col::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; background: var(--glass-rim); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+.manage-col::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: var(--glass-rim); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
 .manage-col h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.6px; }
 .manage-col .card,
-.manage-col .todo-row { background: rgba(255, 255, 255, 0.34); border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 16px; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8); }
+.manage-col .todo-row { background: rgba(255, 255, 255, 0.2); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 16px; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4); }
 @media (max-width: 760px) { .manage-cols { grid-template-columns: 1fr; } }
 .manage-edge-handle { position: fixed; left: 0; top: 46%; z-index: 51; width: 24px; min-height: 64px; padding: 4px 0; border-left: 0 !important; border-radius: 0 10px 10px 0; color: var(--muted); font-size: 19px; cursor: ew-resize; touch-action: none; }
 .manage-edge-handle.is-open,
@@ -410,7 +429,7 @@ button.primary,
 
 /* 팝업 뒤 화면은 흐리게 가라앉혀 창 내용과 섞이지 않게 한다. */
 .popup-overlay,
-.provider-overlay { background: rgba(10, 14, 30, 0.22); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
+.provider-overlay { background: rgba(10, 14, 30, 0.08); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
 /* 게임: 오프라인 페이지처럼 창 전체를 덮고 게임만 크게 */
 .offline-game { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; max-width: none; background: #0b1220; }
 .offline-game .arcade-card { width: min(100%, calc((100vh - 120px) * 500 / 280)); margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -533,7 +552,7 @@ button.primary,
 .tool-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-head > button { flex-shrink: 0; padding: 7px 14px; border-radius: 12px; font-size: 13px; }
 .tool-body { display: flex; flex-direction: column; gap: 8px; }
-.tool-sub { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.28); border: 1px solid rgba(255, 255, 255, 0.5); }
+.tool-sub { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.22); }
 .tool-sub-kind, .tool-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; color: #475569; background: rgba(148, 163, 184, 0.25); }
 .tool-badge.db { color: #4338ca; background: rgba(99, 102, 241, 0.16); }
 .tool-sub-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -548,9 +567,9 @@ button.tool-sub-title:hover { text-decoration: underline; }
 .tool-sub-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .tool-sub-actions .ghost, .tool-pick, .tool-picker-head .ghost { padding: 5px 10px; border-radius: 10px; font-size: 12px; }
 .tool-pick { align-self: flex-start; }
-.tool-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.22); border: 1px solid rgba(255, 255, 255, 0.5); }
+.tool-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.22); }
 .tool-picker-head { display: flex; gap: 6px; }
-.tool-picker-head input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.6); }
+.tool-picker-head input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.32); }
 .tool-pages { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
 .tool-page { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 0; border-radius: 10px; background: transparent; text-align: left; color: var(--text); font-size: 13px; cursor: pointer; }
 .tool-page:hover:not(:disabled) { background: rgba(255, 255, 255, 0.5); }
@@ -592,8 +611,8 @@ button.tool-sub-title:hover { text-decoration: underline; }
 @keyframes type-blink { 60% { opacity: 0; } }
 .memo-day .memo-line:has(.type-caret) .memo-line-main,
 .memo-day .memo-line:has(.type-flash) .memo-line-main {
-  background: var(--glass-tint-strong); border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9), 0 6px 18px rgba(8, 14, 40, 0.12);
+  background: var(--glass-tint-strong); border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45), 0 6px 18px rgba(8, 14, 40, 0.12);
 }
 .memo-day .memo-line:has(.type-flash) .memo-line-main { animation: type-flash 1.1s ease-out; }
 @keyframes type-flash { from { box-shadow: 0 0 0 2px rgba(124, 108, 255, 0.45), 0 6px 18px rgba(8, 14, 40, 0.12); } }
@@ -604,7 +623,7 @@ button.tool-sub-title:hover { text-decoration: underline; }
 /* Erasing (Backspace-like): the caret turns eraser-pink. The leaving copy of a row is only for the eyes. */
 .type-caret.erase::after { background: linear-gradient(180deg, #ff8fb1, #ff6f91); box-shadow: 0 0 6px rgba(255, 111, 145, 0.55); animation: none; }
 .memo-line[data-todo-id$="~was"], .cal-chip[data-todo-id$="~was"] { pointer-events: none; }
-.memo-day .memo-line:has(.type-strike) .memo-line-main { background: var(--glass-tint-strong); border-color: rgba(255, 255, 255, 0.6); }
+.memo-day .memo-line:has(.type-strike) .memo-line-main { background: var(--glass-tint-strong); border-color: rgba(255, 255, 255, 0.32); }
 /* Struck out: a pencil line sweeps across the emptied row before it folds away. */
 .memo-day .memo-line:has(.type-strike) .memo-line-main, .cal-chip:has(.type-strike) { position: relative; }
 .memo-day .memo-line:has(.type-strike) .memo-line-main::after, .cal-chip:has(.type-strike)::before {

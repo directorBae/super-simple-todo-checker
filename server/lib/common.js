@@ -8,7 +8,8 @@ const hash = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const fields = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'status'];
 const content = t => Object.fromEntries(fields.map(k => [k, t[k] ?? null]));
 const fingerprint = t => hash(content(t));
-const editable = [...fields, 'kind', 'projectId', 'teamId', 'channel', 'important', 'sortOrder'];
+// repeat / seriesId: a repeating to-do's rule and series (shared/repeat.cjs).
+const editable = [...fields, 'kind', 'projectId', 'teamId', 'channel', 'important', 'sortOrder', 'repeat', 'seriesId'];
 function zone(t) { return t.timeZone || 'Asia/Seoul'; }
 function schedule(t, defaultMinutes = 60) {
   if (!t.date) throw new ApiError('날짜를 지정해 주세요.');

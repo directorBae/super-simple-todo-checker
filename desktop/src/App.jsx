@@ -3,6 +3,7 @@ import MemoBoard from './views/Todos.jsx';
 import Settings from './views/Settings.jsx';
 import Integrations from './views/Integrations.jsx';
 import Bell from './views/Bell.jsx';
+import Postpone from './views/Postpone.jsx';
 import Login from './views/Login.jsx';
 import ClockWindow from './focus/ClockWindow.jsx';
 import RoomDock from './focus/RoomDock.jsx';
@@ -13,7 +14,8 @@ import { PetToast } from './focus/PetWork.jsx';
 import { usePetJobs } from './tools-state.js';
 import { useTypingRunner, useTypingNow, AiEdge, MoveNote } from './typing.jsx';
 import { wallpaperSrc } from './wallpapers.js';
-import { startWebReminders } from './web-notify.js';
+import { startWebReminders, onWebReminderClick } from './web-notify.js';
+import { postponeDay } from '../../shared/reminders.js';
 import './focus/focus.css';
 export default function App() {
  const [db,setDb] = useState(null), [popup,setPopup] = useState(null), [menu,setMenu] = useState(false), [bell,setBell] = useState(false), [room,setRoom] = useState(0);
@@ -27,6 +29,8 @@ export default function App() {
  // The web version reminds through the browser (the desktop app uses its own system notifications).
  const latestDb = useRef(null); latestDb.current = db;
  useEffect(() => (window.api.platform === 'web' ? startWebReminders(() => latestDb.current) : undefined), []);
+ // Clicking the evening wrap-up asks to move what is left to tomorrow (the app's own notification sends 'postpone:<day>').
+ useEffect(() => onWebReminderClick((key) => { const day = postponeDay(key); open(day ? 'postpone:' + day : 'today'); }), []);
  // The pet's work for the tool connections (노션 · 구글 캘린더): polled while someone is signed in.
  const signedIn = !!db?.auth?.email && new URLSearchParams(window.location.search).get('view') !== 'clock';
  const petJobs = usePetJobs(signedIn);
@@ -60,6 +64,7 @@ export default function App() {
   {!onboarding && !phone && <RoamingPet db={db} room={room} working={petJobs.working} bubble={petJobs.bubble} typing={typing} />}
   {!onboarding && phone && <PetToast working={petJobs.working} bubble={petJobs.bubble} />}
   {popup === 'settings' && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel settings-panel" role="dialog" aria-modal="true" aria-label="설정"><div className="popup-head"><h2>설정</h2><button className="icon-btn" aria-label="닫기" onClick={close}>✕</button></div><div className="popup-body"><Settings db={db} /></div></section></div>}
+  {popup?.startsWith('postpone:') && <Postpone db={db} date={popup.slice('postpone:'.length)} onClose={close} />}
   <MoveNote />
   <AiEdge on={!!(petJobs.working || typing)} />
  </div>;

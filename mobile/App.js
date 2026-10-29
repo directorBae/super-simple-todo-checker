@@ -20,11 +20,14 @@ import ClockDrawer from './src/screens/ClockDrawer.js';
 import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
 import { notificationPermission, rescheduleReminders } from './src/notifications.js';
+import { usePostponeRequest, PostponeSheet } from './src/Postpone.js';
+import { startOta } from './src/ota.js';
 
 function Shell() {
  const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
  const [music, setMusic] = useState(false), [musicMounted, setMusicMounted] = useState(false), [nowPlaying, setNowPlaying] = useState(null), musicControls = useRef(null);
  const playlist = usePlaylist(); // my playlist, loaded at start (the same list as on PC and web)
+ const [postponeDate, clearPostpone] = usePostponeRequest(); // a tapped evening wrap-up: "move what is left to tomorrow?"
  const onboarding = !db.settings.onboardingDone;
  // Rooms side by side: teams/buckets (-1) ← main (0) → clock (1). The phone app has no pet.
  const [room, setRoom] = useState(0), [clockTodo, setClockTodo] = useState(null), clock = useRef(null), latest = useRef(null);
@@ -85,6 +88,7 @@ function Shell() {
    </Animated.View>}
    {!onboarding&&<ClockDrawer ref={clock} visible={room===1} camera={camera} db={db} api={api} pending={clockTodo} onAssigned={()=>setClockTodo(null)} onClose={()=>setRoom(0)}/>}
    <JobToast />
+   {postponeDate && !onboarding && <PostponeSheet date={postponeDate} db={db} api={api} onClose={clearPostpone} />}
    {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} playlist={playlist} />}
    <StatusBar style="dark" />
  </View></SafeAreaView>;
@@ -94,4 +98,6 @@ function Themed() {
  const { db, account, loginRequired } = useDb();
  return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <ToolsProvider key={account?.id || account?.email || 'local'}><ImportTypingProvider><Shell /><RainbowEdge /></ImportTypingProvider></ToolsProvider> : account === null ? <Login /> : null}</DesignProvider>;
 }
-export default function App() { return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }
+export default function App() {
+ useEffect(() => startOta(), []); // a new over-the-air update is picked up when the app opens or comes back
+ return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }

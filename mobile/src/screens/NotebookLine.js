@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Platform, Pressable, ScrollView, View, Keyboard } from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, View, Keyboard, InputAccessoryView, Switch } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Text, TextInput } from '../text.js';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -9,7 +9,9 @@ import { useDesign, Sheet, Button, Icon } from '../design.js';
 import { todayStr, localDateStr } from '../util.js';
 import { datePatch, splitLine } from '../notepad.js';
 import { touch } from '../gesture.js';
+import { cycleTeam } from '../../../shared/todo-drop.js';
 import { CHAR_MS, ERASE_MS, rewriteAt, TICK_MS, CHIP_MS, CARET_MS, STRIKE_MS, FOLD_MS } from '../import-typing.js';
+import repeatEngine from '../../../shared/repeat.cjs';
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const teamOf = (todo, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return (p && p.teamId) || todo.teamId || null; };
 // A project tied to another team would override the new team, so the link is dropped.
@@ -63,13 +65,17 @@ function Check({ done, d, pop, onPress, label }) {
   <Animated.Text pointerEvents="none" accessible={false} style={{ position:'absolute', left:9, top:-12, fontSize:12, opacity:pop.interpolate({ inputRange:[0,0.15,0.75,1],outputRange:[0,1,1,0] }), transform:[{ translateY:pop.interpolate({ inputRange:[0,1],outputRange:[4,-8] }) },{ scale:pop.interpolate({ inputRange:[0,0.4,1],outputRange:[0.4,1.15,0.9] }) }] }}>✨</Animated.Text>
  </View>;
 }
-export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal, typing = null, onTyped }) {
+export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit, onEndEdit, onFocusLine, onDate, onRepeat, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle, selected = false, selecting = false, rowRef, reveal, typing = null, onTyped }) {
  const d = useDesign(), latest = useRef(null), input = useRef(null), sel = useRef({ start:0,end:0 }), [value,setValue] = useState(todo.title);
  const translate = useRef(new Animated.ValueXY()).current, [lifted,setLifted] = useState(false), [carried,setCarried] = useState(false), mode = useRef('idle'), dropped = useRef(false);
  // Where the text and the date button sit inside the line (from layout), to tell the text from the empty part.
  const box = useRef({ textX:0, textW:0, calX:Infinity });
  latest.current = { todo, previous, next, selecting, onEdit, onGrab, onStart, onDrop, onMove, onSelectStart, onSelectMove, onSelectEnd, onToggle };
  useEffect(() => { if(!editing) setValue(todo.title); },[todo.title, editing]);
+ // The team picked while editing ('팀 →' above the keyboard, or the chips): only a tag in front of the text changes —
+ // the line stays where it is and moves under that team when the editing ends. undefined: not touched.
+ const [picked,setPicked] = useState(undefined), current = picked !== undefined ? picked : (teamOf(todo, db) || null);
+ useEffect(() => { if(!editing) setPicked(undefined); },[editing]);
  // Opening this line for editing: the caret goes where it was asked (end of the line by default).
  useEffect(() => { if(!editing) return; const t = setTimeout(() => { const at = Math.min(caret ?? value.length, value.length); input.current?.focus(); input.current?.setNativeProps({ selection:{ start:at,end:at } }); sel.current = { start:at,end:at }; reveal?.(input); }, 30); return () => clearTimeout(t); }, [editing, caret]);
  const settle = () => { if(mode.current==='held' || mode.current==='drag') latest.current.onGrab?.(false); mode.current='idle'; setLifted(false); setCarried(false); Animated.spring(translate,{ toValue:{ x:0,y:0 },useNativeDriver:false }).start(); };
@@ -115,6 +121,7 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
  // Backspace on an empty line removes it; at the start of a line it joins the line above. Either way the caret goes up.
  const backspace = e => {
    if(e.nativeEvent.key !== 'Backspace') return;
+   if(picked !== undefined && sel.current.start === 0 && sel.current.end === 0) { setPicked(undefined); return; } // the team tag goes first
    if(value === '') { api.deleteTodo(todo.id); onFocusLine(previous ? { id:previous.id, position:previous.title.length } : null); }
    else if(sel.current.start === 0 && sel.current.end === 0 && previous && Array.from(previous.title + value).length <= 50) {
      const pos=previous.title.length; api.updateTodo(previous.id,{ title:previous.title+value }); api.deleteTodo(todo.id); onFocusLine({ id:previous.id,position:pos });
@@ -145,27 +152,53 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    <View pointerEvents="box-none" style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5 }}>
     <Check done={done} d={d} pop={ticking ? pop : null} label={todo.title+' 완료'} onPress={() => api.updateTodo(todo.id,{ status:todo.status==='done'?'todo':'done' })} />
     {/* Narrow text that wraps onto more lines; the rest of the line is free to hold and move. */}
+    {editing && picked !== undefined && <TeamTag team={db.teams.find(t => t.id === picked)} d={d} />}
     {editing
-      ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
+      ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} inputAccessoryViewID={Platform.OS==='ios' ? 'team-'+todo.id : undefined} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); else if(picked !== undefined && picked !== (teamOf(todo, db) || null)) api.updateTodo(todo.id, teamPatch(todo, picked, db)); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
       : typed?.mode==='write' ? <WrittenTitle key={typed.key} from={typed.from} to={typed.to} linger={typed.from===typed.to ? 240 : CARET_MS} style={textStyle} accent={d.accent} onLayout={layoutText} onDone={written} />
       : <Text onLayout={layoutText} style={{ ...textStyle, paddingVertical:2, opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.title}</Text>}
     {!!typed?.chip && (typed.mode==='write' || typed.mode==='glow') && <MoveChip key={typed.key} text={typed.chip} d={d} />}
     <View style={{ flex:1,alignSelf:'stretch',minWidth:28 }} />
     {!!face.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'],opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.startTime}{face.endTime?`~${face.endTime}`:''}</Text>}
+    {editing ? <Pressable accessibilityRole="button" accessibilityLabel={todo.title+' 반복'+(todo.repeat?' · '+repeatEngine.describe(todo.repeat):'')} hitSlop={8} onPress={() => onRepeat?.(todo)}><Icon name="repeat" size={15} color={todo.repeat?d.accent:d.muted} /></Pressable>
+      : !!todo.repeat && <View accessibilityLabel={repeatEngine.describe(todo.repeat)+' 반복'}><Icon name="repeat" size={13} color={d.muted} /></View>}
     <Pressable onLayout={e => { box.current.calX = e.nativeEvent.layout.x; }} accessibilityLabel={todo.title+' 날짜'} hitSlop={8} onPress={() => onDate(todo)}><Icon name="calendar" size={15} color={d.muted} /></Pressable>
     {/* Right of the date button, so the line's tap (which stops there) leaves it alone: a tap opens the original. */}
     <SourceMark todo={todo} size={14}/>
    </View>
    </Animated.View>
    </GestureDetector>
+   {/* Above the keyboard while editing (iOS): '팀 →' picks the next team (팀 없음 → each team → 팀 없음) for the tag. */}
+   {editing && Platform.OS==='ios' && <TeamKey id={'team-'+todo.id} todo={todo} db={db} current={current} onPick={setPicked} d={d} />}
    {/* While editing: pick the line's team (팀 없음 takes it out). Taps here keep the keyboard up. */}
    {editing && !!db?.teams.length && <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap:6, paddingVertical:5, paddingLeft:30, paddingRight:8 }}>
-    {[{ id:null, name:'팀 없음', color:null }, ...db.teams].map(t => { const on = (teamOf(todo, db) || null) === t.id; return <Pressable key={t.id||'none'} accessibilityRole="button" accessibilityState={{ selected:on }} onPress={() => api.updateTodo(todo.id, teamPatch(todo, t.id, db))} style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:10,paddingVertical:5,borderRadius:99,borderWidth:1,borderColor:on?(t.color||d.accent):d.edge,backgroundColor:on?'#ffffffe6':'#ffffff73' }}>
+    {[{ id:null, name:'팀 없음', color:null }, ...db.teams].map(t => { const on = current === t.id; return <Pressable key={t.id||'none'} accessibilityRole="button" accessibilityState={{ selected:on }} onPress={() => setPicked(t.id)} style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:10,paddingVertical:5,borderRadius:99,borderWidth:1,borderColor:on?(t.color||d.accent):d.edge,backgroundColor:on?'#ffffffe6':'#ffffff73' }}>
      {!!t.color && <View style={{ width:8,height:8,borderRadius:4,backgroundColor:t.color }} />}
      <Text style={{ fontSize:12,fontWeight:on?'700':'500',color:on?d.text:d.muted }}>{t.name}</Text>
     </Pressable>; })}
    </ScrollView>}
  </View>;
+}
+
+// The picked team in front of the text being edited (팀 없음 is a tag too).
+function TeamTag({ team, d }) {
+ return <View style={{ flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:9,paddingVertical:3,borderRadius:99,borderWidth:1,borderStyle:team?'solid':'dashed',borderColor:team?team.color+'59':'#141a2e2e',backgroundColor:team?team.color+'29':'#ffffff47' }}>
+  {!!team && <View style={{ width:7,height:7,borderRadius:4,backgroundColor:team.color }} />}
+  <Text style={{ fontSize:12,fontWeight:'700',color:team?d.text:d.muted }}>{team ? team.name : '팀 없음'}</Text>
+ </View>;
+}
+
+function TeamKey({ id, todo, db, current, onPick, d }) {
+ const team = db.teams.find(t => t.id === current), next = cycleTeam(db, { ...todo, teamId:current }); // undefined: no teams, or set by its project
+ return <InputAccessoryView nativeID={id}>
+  <View style={{ flexDirection:'row',alignItems:'center',paddingHorizontal:10,paddingVertical:6,backgroundColor:'#eef2fbf2',borderTopWidth:1,borderTopColor:'#ffffff4d' }}>
+   <Pressable accessibilityRole="button" accessibilityLabel={'팀 바꾸기 · 지금 '+(team?.name||'팀 없음')} disabled={next === undefined} onPress={() => onPick(next)} style={({ pressed }) => ({ opacity:next === undefined ? 0.45 : 1, flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:6,borderRadius:99,borderWidth:1,borderColor:d.edge,backgroundColor:pressed?'#ffffffcc':d.input })}>
+    <Text style={{ fontSize:13,fontWeight:'700',color:d.accent }}>팀 →</Text>
+    {!!team?.color && <View style={{ width:8,height:8,borderRadius:4,backgroundColor:team.color }} />}
+    <Text style={{ fontSize:13,color:team?d.text:d.muted }}>{team?.name||'팀 없음'}</Text>
+   </Pressable>
+  </View>
+ </InputAccessoryView>;
 }
 
 // A line that is no longer in the data — the AI removed it, or moved it to another day — still showing at its old place
@@ -205,5 +238,33 @@ export function DateSheet({ todo, api, onClose }) {
   {(show || Platform.OS==='ios') && <DateTimePicker value={new Date(date+'T12:00:00')} mode="date" display={Platform.OS==='ios'?'inline':'default'} themeVariant={d.dark?'dark':'light'} accentColor={d.accent} onChange={(event,value) => { if(Platform.OS==='android') setShow(false); if(value && event.type !== 'dismissed') setDate(localDateStr(value)); }} />}
   <View style={{ flexDirection:'row',gap:8 }}><Button title="오늘" onPress={() => setDate(todayStr())} />{!!todo.startTime&&<Button title={`시간 없애기 (${todo.startTime})`} onPress={() => { api.updateTodo(todo.id,{ startTime:null,endTime:null,endDate:null }); onClose(); }} />}</View>
   <Button title="저장" primary onPress={() => { api.updateTodo(todo.id,datePatch(todo,date)); onClose(); }} />
+ </Sheet>;
+}
+
+// 반복: the toggle; when on, every n 일/주/월/년 from this to-do's day. Changing or turning it off deletes the open
+// occurrences after this one (shared/repeat.cjs).
+const UNIT_SHORT = { day:'일', week:'주', month:'월', year:'년' };
+export function RepeatSheet({ todo, api, onClose }) {
+ const d=useDesign(), r=todo.repeat, [on,setOn]=useState(!!r), [every,setEvery]=useState(String(r?.every || 1)), [unit,setUnit]=useState(r?.unit || 'week');
+ const rule=repeatEngine.cleanRule({ every, unit });
+ const toggle=v => { setOn(v); if(!v && r) { api.setRepeat(todo.id, null); onClose(); } };
+ return <Sheet title="반복" onClose={onClose}><Text numberOfLines={2} style={{ color:d.muted }}>{todo.title}</Text>
+  {!todo.date ? <Text style={{ color:d.muted }}>날짜가 있는 할 일만 반복할 수 있어요.</Text> : <>
+   <View style={{ flexDirection:'row',alignItems:'center',justifyContent:'space-between' }}>
+    <Text style={{ fontSize:15,fontWeight:'600',color:d.text }}>반복{r ? ' · '+repeatEngine.describe(r) : ''}</Text>
+    <Switch accessibilityLabel="반복" value={on} onValueChange={toggle} trackColor={{ true:d.accent }} />
+   </View>
+   {on && <>
+    <View style={{ flexDirection:'row',alignItems:'center',gap:6,flexWrap:'wrap' }}>
+     <TextInput accessibilityLabel="반복 간격" value={every} onChangeText={t => setEvery(t.replace(/\D/g,'').slice(0,3))} keyboardType="number-pad" selectTextOnFocus style={{ width:58,textAlign:'center',fontSize:16,paddingVertical:7,borderRadius:12,borderWidth:1,borderColor:d.edge,backgroundColor:d.input,color:d.text }} />
+     {repeatEngine.UNITS.map(u => <Pressable key={u} accessibilityRole="button" accessibilityState={{ selected:unit===u }} onPress={() => setUnit(u)} style={{ paddingHorizontal:13,paddingVertical:7,borderRadius:99,borderWidth:1,borderColor:unit===u?d.accent+'55':d.edge,backgroundColor:unit===u?d.input:'transparent' }}>
+      <Text style={{ fontSize:13,fontWeight:unit===u?'700':'500',color:unit===u?d.accent:d.muted }}>{UNIT_SHORT[u]}</Text>
+     </Pressable>)}
+     <Text style={{ fontSize:13,color:d.muted }}>마다</Text>
+    </View>
+    <Text style={{ fontSize:12,color:d.muted }}>{rule ? `${repeatEngine.describe(rule)} · ${todo.date}부터` : '1~999 사이 숫자를 넣어 주세요.'}{r ? '\n바꾸거나 끄면 이 날 다음의 반복은 지워져요.' : ''}</Text>
+    <Button title={r ? '반복 바꾸기' : '반복 켜기'} primary disabled={!rule} onPress={() => { api.setRepeat(todo.id, rule); onClose(); }} />
+   </>}
+  </>}
  </Sheet>;
 }

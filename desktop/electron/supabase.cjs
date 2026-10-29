@@ -7,6 +7,7 @@ const path = require('node:path');
 const { app, safeStorage } = require('electron');
 const { migrateTeams } = require('./migrate-teams.cjs');
 const { ensureDates } = require('./ensure-dates.cjs');
+const repeats = require('./repeats.cjs');
 // Packaged builds carry the shared engine under app/shared; in the repo it sits two levels up.
 const shared = (name) => { try { return require('../shared/' + name); } catch { return require('../../shared/' + name); } };
 const engine = shared('supabase-sync.cjs');
@@ -47,6 +48,7 @@ async function run(store) {
   if (result.changed) {
     migrateTeams(db);
     ensureDates(db);
+    repeats.grow(db); // repeats set on another device
     // 다른 기기에서 지운 할 일의 알림 기록 정리
     const alive = new Set(db.todos.map((t) => t.id));
     db.notifLog = db.notifLog.filter((n) => !n.todoId || alive.has(n.todoId));

@@ -25,15 +25,15 @@ export function useDesign() { return useContext(DesignContext); }
 export function DesignProvider({ wallpaper, children }) {
   const target = useRef(null);
   const selected = THEME;
-  const d = { ...selected, target, text: '#141a2e', muted: '#4f5670', edge: '#ffffffb3', fill: '#ffffff52', input: '#ffffff80' };
+  const d = { ...selected, target, text: '#141a2e', muted: '#4f5670', edge: '#ffffff4d', fill: '#ffffff0d', input: '#ffffff47' };
   // The photo is the blur target so every glass surface frosts the wallpaper behind it.
   return <DesignContext.Provider value={d}><View style={{ flex: 1, backgroundColor: selected.colors[0] }}>
     <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>
       <Image source={wallpaperSource(wallpaper)} resizeMode="cover" style={StyleSheet.absoluteFill} />
     </BlurTargetView>
-    {/* One thick frosted layer covers the whole screen; the photo only comes through as colour and light. */}
+    {/* One thick frosted layer covers the whole screen; the photo only comes through as colour and light (a thin white veil, not a milky one). */}
     <BlurView blurTarget={target} blurMethod="dimezisBlurViewSdk31Plus" intensity={70} tint="systemUltraThinMaterialLight" style={StyleSheet.absoluteFill} />
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff47' }]} />
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#ffffff17' }]} />
     {children}
   </View></DesignContext.Provider>;
 }
@@ -59,6 +59,7 @@ export function Surface({ children, style, contentStyle, native = false }) {
 }
 const paths = {
   calendar: 'M7 3v4M17 3v4M3 10h18M5 5h14a2 2 0 0 1 2 2v13H3V7a2 2 0 0 1 2-2Z',
+  repeat: 'M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4',
   teams: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M15 3.13a4 4 0 0 1 0 7.75',
   bucket: 'M3 8h18l-2 13H5L3 8ZM8 8V5a4 4 0 0 1 8 0v3',
   menu: 'M4 6h16M4 12h16M4 18h16',

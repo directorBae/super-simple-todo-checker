@@ -1,9 +1,9 @@
 import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { TodoEditor, TeamControl } from '../components.jsx';
+import { TodoEditor, TeamControl, RepeatEditor, repeatLabel } from '../components.jsx';
 import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
-import { lineSort, teamSort, teamGroups } from '../../../shared/todo-drop.js';
+import { lineSort, teamSort, teamGroups, cycleTeam } from '../../../shared/todo-drop.js';
 import { useTodoDrag } from './useTodoDrag.js';
 import { Typed } from '../typing.jsx';
 import {
@@ -112,9 +112,22 @@ function pasteLines(text, { date, kind, db, ctx, firstPrefix = '', place = null 
   return cur;
 }
 
+// Tab, even pressed while a Korean syllable is still being composed (the IME then reports key 'Process').
+const isTab = (e) => e.key === 'Tab' || e.code === 'Tab' || e.keyCode === 9;
+// The day input's group chip for a team (null: no team).
+const teamCtx = (team) => (team ? { label: team.name, color: team.color, teamId: team.id, projectId: null, channel: null } : null);
+
+// The team a line being written goes to, shown in front of the text (Tab changes it); 팀 없음 is a tag too.
+function TeamTag({ team }) {
+  return <span className={'edit-team-tag' + (team ? '' : ' none')} style={team ? { '--team': team.color } : undefined} title="Tab / Shift+Tab: 팀 바꾸기">
+    {team && <span className="team-dot" style={{ background: team.color }} />}{team ? team.name : '팀 없음'}
+  </span>;
+}
+
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
 function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
   const inputRef = useRef(null);
   const project = db.projects.find((p) => p.id === todo.projectId);
   const isDone = todo.status === 'done';
@@ -134,17 +147,30 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
   const fit = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
 
   const removed = useRef(false); // joined into the line above by Backspace: nothing left to save
+  // Tab picks a team for the line while it is edited: only the tag in front of the text changes (the line stays where
+  // it is); the line moves under that team when the editing ends. undefined: not touched.
+  const [pickedTeam, setPickedTeam] = useState(undefined);
+  const picked = useRef(undefined); picked.current = pickedTeam;
+  useEffect(() => { if (!editing) setPickedTeam(undefined); }, [editing]);
+  const teamPatch = () => (picked.current !== undefined && picked.current !== (todo.teamId || null) ? { teamId: picked.current } : {});
   const save = () => {
     if (!inputRef.current || removed.current) return;
-    const v = inputRef.current.value.trim();
+    const v = inputRef.current.value.trim(), patch = { ...(v !== todo.title ? { title: v } : {}), ...teamPatch() };
     if (!v) window.api.deleteTodo(todo.id);
-    else if (v !== todo.title) window.api.updateTodo(todo.id, { title: v });
+    else if (Object.keys(patch).length) window.api.updateTodo(todo.id, patch);
     onEndEdit();
   };
 
   const onKeyDown = (e) => {
-    if (e.nativeEvent.isComposing) return;
     const el = e.currentTarget;
+    if (isTab(e)) {
+      // Tab / Shift+Tab: the next / previous team in the order the day shows them (팀 없음 first), round and round.
+      e.preventDefault();
+      const next = cycleTeam(db, { ...todo, teamId: picked.current !== undefined ? picked.current : todo.teamId }, e.shiftKey ? -1 : 1);
+      if (next !== undefined) setPickedTeam(next);
+      return;
+    }
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter') {
       // Like a notepad: Enter splits the line at the caret; what follows the caret moves to a new line right below.
       e.preventDefault();
@@ -153,6 +179,8 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
       save();
       onEnter(todo, head ? tail : '');
     } else if (e.key === 'Escape') {
+      const patch = teamPatch();
+      if (Object.keys(patch).length) window.api.updateTodo(todo.id, patch);
       onEndEdit();
       onEscape();
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && el.selectionStart === el.selectionEnd) {
@@ -161,8 +189,10 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
       const up = e.key === 'ArrowUp';
       if (rows <= 1 || (up ? el.selectionStart === 0 : el.selectionEnd === el.value.length)) { e.preventDefault(); onArrow(todo, up ? -1 : 1); }
     } else if (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
-      // Like a notepad: at the start of a line, Backspace joins it to the line above (an empty line just goes away).
       e.preventDefault();
+      // A team tag in front goes first (the line keeps the team it had).
+      if (picked.current !== undefined) { setPickedTeam(undefined); return; }
+      // Like a notepad: at the start of a line, Backspace joins it to the line above (an empty line just goes away).
       if (onBackspace(todo, inputRef.current.value)) removed.current = true;
     }
   };
@@ -180,6 +210,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
           checked={isDone}
           onChange={() => window.api.updateTodo(todo.id, { status: isDone ? 'todo' : 'done' })}
         />
+        {editing && pickedTeam !== undefined && <TeamTag team={db.teams.find((t) => t.id === pickedTeam)} />}
         {editing ? (
           <textarea
             ref={inputRef}
@@ -223,11 +254,13 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
               {todo.endTime ? `~${todo.endTime}` : ''}
             </span>
           )}
+          {todo.repeat && <button type="button" className="repeat-mark" title="반복 설정" onClick={() => setRepeatOpen(!repeatOpen)}>↻ {repeatLabel(todo.repeat)}</button>}
           <TeamControl todo={todo} db={db} />
           <span className="memo-actions">
             <button className="ghost" title="날짜·시간 설정" onClick={() => setDetail(!detail)}>
               📅
             </button>
+            {!todo.repeat && <button className="ghost" title="반복" aria-label="반복" onClick={() => setRepeatOpen(!repeatOpen)}>↻</button>}
             <button className="ghost" title="버킷으로" onClick={() => window.api.updateTodo(todo.id, { status: 'bucket' })}>
               버킷
             </button>
@@ -239,6 +272,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
         <SourceMark todo={todo} />
       </div>
       {detail && <TodoEditor todo={todo} db={db} onClose={() => setDetail(false)} />}
+      {repeatOpen && <RepeatEditor todo={todo} onClose={() => setRepeatOpen(false)} />}
     </div>
   );
 }
@@ -248,11 +282,14 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
   const [text, setText] = useState(base.text || '');
   // Each line typed here goes right below the previous one (between the line it came from and the next).
   const order = useRef(base.order);
+  // Tab: the team the lines typed here go to (a tag in front; undefined = the group the line came from).
+  const [picked, setPicked] = useState(undefined);
   const place = () => {
-    if (!Number.isFinite(order.current)) return base;
+    const into = picked === undefined ? base : { ...base, teamId: picked, projectId: null, channel: null };
+    if (!Number.isFinite(order.current) || picked !== undefined) return into;
     const at = Number.isFinite(base.next) ? (order.current + base.next) / 2 : order.current + 1024;
     order.current = at; onAdded?.(at);
-    return { ...base, sortOrder: at };
+    return { ...into, sortOrder: at };
   };
   const [sugIdx, setSugIdx] = useState(0);
   const [sugOff, setSugOff] = useState(false);
@@ -273,6 +310,14 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
   };
 
   const onKeyDown = (e) => {
+    if (isTab(e)) {
+      // A suggested team name: take it. Otherwise Tab / Shift+Tab changes the tag (팀 없음 → each team → …).
+      e.preventDefault();
+      if (sugs.length && !e.nativeEvent.isComposing) { pickSug(sugs[sugIdx] || sugs[0]); return; }
+      const next = cycleTeam(db, { teamId: picked !== undefined ? picked : base.teamId || null }, e.shiftKey ? -1 : 1);
+      if (next !== undefined) setPicked(next);
+      return;
+    }
     if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -293,9 +338,6 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
       }
       addWith(place(), v, date, kind);
       setText('');
-    } else if (e.key === 'Tab' && sugs.length) {
-      e.preventDefault();
-      pickSug(sugs[sugIdx] || sugs[0]);
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !sugs.length && !text) {
       e.preventDefault();
       if (e.key === 'ArrowUp') onEditLast(); else onDown?.();
@@ -308,6 +350,9 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
     } else if (e.key === 'Escape') {
       if (sugs.length) setSugOff(true);
       else onClose();
+    } else if (e.key === 'Backspace' && picked !== undefined && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+      e.preventDefault();
+      setPicked(undefined); // the tag goes first: back to the group the line came from
     } else if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       onEditLast();
@@ -324,6 +369,7 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
 
   return (
     <div className={'memo-input-row is-draft' + (indent ? ' indent' : '')}>
+      {picked !== undefined && <TeamTag team={db.teams.find((t) => t.id === picked)} />}
       <input
         ref={ref}
         className="memo-input" maxLength={50}
@@ -352,6 +398,7 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
 /* 날짜 맨 아래 입력 줄 */
 function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBackspaceEmpty }) {
   const [text, setText] = useState('');
+  const [noTeam, setNoTeam] = useState(false); // Tab went round to 팀 없음: say so with a tag
   const [sugIdx, setSugIdx] = useState(0);
   const [sugOff, setSugOff] = useState(false);
   const ref = useRef(null);
@@ -380,6 +427,14 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
   };
 
   const onKeyDown = (e) => {
+    if (isTab(e)) {
+      // A suggested team name: take it. Otherwise Tab / Shift+Tab switches the team these lines go under.
+      e.preventDefault();
+      if (sugs.length && !e.nativeEvent.isComposing) { pickSug(sugs[sugIdx] || sugs[0]); return; }
+      const next = cycleTeam(db, { teamId: ctx?.teamId ?? null }, e.shiftKey ? -1 : 1);
+      if (next !== undefined) { setCtx(teamCtx(db.teams.find((t) => t.id === next))); setNoTeam(next === null); }
+      return;
+    }
     if (e.nativeEvent.isComposing) return;
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -392,12 +447,10 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
         return;
       }
       commit();
-    } else if (e.key === 'Tab' && sugs.length) {
-      e.preventDefault();
-      pickSug(sugs[sugIdx] || sugs[0]);
     } else if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       if (ctx) setCtx(null);
+      else if (noTeam) setNoTeam(false); // the 팀 없음 tag goes first
       else onBackspaceEmpty();
     } else if (e.key === 'ArrowUp' && text === '') {
       // ↑ from the empty input: the day's last line (or the day before when this one is empty), like a notepad.
@@ -420,6 +473,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
 
   return (
     <div className="memo-input-row">
+      {!ctx && noTeam && <TeamTag team={null} />}
       {ctx && (
         <span className="ctx-chip" style={{ borderColor: ctx.color }}>
           <span className="team-dot" style={{ background: ctx.color }} />

@@ -1,7 +1,7 @@
 {
   "name": "todo-checklist",
   "productName": "할 일 체커",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "팀/프로젝트 기반 메모형 할 일 체커",
   "author": "baejungwon",
   "private": true,
@@ -48,7 +48,8 @@
         "filter": [
           "supabase-sync.cjs",
           "supabase-auth.cjs",
-          "tools-client.cjs"
+          "tools-client.cjs",
+          "repeat.cjs"
         ]
       }
     ],

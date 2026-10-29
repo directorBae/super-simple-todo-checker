@@ -7,6 +7,18 @@ const teamOf = (todo, db) => {
   return id && db.teams.some((t) => t.id === id) ? id : null;
 };
 
+// Tab (or the phone's 팀 button) on a line being edited: the next team in the order the day shows them — no team
+// first, then each team — round and round (dir -1 goes back). undefined when there is nothing to switch, or the team
+// comes from the line's project.
+export function cycleTeam(db, todo, dir = 1) {
+  const p = db.projects.find((x) => x.id === todo.projectId);
+  if (p && p.teamId) return undefined;
+  const order = [null, ...db.teams.map((t) => t.id)];
+  if (order.length < 2) return undefined;
+  const at = Math.max(0, order.indexOf(teamOf(todo, db)));
+  return order[(at + dir + order.length) % order.length];
+}
+
 // Same order the notebook shows: timed lines first by time, then the hand-made order.
 export const lineSort = (a, b) => {
   const ka = a.startTime || '99:99';
