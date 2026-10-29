@@ -22,7 +22,7 @@ jobs:
           - os: windows-latest
             args: --win
           - os: macos-latest
-            args: --mac
+            args: --mac --config electron-builder.mac.cjs
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write        # Releases 에 업로드하려면 필요

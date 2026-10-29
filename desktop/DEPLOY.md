@@ -36,6 +36,15 @@ npm run release       # 빌드 + GitHub Releases 업로드 (GH_TOKEN 환경변�
 > `latest.yml` 에 파일명을 적을 때 비ASCII 문자를 치환해 버려서, 한글 파일명을 쓰면
 > 업데이터가 없는 URL 을 받아 조용히 실패한다. 사용자에게 보이는 앱 이름·바로가기는 "할 일 체커" 그대로다.
 
+맥도 같은 이유로 `electron-builder.mac.cjs` 에서 `productName` 을 `todo-checker` 로 덮어쓴다.
+electron-builder 는 `productName` 으로 Chromium 헬퍼 앱(`Helper (GPU)` / `(Renderer)` / `(Plugin)`)의
+이름을 짓는데, 이 이름이 비ASCII 면 패키징된 앱이 Chromium 초기화 중 조용히 죽는다
+(크래시 로그는 `EXC_BREAKPOINT` 만 남고 `app.whenReady()` 가 오지 않는다. 개발 실행은 헬퍼 이름이
+`Electron Helper` 라서 멀쩡하므로 `npm run dev` 로는 안 걸린다).
+사용자에게 보이는 이름은 `CFBundleDisplayName` 으로 "할 일 체커" 를 유지하고,
+데이터 경로(`~/Library/Application Support/할 일 체커`)도 그대로다.
+윈도우 설치 경로·바로가기 이름에 영향이 없도록 맥 설정만 따로 둔다.
+
 ## 코드 서명
 
 미서명 상태로도 배포는 되지만 설치 시 경고가 뜬다. 서명하면 사라진다.

@@ -15,7 +15,7 @@
     "start": "npm run build && node scripts/launch-electron.cjs",
     "dist": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win",
     "dist:demo": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win --config electron-builder.demo.cjs --publish never",
-    "dist:mac": "node scripts/write-supabase-config.cjs && vite build && electron-builder --mac",
+    "dist:mac": "node scripts/write-supabase-config.cjs && vite build && electron-builder --mac --config electron-builder.mac.cjs",
     "release": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win --publish always",
     "test:sync": "node --test test/supabase-sync.test.cjs"
   },
