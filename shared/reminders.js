@@ -33,10 +33,23 @@ export function reminders(db, from, to) {
       const body = [open.length ? `오늘 예정된 할 일이 ${open.length}건 있어요.` : '', overdue.length ? `지난 3일 동안 못 한 일 ${overdue.length}건: ${names(overdue, 3)}` : ''].filter(Boolean).join('\n');
       out.push({ key: `daily:${date}`, at: at(date, s.dailySummaryTime || '09:00'), title: '오늘 할 일', body });
     }
+    // Evening: with to-dos left it asks to move them to tomorrow (tapping it opens that question in the app).
     if (s.dailyWrapup && (open.length || done.length)) {
-      const body = open.length ? `✅ 완료 ${done.length}건${done.length ? `: ${names(done, 2)}` : ''}\n⏳ 남음 ${open.length}건: ${names(open, 3)}` : `오늘 할 일 ${done.length}건을 모두 완료했어요 🎉`;
+      const body = open.length ? wrapupAsk(open) : `오늘 할 일 ${done.length}건을 모두 완료했어요 🎉`;
       out.push({ key: `wrapup:${date}`, at: at(date, s.dailyWrapupTime || '21:00'), title: '하루 마무리', body });
     }
   }
   return out.filter((r) => r.at > from && r.at <= to).sort((a, b) => a.at - b.at);
+}
+export const wrapupAsk = (open) => `남은 할 일 ${open.length}건을 내일로 전부 미루시겠어요?\n⏳ ${names(open, 3)}`;
+
+// The day a tapped wrap-up reminder was about ('wrapup:2026-10-29' → '2026-10-29'), or null for any other reminder.
+export const postponeDay = (key) => (/^wrapup:(\d{4}-\d{2}-\d{2})$/.exec(String(key || '')) || [])[1] || null;
+// What "move today's to-dos to tomorrow" changes: every open to-do of that day moves one day on (a multi-day one keeps
+// its length; a repeating one whose series is already there tomorrow stays). Returns [{ id, patch }].
+export function postponePatches(todos, date) {
+  const next = (d) => { const [y, m, dd] = d.split('-').map(Number); return localDate(new Date(y, m - 1, dd + 1)); };
+  const all = todos || [], tomorrow = next(date);
+  return all.filter((t) => t.status === 'todo' && t.date === date && !(t.seriesId && all.some((x) => x.seriesId === t.seriesId && x.id !== t.id && x.date === tomorrow)))
+    .map((t) => ({ id: t.id, patch: { date: tomorrow, ...(t.endDate ? { endDate: next(t.endDate) } : {}) } }));
 }

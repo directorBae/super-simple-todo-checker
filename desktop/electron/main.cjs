@@ -14,6 +14,7 @@ const supabase = require('./supabase.cjs');
 const updater = require('./updater.cjs');
 const localServer = require('./local-server.cjs');
 const tools = require('./tools.cjs');
+const repeats = require('./repeats.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 // Uploaded wallpaper lives in userData and is served as checker-media://wallpaper so it works in dev and packaged builds.
@@ -48,6 +49,7 @@ let syncTimer;
 
 let supabaseTimer;
 function done() {
+  repeats.grow(store.db);
   store.save();
   broadcast();
   clearTimeout(supabaseTimer);
@@ -248,6 +250,12 @@ function registerIpc() {
     return done();
   });
 
+  // ↻ Repeat on ({ every, unit }), changed, or off (null) from this to-do on; later open occurrences of an old rule go.
+  ipcMain.handle('todo:repeat', (_, { id, rule }) => {
+    repeats.setRepeat(store.db, id, rule ?? null).forEach(clearTodoNotifs);
+    return done();
+  });
+
   ipcMain.handle('todo:delete', (_, id) => {
     const gone = store.db.todos.find((t) => t.id === id);
     if (gone) history.record(id, gone, null);
@@ -408,6 +416,10 @@ app.whenReady().then(() => {
   supabase.ready().then(broadcast); // the window waits for this before it shows the login or the app
   autoSupabase();
   setInterval(autoSupabase, 5000);
+  // A new day brings the next occurrences of repeating to-dos into range.
+  const growRepeats = () => { if (repeats.grow(store.db)) done(); };
+  growRepeats();
+  setInterval(growRepeats, 60 * 60 * 1000);
   app.on('browser-window-focus', autoSupabase);
   app.on('browser-window-focus', autoServerSync);
 

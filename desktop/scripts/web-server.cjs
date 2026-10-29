@@ -6,7 +6,8 @@ const { randomUUID } = require('node:crypto');
 const { createApp, configuration } = require('../../server/index');
 const { titleFields } = require('../electron/todo-title.cjs');
 const { wallpaperHtml } = require('../electron/wallpaper.cjs');
-const { ensureDates } = require('../electron/ensure-dates.cjs');
+const { ensureDates, localDate } = require('../electron/ensure-dates.cjs');
+const repeatEngine = require('../../shared/repeat.cjs');
 const { createUndoHistory } = require('../electron/undo-history.cjs');
 const authApi = require('../../shared/supabase-auth.cjs');
 const toolsApi = require('../electron/tools.cjs');
@@ -86,6 +87,17 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     }
     core.merge({ todos, tombstones }); return state();
   }
+  // Repeating to-dos (shared/repeat.cjs): the occurrences ahead are made here too, the same rows every device makes.
+  function growRepeats() {
+    if (locked()) return;
+    const snapshot = core.snapshot(), made = repeatEngine.plan(snapshot.todos, snapshot.tombstones, localDate());
+    if (made.length) core.merge({ todos: made });
+  }
+  function repeatTodo(p) {
+    const now = Date.now(), { changed, removed } = repeatEngine.setRepeat(core.snapshot().todos, p.id, p.rule ?? null, now);
+    core.merge({ todos: changed, tombstones: removed.map((id) => ({ coll: 'todos', id, deletedAt: now })) });
+    growRepeats(); return state();
+  }
   function change(kind, action, p) {
     const coll = { todo: 'todos', team: 'teams', project: 'projects' }[kind];
     const snapshot = core.snapshot(), list = snapshot[coll];
@@ -114,6 +126,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     if (kind === 'todo') ensureDates({ todos: [next] }, next.updatedAt);
     core.merge({ [coll]: [next] });
     if (kind === 'todo') history.record(next.id, action === 'add' ? null : old, core.snapshot().todos.find((t) => t.id === next.id) || next);
+    if (kind === 'todo') growRepeats();
     return state();
   }
   const server = http.createServer(async (req, res) => {
@@ -154,6 +167,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
           if (method === 'ack') return state();
           if (method === 'integrations') return core.integrations.action(p);
           if (method === 'todo/undo' || method === 'todo/redo') return undoRedo(method.slice(5));
+          if (method === 'todo/repeat') return repeatTodo(p);
           const match = /^(todo|team|project)\/(add|update|delete)$/.exec(method);
           if (match) return change(match[1], match[2], p);
           throw error('요청을 찾을 수 없습니다.', 404);
@@ -170,7 +184,10 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (e) { if (!res.headersSent) send(res, e.code === 'ENOENT' ? 404 : e.status || 500, { ok: false, error: e.code === 'ENOENT' ? '먼저 npm run build를 실행해 주세요.' : e.message }); }
   });
-  return { server, core, close: () => new Promise(resolve => { server.close(() => core.server.close(() => { core.store.close(); resolve(); })); }) };
+  // Repeats set on another device (pulled from Supabase) and a new day's occurrences come in within a minute.
+  const growTimer = setInterval(() => { mutations = mutations.then(growRepeats).catch(() => {}); }, 60 * 1000);
+  growTimer.unref();
+  return { server, core, close: () => new Promise(resolve => { clearInterval(growTimer); server.close(() => core.server.close(() => { core.store.close(); resolve(); })); }) };
 }
 if (require.main === module) {
   for (const envFile of [path.resolve(__dirname, '../../server/.env'), path.resolve(__dirname, '../.env')]) if (fs.existsSync(envFile)) process.loadEnvFile(envFile);

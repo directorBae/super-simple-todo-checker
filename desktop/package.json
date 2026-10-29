@@ -48,7 +48,8 @@
         "filter": [
           "supabase-sync.cjs",
           "supabase-auth.cjs",
-          "tools-client.cjs"
+          "tools-client.cjs",
+          "repeat.cjs"
         ]
       }
     ],

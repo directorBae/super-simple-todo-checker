@@ -1,9 +1,9 @@
 import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { TodoEditor, TeamControl } from '../components.jsx';
+import { TodoEditor, TeamControl, RepeatEditor, repeatLabel } from '../components.jsx';
 import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
-import { lineSort, teamSort, teamGroups } from '../../../shared/todo-drop.js';
+import { lineSort, teamSort, teamGroups, cycleTeam } from '../../../shared/todo-drop.js';
 import { useTodoDrag } from './useTodoDrag.js';
 import { Typed } from '../typing.jsx';
 import {
@@ -115,6 +115,7 @@ function pasteLines(text, { date, kind, db, ctx, firstPrefix = '', place = null 
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
 function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
   const inputRef = useRef(null);
   const project = db.projects.find((p) => p.id === todo.projectId);
   const isDone = todo.status === 'done';
@@ -134,8 +135,10 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
   const fit = (el) => { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; };
 
   const removed = useRef(false); // joined into the line above by Backspace: nothing left to save
+  const moving = useRef(false); // Tab moved it to another team (it is drawn again there, still being edited)
+  useEffect(() => { moving.current = false; }, [todo.teamId]);
   const save = () => {
-    if (!inputRef.current || removed.current) return;
+    if (!inputRef.current || removed.current || moving.current) return;
     const v = inputRef.current.value.trim();
     if (!v) window.api.deleteTodo(todo.id);
     else if (v !== todo.title) window.api.updateTodo(todo.id, { title: v });
@@ -155,6 +158,14 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
     } else if (e.key === 'Escape') {
       onEndEdit();
       onEscape();
+    } else if (e.key === 'Tab') {
+      // Tab / Shift+Tab: the line's team, in the order the day shows them (no team first), round and round.
+      e.preventDefault();
+      const next = cycleTeam(db, todo, e.shiftKey ? -1 : 1);
+      if (next === undefined) return;
+      const v = el.value.trim();
+      moving.current = true;
+      window.api.updateTodo(todo.id, { teamId: next, ...(v && v !== todo.title ? { title: v } : {}) });
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && el.selectionStart === el.selectionEnd) {
       // ↑ on the first row / ↓ on the last row of the text moves to the line above / below.
       const rows = Math.round(el.scrollHeight / (parseFloat(getComputedStyle(el).lineHeight) || 20));
@@ -223,11 +234,13 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
               {todo.endTime ? `~${todo.endTime}` : ''}
             </span>
           )}
+          {todo.repeat && <button type="button" className="repeat-mark" title="반복 설정" onClick={() => setRepeatOpen(!repeatOpen)}>↻ {repeatLabel(todo.repeat)}</button>}
           <TeamControl todo={todo} db={db} />
           <span className="memo-actions">
             <button className="ghost" title="날짜·시간 설정" onClick={() => setDetail(!detail)}>
               📅
             </button>
+            {!todo.repeat && <button className="ghost" title="반복" aria-label="반복" onClick={() => setRepeatOpen(!repeatOpen)}>↻</button>}
             <button className="ghost" title="버킷으로" onClick={() => window.api.updateTodo(todo.id, { status: 'bucket' })}>
               버킷
             </button>
@@ -239,6 +252,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
         <SourceMark todo={todo} />
       </div>
       {detail && <TodoEditor todo={todo} db={db} onClose={() => setDetail(false)} />}
+      {repeatOpen && <RepeatEditor todo={todo} onClose={() => setRepeatOpen(false)} />}
     </div>
   );
 }

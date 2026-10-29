@@ -24,6 +24,7 @@ if (!window.api) {
     },
     getState: () => request('state').then(emit), getInfo: () => request('info'),
     addTodo: p => mutate('todo/add', p), updateTodo: (id, patch) => mutate('todo/update', { id, patch }), deleteTodo: id => mutate('todo/delete', { id }),
+    repeatTodo: (id, rule) => mutate('todo/repeat', { id, rule }),
     undoTodo: () => mutate('todo/undo', {}), redoTodo: () => mutate('todo/redo', {}),
     addTeam: p => mutate('team/add', p), updateTeam: (id, patch) => mutate('team/update', { id, patch }), deleteTeam: id => mutate('team/delete', { id }),
     addProject: p => mutate('project/add', p), updateProject: (id, patch) => mutate('project/update', { id, patch }), deleteProject: id => mutate('project/delete', { id }),

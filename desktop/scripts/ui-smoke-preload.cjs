@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   syncNow: async () => ({ ok: true }),
   updateSettings: p => ipcRenderer.invoke('smoke:settings', p),
   updateTodo: (id, patch) => ipcRenderer.invoke('smoke:todo', { id, patch }),
+  repeatTodo: (id, rule) => ipcRenderer.invoke('smoke:repeat', { id, rule }),
   addTodo: t => ipcRenderer.invoke('smoke:add', t),
   deleteTodo: id => ipcRenderer.invoke('smoke:delete', id),
   undoTodo: () => ipcRenderer.invoke('smoke:undo'),

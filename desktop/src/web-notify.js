@@ -18,11 +18,25 @@ export async function askWebNotify() {
 const load = () => { try { return JSON.parse(localStorage.getItem(FIRED) || '[]'); } catch { return []; } };
 const save = (keys) => { try { localStorage.setItem(FIRED, JSON.stringify(keys.slice(-500))); } catch {} };
 
+// Who wants to know which reminder was clicked (App: the evening wrap-up opens "move to tomorrow?").
+const clicked = new Set();
+const tell = (key) => clicked.forEach((fn) => fn(key));
+export function onWebReminderClick(fn) {
+  clicked.add(fn);
+  const onMessage = (e) => { if (e.data?.type === 'reminder-click') fn(e.data.key); };
+  navigator.serviceWorker?.addEventListener?.('message', onMessage);
+  // Opened by a tap while no page was open: the worker put the reminder in the address.
+  const url = new URL(window.location.href), key = url.searchParams.get('reminder');
+  if (key) { url.searchParams.delete('reminder'); history.replaceState(null, '', url.href); setTimeout(() => fn(key)); }
+  return () => { clicked.delete(fn); navigator.serviceWorker?.removeEventListener?.('message', onMessage); };
+}
+
 async function show(r) {
   const options = { body: r.body, tag: r.key, icon: './icon.png' };
   const worker = await navigator.serviceWorker?.getRegistration?.().catch(() => null);
   if (worker) return worker.showNotification(r.title, options);
-  new Notification(r.title, options);
+  const n = new Notification(r.title, options);
+  n.onclick = () => { window.focus(); n.close(); tell(r.key); };
 }
 
 // Checks every 30 s; anything that came due since the last check (or up to 2 minutes ago on open) is shown once.

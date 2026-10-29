@@ -381,6 +381,53 @@ export function TodoEditor({ todo, onClose }) {
   );
 }
 
+// ↻ Repeat: a switch; on, every n 일/주/월/년 from this to-do's day (the main process / web server makes the
+// occurrences: shared/repeat.cjs). Switching it off removes the open occurrences after this day.
+const REPEAT_UNITS = [['day', '일'], ['week', '주'], ['month', '월'], ['year', '년']];
+export const repeatLabel = (r) => (!r ? '' : r.every === 1 ? { day: '매일', week: '매주', month: '매달', year: '매년' }[r.unit] : `${r.every}${{ day: '일', week: '주', month: '개월', year: '년' }[r.unit]}마다`);
+export function RepeatEditor({ todo, onClose }) {
+  const [on, setOn] = useState(!!todo.repeat);
+  const [every, setEvery] = useState(String(todo.repeat?.every || 1));
+  const [unit, setUnit] = useState(todo.repeat?.unit || 'week');
+  useEffect(() => {
+    const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, [onClose]);
+  const n = Math.floor(Number(every)), valid = n >= 1 && n <= 999;
+  const toggle = () => {
+    if (on && todo.repeat) { window.api.repeatTodo(todo.id, null); onClose?.(); return; } // off: right away
+    setOn(!on);
+  };
+  const confirm = () => { if (valid) window.api.repeatTodo(todo.id, { every: n, unit }); onClose?.(); };
+  const [, m, d] = (todo.date || '').split('-').map(Number);
+  return (
+    <div className="todo-editor repeat-editor">
+      {!todo.date ? <p className="repeat-note">날짜가 있는 할 일만 반복할 수 있어요.</p> : <>
+        <div className="repeat-switch-row">
+          <span>반복</span>
+          <button type="button" role="switch" aria-checked={on} aria-label="반복" className={'switch' + (on ? ' on' : '')} onClick={toggle}><i /></button>
+        </div>
+        {on && <div className="repeat-rule">
+          <input type="number" min="1" max="999" inputMode="numeric" aria-label="반복 간격" value={every} autoFocus
+            onChange={(e) => setEvery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && valid) confirm(); }} />
+          <select aria-label="반복 단위" value={unit} onChange={(e) => setUnit(e.target.value)}>
+            {REPEAT_UNITS.map(([u, label]) => <option key={u} value={u}>{label}</option>)}
+          </select>
+          <span>마다</span>
+        </div>}
+        <p className="repeat-note">{on ? (valid ? `${m}월 ${d}일부터 ${repeatLabel({ every: n, unit })} 반복해요.` : '1~999 사이 숫자를 넣어 주세요.') : '켜면 반복 주기를 정할 수 있어요.'}
+          {todo.repeat && <><br />끄면 이 날 다음 반복부터 지워져요.</>}</p>
+      </>}
+      <div className="date-cal-actions">
+        <span className="date-cal-spacer" />
+        <button type="button" className="ghost" onClick={() => onClose?.()}>{on && todo.date ? '취소' : '닫기'}</button>
+        {on && todo.date && <button type="button" className="primary" disabled={!valid} onClick={confirm}>확정</button>}
+      </div>
+    </div>
+  );
+}
+
 export function TodoRow({ todo, db, showDate = false }) {
   const [editing, setEditing] = useState(false);
   const project = db.projects.find((p) => p.id === todo.projectId);

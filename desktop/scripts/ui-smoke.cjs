@@ -21,6 +21,8 @@ ipcMain.handle('smoke:state',()=>db);
 ipcMain.handle('smoke:settings',(e,p)=>{Object.assign(db.settings,p);return emit(e);});
 ipcMain.handle('smoke:delete',(e,id)=>{const gone=db.todos.find(t=>t.id===id);if(gone)history.record(id,gone,null);db.todos=db.todos.filter(t=>t.id!==id);return emit(e);});
 for(const [ch,dir] of [['smoke:undo','undo'],['smoke:redo','redo']])ipcMain.handle(ch,e=>{const c=history[dir]();if(c)applyChanges(db,c);return emit(e);});
+const repeats=require('../electron/repeats.cjs'),repeatCalls=[];
+ipcMain.handle('smoke:repeat',(e,p)=>{repeatCalls.push(p);db.tombstones||=[];repeats.setRepeat(db,p.id,p.rule??null);return emit(e);});
 ipcMain.handle('smoke:todo',(e,p)=>{const t=db.todos.find(t=>t.id===p.id);const before=snap(t);Object.assign(t,p.patch);history.record(t.id,before,t);return emit(e);});
 ipcMain.handle('smoke:integrations',(_,p)=>{
  if(p) calls.push(p);
@@ -369,7 +371,45 @@ app.whenReady().then(async()=>{
     await js(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:4}))`);await pause(150);
     if(await js(`!!document.querySelector('[data-todo-id="imp-1"],[data-todo-id$="~was"],.type-caret,.type-strike')`)||await js(`document.querySelector('.memo-line[data-todo-id="imp-4"] .memo-title').innerText`)!=='중간에 끝낸 일')throw Error('A press must finish the changes at once');
   }
-  console.log('UI UX smoke passed: tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  // Tab while editing a line moves it to the next team (no team → Studio), Shift+Tab back; it stays in edit.
+  {
+    const row = id => `document.querySelector('.memo-line[data-todo-id="${id}"]')`;
+    db.todos.push({id:'rep-1',kind:'todo',title:'Water the plants',teamId:null,status:'todo',date:today,origin:{type:'app'},createdAt:Date.now(),updatedAt:Date.now()});win.webContents.send('smoke:db',db);await pause(300);
+    await js(`${row('rep-1')}.scrollIntoView({block:'center'})`);await pause(150);
+    const key = (k, shift = false) => js(`document.querySelector('.memo-edit').dispatchEvent(new KeyboardEvent('keydown',{key:'${k}',shiftKey:${shift},bubbles:true,cancelable:true}))`);
+    await js(`${row('rep-1')}.querySelector('.memo-title').click()`);await pause(200);
+    if(!await js(`!!${row('rep-1')}.querySelector('.memo-edit')`))throw Error('Clicking a title must edit it');
+    await key('Tab');await pause(250);
+    if(db.todos.find(t=>t.id==='rep-1').teamId!=='team')throw Error('Tab must move the line to the next team');
+    if(!await js(`!!${row('rep-1')}?.querySelector('.memo-edit')`))throw Error('The line must stay in edit after Tab');
+    await key('Tab',true);await pause(250);
+    if(db.todos.find(t=>t.id==='rep-1').teamId!==null)throw Error('Shift+Tab must move it back');
+    await key('Escape');await pause(150);
+    // ↻: the switch opens every n 일/주/월/년; 확정 sets it, the occurrences come, and the line shows ↻ 매주.
+    await js(`${row('rep-1')}.querySelector('button[aria-label="반복"]').click()`);await pause(200);
+    if(!await js(`!!document.querySelector('.repeat-editor')`))throw Error('↻ must open the repeat editor');
+    await js(`document.querySelector('.repeat-editor .switch').click()`);await pause(200);
+    if(!await js(`!!document.querySelector('.repeat-editor .repeat-rule select')`))throw Error('Switching repeat on must ask for n and the unit');
+    await js(`document.querySelector('.repeat-editor').scrollIntoView({block:'center'})`);await pause(150);await snap('desktop-repeat');
+    await js(`[...document.querySelectorAll('.repeat-editor button')].find(b=>b.textContent==='확정').click()`);await pause(300);
+    const call=repeatCalls.at(-1);
+    if(!call||call.id!=='rep-1'||call.rule?.every!==1||call.rule?.unit!=='week')throw Error('확정 must set every 1 week: '+JSON.stringify(call));
+    if(db.todos.filter(t=>t.seriesId&&t.seriesId===db.todos.find(x=>x.id==='rep-1').seriesId).length<8)throw Error('The weekly occurrences must be made');
+    if(!(await js(`${row('rep-1')}.querySelector('.repeat-mark')?.textContent||''`)).includes('매주'))throw Error('The line must show ↻ 매주');
+    // Off from the mark: the later open occurrences go.
+    await js(`${row('rep-1')}.querySelector('.repeat-mark').click()`);await pause(200);
+    await js(`document.querySelector('.repeat-editor .switch').click()`);await pause(300);
+    if(repeatCalls.at(-1).rule!==null||db.todos.some(t=>t.id.startsWith(call.id)&&t.id.includes('@')))throw Error('Switching repeat off must remove the occurrences after it');
+    // The evening reminder opens "오늘 할 일을 내일로 미룰까요?"; 내일로 미루기 moves what is left today to tomorrow.
+    win.webContents.send('smoke:open-view','postpone:'+today);await pause(300);
+    if(!(await js(`document.querySelector('.postpone-panel')?.innerText||''`)).includes('오늘 할 일을 내일로 미룰까요?'))throw Error('The postpone question must open');
+    await snap('desktop-postpone');
+    const left=db.todos.filter(t=>t.status==='todo'&&t.date===today).map(t=>t.id);
+    await js(`[...document.querySelectorAll('.postpone-panel button')].find(b=>b.textContent==='내일로 미루기').click()`);await pause(400);
+    const tomorrowDay=new Date(Date.now()+864e5).toLocaleDateString('en-CA');
+    if(!left.length||left.some(id=>db.todos.find(t=>t.id===id).date!==tomorrowDay)||await js(`!!document.querySelector('.postpone-panel')`))throw Error('내일로 미루기 must move every open to-do of today and close');
+  }
+  console.log('UI UX smoke passed: Tab changes team while editing, repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
 setTimeout(()=>app.exit(1),110000).unref();

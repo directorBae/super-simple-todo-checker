@@ -36,3 +36,23 @@ test('browser service serves the app, persists changes and blocks cross-site wri
   assert.equal(wallpaper.status, 200); assert.ok(wallpaper.headers.get('content-disposition').includes('attachment'));
   assert.equal((await post('todo/delete', { id })).data.todos.length, 0);
 });
+
+test('browser service: repeat on makes the occurrences (kept through the server), off removes the later ones', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'checker-web-'));
+  const web = createWebService({ dataDir, config: { timeZone: 'Asia/Seoul', openaiModel: 'test' } });
+  await new Promise(resolve => web.core.server.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => web.server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await web.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${web.server.address().port}`;
+  const post = (method, value) => fetch(base + '/api/' + method, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify(value) }).then(r => r.json());
+  const today = new Date().toLocaleDateString('en-CA');
+  const { todos: [todo] } = await post('todo/add', { title: '물 주기', date: today });
+  const on = await post('todo/repeat', { id: todo.id, rule: { every: 1, unit: 'week' } });
+  const root = on.todos.find(x => x.id === todo.id), series = on.todos.filter(x => x.seriesId === root.seriesId && x.id !== todo.id);
+  assert.deepEqual({ every: root.repeat.every, unit: root.repeat.unit, start: root.repeat.start }, { every: 1, unit: 'week', start: today });
+  assert.ok(series.length >= 8 && series.every(x => x.title === '물 주기' && x.repeat?.unit === 'week'), 'weekly copies kept their rule and series: ' + series.length);
+  const off = await post('todo/repeat', { id: todo.id, rule: null });
+  assert.deepEqual(off.todos.map(x => x.id), [todo.id]); assert.equal(off.todos[0].repeat, null);
+  // A bad rule changes nothing.
+  assert.deepEqual((await post('todo/repeat', { id: todo.id, rule: { every: 0, unit: 'week' } })).todos.length, 1);
+});

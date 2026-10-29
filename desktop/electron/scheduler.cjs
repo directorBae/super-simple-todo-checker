@@ -107,16 +107,9 @@ function runTick(store, broadcast, openView) {
         const done = d.doneList.length;
         const remain = d.remainList.length;
         if (done === 0 && remain === 0) continue; // 오늘 아무 일정도 없으면 조용히 넘어감
-        let body;
-        if (remain === 0) {
-          body = `오늘 할 일 ${done}건을 모두 완료했어요 🎉`;
-        } else {
-          body =
-            `✅ 완료 ${done}건` +
-            (done ? `: ${listNames(d.doneList, 2)}` : '') +
-            `\n⏳ 남음 ${remain}건: ${listNames(d.remainList, 3)}`;
-        }
-        notify('하루 마무리', body, () => openView('today'));
+        // With to-dos left it asks to move them to tomorrow; clicking it opens that question in the window.
+        const body = remain === 0 ? `오늘 할 일 ${done}건을 모두 완료했어요 🎉` : `남은 할 일 ${remain}건을 내일로 전부 미루시겠어요?\n⏳ ${listNames(d.remainList, 3)}`;
+        notify('하루 마무리', body, () => openView(remain ? 'postpone:' + d.key.slice('wrapup:'.length) : 'today'));
       }
       continue;
     }

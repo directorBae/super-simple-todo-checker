@@ -59,6 +59,7 @@ export function Surface({ children, style, contentStyle, native = false }) {
 }
 const paths = {
   calendar: 'M7 3v4M17 3v4M3 10h18M5 5h14a2 2 0 0 1 2 2v13H3V7a2 2 0 0 1 2-2Z',
+  repeat: 'M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4',
   teams: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M15 3.13a4 4 0 0 1 0 7.75',
   bucket: 'M3 8h18l-2 13H5L3 8ZM8 8V5a4 4 0 0 1 8 0v3',
   menu: 'M4 6h16M4 12h16M4 18h16',

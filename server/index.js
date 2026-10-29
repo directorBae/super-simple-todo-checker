@@ -95,7 +95,7 @@ function createApp({ dir = process.env.DATA_DIR || path.join(__dirname, 'data'),
         } else if (stamp(incoming) > stamp(old)) {
           const sourceChanged = origin && JSON.stringify(origin) !== JSON.stringify(old.origin);
           if (sourceChanged && (origin.type === 'external' || old.origin?.type === 'external')) old.origin = origin;
-          if (!editable.some(k => k in patch && (patch[k] ?? null) !== (old[k] ?? null))) { if (sourceChanged) old.updatedAt = Math.max(stamp(old), stamp(incoming)); continue; }
+          if (!editable.some(k => k in patch && JSON.stringify(patch[k] ?? null) !== JSON.stringify(old[k] ?? null))) { if (sourceChanged) old.updatedAt = Math.max(stamp(old), stamp(incoming)); continue; }
           if (config.multiUser && ((incoming.syncRevision !== undefined && incoming.syncRevision !== old.revision) || (incoming.syncRevision === undefined && db.links.some(l => l.todoId === old.id)))) {
             old.clientConflict = { message: '다른 기기 또는 원본에서 먼저 수정했습니다.', incoming: patch }; continue;
           }
