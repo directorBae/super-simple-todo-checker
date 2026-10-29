@@ -82,6 +82,9 @@ app.whenReady().then(async()=>{
   if(await js('document.querySelector(".topbar").getBoundingClientRect().height')>70)throw Error('Notebook header is no longer compact');
   if(await js('document.querySelectorAll(".memo-day").length')<7)throw Error('Continuous notebook days missing');
   await pause(300);await snap('desktop-notebook-restored');
+  // The bell popup sits inside the top bar: what is behind it must come through blurred, never sharp.
+  await js(`(()=>{const el=document.querySelector('.memo-line[data-todo-id="logo-google"]');el.scrollIntoView({block:'start'});let p=el.parentElement;while(p&&p.scrollHeight<=p.clientHeight+1)p=p.parentElement;(p||document.scrollingElement).scrollBy(0,-70);})()`);await pause(200);
+  await aria('알림');await pause(300);await snap('desktop-bell');await aria('알림');await pause(150);
   const mark=await js(`(()=>{const line=document.querySelector('#day-${today} .memo-line[data-todo-id="a"] .memo-line-main'),m=line?.querySelector('.source-mark');if(!m)return null;const a=m.getBoundingClientRect(),b=line.getBoundingClientRect();m.click();return {right:Math.round(b.right-a.right),width:Math.round(a.width),editing:!!document.querySelector('.memo-edit'),last:line.lastElementChild===m}})()`);
   if(!mark||!mark.last||mark.right>16||mark.width>20||mark.editing)throw Error('Source mark must sit at the right end and only open the source: '+JSON.stringify(mark));
   if(opened.length!==2||await js(`!!document.querySelector('.memo-line[data-todo-id="local-logo-test"] .source-mark')`))throw Error('Only imported to-dos have a source mark');
