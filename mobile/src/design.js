@@ -25,7 +25,7 @@ export function useDesign() { return useContext(DesignContext); }
 export function DesignProvider({ wallpaper, children }) {
   const target = useRef(null);
   const selected = THEME;
-  const d = { ...selected, target, text: '#141a2e', muted: '#4f5670', edge: '#ffffff4d', fill: '#ffffff14', input: '#ffffff47' };
+  const d = { ...selected, target, text: '#141a2e', muted: '#4f5670', edge: '#ffffff4d', fill: '#ffffff0d', input: '#ffffff47' };
   // The photo is the blur target so every glass surface frosts the wallpaper behind it.
   return <DesignContext.Provider value={d}><View style={{ flex: 1, backgroundColor: selected.colors[0] }}>
     <BlurTargetView ref={target} style={StyleSheet.absoluteFill}>

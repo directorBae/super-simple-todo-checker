@@ -121,6 +121,7 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
  // Backspace on an empty line removes it; at the start of a line it joins the line above. Either way the caret goes up.
  const backspace = e => {
    if(e.nativeEvent.key !== 'Backspace') return;
+   if(picked !== undefined && sel.current.start === 0 && sel.current.end === 0) { setPicked(undefined); return; } // the team tag goes first
    if(value === '') { api.deleteTodo(todo.id); onFocusLine(previous ? { id:previous.id, position:previous.title.length } : null); }
    else if(sel.current.start === 0 && sel.current.end === 0 && previous && Array.from(previous.title + value).length <= 50) {
      const pos=previous.title.length; api.updateTodo(previous.id,{ title:previous.title+value }); api.deleteTodo(todo.id); onFocusLine({ id:previous.id,position:pos });

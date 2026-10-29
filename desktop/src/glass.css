@@ -18,16 +18,22 @@
   --overlay: rgba(10, 14, 30, 0.18);
 
   /* 재질 — 흰빛은 얇게, 번짐(블러)과 채도로 유리감을 낸다 */
-  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
-  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
   --glass-panel: blur(16px) saturate(150%) url(#lens);
   /* 큰 판은 굴절 폭이 크기에 비례해 커지므로 약한 렌즈 + 강한 블러 */
   --glass-pane: blur(22px) saturate(150%) url(#lens-soft);
   --glass-control: blur(8px) saturate(140%) url(#lens);
   --glass-sheet: blur(34px) saturate(145%);
-  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -1px 1px rgba(255, 255, 255, 0.12), inset 0 0 26px rgba(255, 255, 255, 0.05);
+  /* Light caught in the glass: a top highlight, and a thin split of colour along the inside of the edge (warm on the
+     left and top, cool on the right and bottom), like light refracted through a thick pane. */
+  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -1px 1px rgba(255, 255, 255, 0.12),
+    inset 7px 0 9px -6px rgba(255, 80, 170, 0.6), inset -7px 0 9px -6px rgba(40, 190, 255, 0.65),
+    inset 0 7px 9px -6px rgba(255, 205, 90, 0.5), inset 0 -7px 9px -6px rgba(110, 120, 255, 0.55), inset 0 0 26px rgba(255, 255, 255, 0.04);
   --glass-drop: 0 16px 44px rgba(8, 14, 40, 0.2), 0 2px 6px rgba(8, 14, 40, 0.08);
-  --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.08) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0.22));
+  /* The rim: a prism instead of plain white — pink, gold and sky blue where the light catches it. */
+  --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.6), rgba(255, 130, 200, 0.6) 14%, rgba(255, 215, 120, 0.45) 27%, rgba(255, 255, 255, 0) 50%,
+    rgba(100, 210, 255, 0.45) 74%, rgba(160, 140, 255, 0.6) 90%, rgba(255, 255, 255, 0.35));
 }
 
 /* ---------- 글꼴: Pretendard (SIL OFL 1.1, assets/fonts/LICENSE-Pretendard.txt) ---------- */
@@ -183,7 +189,7 @@ button.primary,
 .bell-pop { width: 340px; padding: 14px; overflow: hidden; display: flex; flex-direction: column; max-height: 70vh; }
 .bell-pop h3 { margin: 2px 4px 10px; font-size: 15px; }
 .missed-list { list-style: none; margin: 0 0 12px; padding: 0; overflow: auto; display: grid; gap: 6px; min-height: 0; }
-.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.22); }
+.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.22); }
 .missed-title { font-size: 13px; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
 .missed-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .missed-meta b { padding: 1px 7px; border-radius: 99px; font-weight: 600; font-size: 10.5px; color: #fff; background: #6366f1; }
@@ -214,13 +220,13 @@ button.primary,
 .month-view { padding: 0; }
 .cal-nav .view-toggle { margin: 0 4px; }
 .month-view .cal-cell:not(.blank) {
-  border-radius: 14px; background: rgba(255, 255, 255, 0.06); border: 1px solid transparent;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid transparent;
   backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 6px 18px rgba(8, 14, 40, 0.05); transform: none;
 }
 .month-view .cal-cell:not(.blank)::after { display: none; }
 .month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.3); border-color: rgba(255, 255, 255, 0.32); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35); transform: none; }
-.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.16); border-color: transparent; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 0 0 1.5px rgba(99, 102, 241, 0.32), 0 6px 18px rgba(8, 14, 40, 0.06); }
-.month-view .cal-chip { background: rgba(255, 255, 255, 0.18); }
+.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.07); border-color: transparent; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 0 0 1.5px rgba(99, 102, 241, 0.32), 0 6px 18px rgba(8, 14, 40, 0.06); }
+.month-view .cal-chip { background: rgba(255, 255, 255, 0.07); }
 
 /* 내 팀 목록 */
 .team-side { position: sticky; top: 8px; padding: 2px 0; border-radius: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -423,7 +429,7 @@ button.primary,
 
 /* 팝업 뒤 화면은 흐리게 가라앉혀 창 내용과 섞이지 않게 한다. */
 .popup-overlay,
-.provider-overlay { background: rgba(10, 14, 30, 0.22); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
+.provider-overlay { background: rgba(10, 14, 30, 0.08); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); }
 /* 게임: 오프라인 페이지처럼 창 전체를 덮고 게임만 크게 */
 .offline-game { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; max-width: none; background: #0b1220; }
 .offline-game .arcade-card { width: min(100%, calc((100vh - 120px) * 500 / 280)); margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -546,7 +552,7 @@ button.primary,
 .tool-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-head > button { flex-shrink: 0; padding: 7px 14px; border-radius: 12px; font-size: 13px; }
 .tool-body { display: flex; flex-direction: column; gap: 8px; }
-.tool-sub { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.22); }
+.tool-sub { display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.22); }
 .tool-sub-kind, .tool-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; color: #475569; background: rgba(148, 163, 184, 0.25); }
 .tool-badge.db { color: #4338ca; background: rgba(99, 102, 241, 0.16); }
 .tool-sub-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -561,7 +567,7 @@ button.tool-sub-title:hover { text-decoration: underline; }
 .tool-sub-actions { display: flex; gap: 4px; flex-shrink: 0; }
 .tool-sub-actions .ghost, .tool-pick, .tool-picker-head .ghost { padding: 5px 10px; border-radius: 10px; font-size: 12px; }
 .tool-pick { align-self: flex-start; }
-.tool-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.22); }
+.tool-picker { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.22); }
 .tool-picker-head { display: flex; gap: 6px; }
 .tool-picker-head input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 12px; font-size: 13px; background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.32); }
 .tool-pages { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }

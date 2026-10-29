@@ -189,8 +189,10 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
       const up = e.key === 'ArrowUp';
       if (rows <= 1 || (up ? el.selectionStart === 0 : el.selectionEnd === el.value.length)) { e.preventDefault(); onArrow(todo, up ? -1 : 1); }
     } else if (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
-      // Like a notepad: at the start of a line, Backspace joins it to the line above (an empty line just goes away).
       e.preventDefault();
+      // A team tag in front goes first (the line keeps the team it had).
+      if (picked.current !== undefined) { setPickedTeam(undefined); return; }
+      // Like a notepad: at the start of a line, Backspace joins it to the line above (an empty line just goes away).
       if (onBackspace(todo, inputRef.current.value)) removed.current = true;
     }
   };
@@ -348,6 +350,9 @@ function GroupInput({ date, kind, db, base, indent, onClose, onEditLast, onAdded
     } else if (e.key === 'Escape') {
       if (sugs.length) setSugOff(true);
       else onClose();
+    } else if (e.key === 'Backspace' && picked !== undefined && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
+      e.preventDefault();
+      setPicked(undefined); // the tag goes first: back to the group the line came from
     } else if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       onEditLast();
@@ -445,6 +450,7 @@ function DayInput({ date, kind, db, ctx, setCtx, registerInput, focusDay, onBack
     } else if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       if (ctx) setCtx(null);
+      else if (noTeam) setNoTeam(false); // the 팀 없음 tag goes first
       else onBackspaceEmpty();
     } else if (e.key === 'ArrowUp' && text === '') {
       // ↑ from the empty input: the day's last line (or the day before when this one is empty), like a notepad.

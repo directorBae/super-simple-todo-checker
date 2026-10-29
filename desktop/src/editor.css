@@ -40,7 +40,7 @@
 .postpone-panel h2 { margin: 0; font-size: 18px; letter-spacing: -0.02em; color: var(--text); }
 .postpone-desc { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .postpone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.postpone-list li { padding: 7px 11px; border-radius: 12px; font-size: 13px; color: var(--text); background: rgba(255, 255, 255, 0.12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.postpone-list li { padding: 7px 11px; border-radius: 12px; font-size: 13px; color: var(--text); background: rgba(255, 255, 255, 0.05); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .postpone-list li.more { background: none; padding: 2px 11px; color: var(--muted); font-size: 12px; }
 .postpone-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .postpone-actions button { padding: 8px 16px; border-radius: 12px; font-size: 13px; }

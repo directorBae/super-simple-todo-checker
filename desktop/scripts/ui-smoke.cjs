@@ -394,6 +394,13 @@ app.whenReady().then(async()=>{
     await js(`${row('rep-1')}.querySelector('.memo-title').click()`);await pause(200);
     await key('Tab',true);await pause(200);await key('Escape');await pause(250);
     if(db.todos.find(t=>t.id==='rep-1').teamId!==null)throw Error('Back to 팀 없음 the same way');
+    // Backspace at the start of the text takes the tag away (the line keeps its team; the text is untouched).
+    await js(`${row('rep-1')}.querySelector('.memo-title').click()`);await pause(200);
+    await key('Tab');await pause(200);
+    await js(`(()=>{const el=document.querySelector('.memo-edit');el.setSelectionRange(0,0);})()`);await key('Backspace');await pause(200);
+    if(await js(`!!document.querySelector('.edit-team-tag')`)||!await js(`!!${row('rep-1')}.querySelector('.memo-edit')`))throw Error('Backspace must remove the tag and keep editing');
+    await key('Escape');await pause(250);
+    if(db.todos.find(t=>t.id==='rep-1').teamId!==null||db.todos.find(t=>t.id==='rep-1').title!=='Water the plants')throw Error('After the tag is gone the line stays as it was');
     // ↻: the switch opens every n 일/주/월/년; 확정 sets it, the occurrences come, and the line shows ↻ 매주.
     await js(`${row('rep-1')}.querySelector('button[aria-label="반복"]').click()`);await pause(200);
     if(!await js(`!!document.querySelector('.repeat-editor')`))throw Error('↻ must open the repeat editor');
@@ -418,7 +425,7 @@ app.whenReady().then(async()=>{
     const tomorrowDay=new Date(Date.now()+864e5).toLocaleDateString('en-CA');
     if(!left.length||left.some(id=>db.todos.find(t=>t.id===id).date!==tomorrowDay)||await js(`!!document.querySelector('.postpone-panel')`))throw Error('내일로 미루기 must move every open to-do of today and close');
   }
-  console.log('UI UX smoke passed: Tab team tag while editing (moves when done), repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  console.log('UI UX smoke passed: Tab team tag while editing (moves when done, Backspace removes it), repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
 setTimeout(()=>app.exit(1),110000).unref();
