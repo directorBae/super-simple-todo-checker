@@ -30,7 +30,7 @@ export default function WeekView({ db, weekOf, setWeekOf, openDay, toggle }) {
         const isToday = date === today;
         const list = db.todos.filter((t) => t.date === date && t.status !== 'bucket').sort(teamSort(db)); // grouped by team
         return <Pressable key={date} accessibilityLabel={`${parts(date).m}월 ${parts(date).d}일`} onPress={() => openDay(date)}
-          style={[styles.day, { backgroundColor: isToday ? T.input : T.fill, borderColor: isToday ? T.accent : 'transparent' }]}>
+          style={[styles.day, { backgroundColor: isToday ? T.input : T.fill, borderColor: isToday ? T.accent + '55' : 'transparent' }]}>
           <View style={styles.head}>
             <Text style={{ fontSize: 11, fontWeight: '700', color: isToday ? T.accent : i === 0 ? '#e11d48' : i === 6 ? '#4f6ef7' : T.muted }}>{DOW[i]}</Text>
             <Text style={{ fontSize: 16, fontWeight: '700', color: isToday ? T.accent : T.text }}>{parts(date).d}</Text>

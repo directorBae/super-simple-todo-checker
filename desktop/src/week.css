@@ -1,7 +1,7 @@
 /* ---------- 주간 보기: 일~토 7칸, 칸 모양은 월 달력과 같은 조용한 유리 ---------- */
 .week-view .week-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .month-view.week-view .week-day { min-height: 440px; padding: 8px 6px; display: flex; flex-direction: column; gap: 6px; overflow: visible; }
-.week-head { display: flex; align-items: baseline; gap: 6px; padding: 0 2px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.45); }
+.week-head { display: flex; align-items: baseline; gap: 6px; padding: 0 2px 4px; border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
 .week-dow { font-size: 12px; font-weight: 600; color: var(--muted); }
 .week-head.sun .week-dow { color: #e11d48; }
 .week-head.sat .week-dow { color: #4f6ef7; }

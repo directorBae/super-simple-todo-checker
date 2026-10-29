@@ -185,7 +185,7 @@ const makeStyles = T => StyleSheet.create({
   calToday: {
     backgroundColor: T.input,
     borderWidth: 1,
-    borderColor: T.accent,
+    borderColor: T.accent + '55',
     ...shadow(1),
   },
   calDayNum: {

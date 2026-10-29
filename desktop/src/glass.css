@@ -82,8 +82,8 @@ button.ghost,
   background: var(--glass-tint);
   backdrop-filter: var(--glass-control);
   -webkit-backdrop-filter: var(--glass-control);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 3px 10px rgba(8, 14, 40, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 3px 10px rgba(8, 14, 40, 0.08);
 }
 button.ghost:hover,
 .cal-nav button:hover,
@@ -214,12 +214,12 @@ button.primary,
 .month-view { padding: 0; }
 .cal-nav .view-toggle { margin: 0 4px; }
 .month-view .cal-cell:not(.blank) {
-  border-radius: 14px; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.38);
-  backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; transform: none;
+  border-radius: 14px; background: rgba(255, 255, 255, 0.1); border: 1px solid transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: 0 6px 18px rgba(8, 14, 40, 0.05); transform: none;
 }
 .month-view .cal-cell:not(.blank)::after { display: none; }
-.month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.42); border-color: rgba(255, 255, 255, 0.75); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8); transform: none; }
-.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.58); border-color: rgba(255, 255, 255, 0.9); box-shadow: inset 0 1px 1px #fff, 0 0 0 2px rgba(99, 102, 241, 0.32); }
+.month-view .cal-cell:not(.blank):hover { background: rgba(255, 255, 255, 0.3); border-color: rgba(255, 255, 255, 0.32); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35); transform: none; }
+.month-view .cal-cell.today { background: rgba(255, 255, 255, 0.3); border-color: transparent; box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35), 0 0 0 1.5px rgba(99, 102, 241, 0.32), 0 6px 18px rgba(8, 14, 40, 0.06); }
 .month-view .cal-chip { background: rgba(255, 255, 255, 0.5); }
 
 /* 내 팀 목록 */
