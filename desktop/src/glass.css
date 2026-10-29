@@ -8,24 +8,24 @@
   --muted: #4f5670;
   --placeholder: #8a90a8;
   --glass-edge: rgba(255, 255, 255, 0.55);
-  --panel: rgba(255, 255, 255, 0.3);
+  --panel: rgba(255, 255, 255, 0.16);
   --panel-strong: rgba(255, 255, 255, 0.5);
-  --pop: rgba(255, 255, 255, 0.42);
-  --bar: rgba(255, 255, 255, 0.24);
-  --srf-1: rgba(255, 255, 255, 0.2);
-  --srf-2: rgba(255, 255, 255, 0.34);
+  --pop: rgba(255, 255, 255, 0.22);
+  --bar: rgba(255, 255, 255, 0.1);
+  --srf-1: rgba(255, 255, 255, 0.12);
+  --srf-2: rgba(255, 255, 255, 0.22);
   --srf-3: rgba(255, 255, 255, 0.58);
   --overlay: rgba(10, 14, 30, 0.18);
 
-  /* 재질 */
-  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.46), rgba(255, 255, 255, 0.2));
-  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.38));
-  --glass-panel: blur(18px) saturate(135%) brightness(1.04) url(#lens);
+  /* 재질 — 흰빛은 얇게, 번짐(블러)과 채도로 유리감을 낸다 */
+  --glass-tint: linear-gradient(160deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06));
+  --glass-tint-strong: linear-gradient(160deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.16));
+  --glass-panel: blur(22px) saturate(150%) url(#lens);
   /* 큰 판은 굴절 폭이 크기에 비례해 커지므로 약한 렌즈 + 강한 블러 */
-  --glass-pane: blur(26px) saturate(135%) brightness(1.04) url(#lens-soft);
-  --glass-control: blur(6px) saturate(125%) brightness(1.06) url(#lens);
-  --glass-sheet: blur(30px) saturate(130%) brightness(1.04);
-  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3), inset 0 0 26px rgba(255, 255, 255, 0.22);
+  --glass-pane: blur(30px) saturate(150%) url(#lens-soft);
+  --glass-control: blur(8px) saturate(140%) url(#lens);
+  --glass-sheet: blur(34px) saturate(145%);
+  --glass-light: inset 0 1px 1px rgba(255, 255, 255, 0.9), inset 0 -1px 1px rgba(255, 255, 255, 0.3), inset 0 0 26px rgba(255, 255, 255, 0.1);
   --glass-drop: 0 16px 44px rgba(8, 14, 40, 0.2), 0 2px 6px rgba(8, 14, 40, 0.08);
   --glass-rim: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.2) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, 0.6));
 }
@@ -171,9 +171,9 @@ button.primary,
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(24px) saturate(120%);
-  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px) saturate(145%);
+  -webkit-backdrop-filter: blur(24px) saturate(145%);
 }
 .top-icons { gap: 4px; }
 .bell-btn { display: grid; place-items: center; width: 36px; height: 34px; padding: 0; color: var(--text); }
@@ -183,7 +183,7 @@ button.primary,
 .bell-pop { width: 340px; padding: 14px; overflow: hidden; display: flex; flex-direction: column; max-height: 70vh; }
 .bell-pop h3 { margin: 2px 4px 10px; font-size: 15px; }
 .missed-list { list-style: none; margin: 0 0 12px; padding: 0; overflow: auto; display: grid; gap: 6px; min-height: 0; }
-.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(255, 255, 255, 0.7); }
+.missed-list li { display: grid; gap: 3px; padding: 9px 11px; border-radius: 14px; background: rgba(255, 255, 255, 0.24); border: 1px solid rgba(255, 255, 255, 0.5); }
 .missed-title { font-size: 13px; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
 .missed-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .missed-meta b { padding: 1px 7px; border-radius: 99px; font-weight: 600; font-size: 10.5px; color: #fff; background: #6366f1; }
@@ -199,9 +199,9 @@ button.primary,
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.44), rgba(244, 246, 255, 0.3));
-  backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
-  -webkit-backdrop-filter: blur(64px) saturate(130%) brightness(1.03);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.16), rgba(244, 246, 255, 0.06));
+  backdrop-filter: blur(64px) saturate(140%);
+  -webkit-backdrop-filter: blur(64px) saturate(140%);
 }
 .manage-col,
 .popup-panel,
@@ -339,7 +339,7 @@ button.primary,
 .clock-popup {
   border: 0;
   border-radius: 0;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.14));
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05));
   backdrop-filter: var(--glass-sheet);
   -webkit-backdrop-filter: var(--glass-sheet);
 }
