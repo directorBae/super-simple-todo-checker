@@ -1,5 +1,7 @@
 module.exports = ({ config }) => {
-  const demo = process.env.EAS_BUILD_PROFILE !== 'production';
+  // Demo (ad hoc / preview) builds only. An over-the-air update (eas update) has no build profile and always carries the
+  // store settings, so a demo setting can never reach people on the App Store / TestFlight build.
+  const demo = ['demo', 'preview'].includes(process.env.EAS_BUILD_PROFILE);
   return {
     ...config,
     name: '체커',

@@ -21,6 +21,7 @@ import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
 import { notificationPermission, rescheduleReminders } from './src/notifications.js';
 import { usePostponeRequest, PostponeSheet } from './src/Postpone.js';
+import { startOta } from './src/ota.js';
 
 function Shell() {
  const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
@@ -97,4 +98,6 @@ function Themed() {
  const { db, account, loginRequired } = useDb();
  return <DesignProvider wallpaper={db.settings.wallpaper}>{!loginRequired || account ? <ToolsProvider key={account?.id || account?.email || 'local'}><ImportTypingProvider><Shell /><RainbowEdge /></ImportTypingProvider></ToolsProvider> : account === null ? <Login /> : null}</DesignProvider>;
 }
-export default function App() { return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }
+export default function App() {
+ useEffect(() => startOta(), []); // a new over-the-air update is picked up when the app opens or comes back
+ return <GestureHandlerRootView style={{ flex: 1 }}><DbProvider><Themed /></DbProvider></GestureHandlerRootView>; }
