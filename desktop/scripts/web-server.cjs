@@ -140,7 +140,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       if (url.pathname.startsWith('/api/')) {
         const method = url.pathname.slice(5);
         if (req.method === 'GET' && method === 'state') { await ready; return send(res, 200, state()); }
-        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.3.2-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
+        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.3.3-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
         if (req.method === 'GET' && method === 'integrations') return send(res, 200, { ok: true, ...core.integrations.state() });
         if (req.method === 'GET' && method === 'wallpaper-image') { const image = await fsp.readFile(wallpaperFile); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' }); return res.end(image); }
         if (req.method !== 'POST') throw error('요청을 찾을 수 없습니다.', 404);
