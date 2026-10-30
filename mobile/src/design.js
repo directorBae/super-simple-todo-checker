@@ -51,7 +51,9 @@ export function GlowText({ style, children }) {
   }, []);
   return <Animated.Text style={[style, { color: pulse.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['#4f46e5', '#a78bfa', '#ffffff'] }), textShadowColor: '#c4b5fd', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: pulse.interpolate({ inputRange: [0, 1], outputRange: [3, 12] }) }]}>{children}</Animated.Text>;
 }
-export function Surface({ children, style, contentStyle, native = false }) {
+// Every card is Apple's own glass where the phone has it (iOS 26: it bends what is behind and adds next to no colour);
+// elsewhere a thin frosted layer over the photo.
+export function Surface({ children, style, contentStyle, native = true }) {
   const d = useDesign();
   const edge = { borderRadius: 24, borderWidth: 1, borderColor: d.edge, overflow: 'hidden' };
   if (native && Platform.OS === 'ios' && isLiquidGlassAvailable()) return <GlassView glassEffectStyle="regular" colorScheme={'light'} style={[edge, style]}><View style={contentStyle}>{children}</View></GlassView>;
