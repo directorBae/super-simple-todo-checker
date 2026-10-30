@@ -4,7 +4,7 @@ import { Text } from './src/text.js';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { BlurView } from 'expo-blur';
-import { DbProvider, useDb } from './src/store.js';
+import { DbProvider, useDb, tools } from './src/store.js';
 import { ToolsProvider } from './src/tools.js';
 import JobToast from './src/JobToast.js';
 import { ImportTypingProvider } from './src/ImportTyping.js';
@@ -19,12 +19,12 @@ import { usePlaylist } from './src/usePlaylist.js';
 import ClockDrawer from './src/screens/ClockDrawer.js';
 import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
-import { notificationPermission, rescheduleReminders } from './src/notifications.js';
+import { notificationPermission, rescheduleReminders, startPush } from './src/notifications.js';
 import { usePostponeRequest, PostponeSheet } from './src/Postpone.js';
 import { startOta } from './src/ota.js';
 
 function Shell() {
- const { db, api } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
+ const { db, api, account } = useDb(), d = useDesign(), [menu, setMenu] = useState(false), [settings, setSettings] = useState(false), [settingsTab, setSettingsTab] = useState('notify');
  const [music, setMusic] = useState(false), [musicMounted, setMusicMounted] = useState(false), [nowPlaying, setNowPlaying] = useState(null), musicControls = useRef(null);
  const playlist = usePlaylist(); // my playlist, loaded at start (the same list as on PC and web)
  const [postponeDate, clearPostpone] = usePostponeRequest(); // a tapped evening wrap-up: "move what is left to tomorrow?"
@@ -52,7 +52,8 @@ function Shell() {
   },
  })).current;
  // Reminders: ask once after onboarding, then keep the device's schedule in step with the to-dos.
- useEffect(() => { if (!onboarding) notificationPermission().then(() => rescheduleReminders(db)).catch(() => {}); }, [onboarding]);
+ // With push the server sends them (always from the latest to-dos); otherwise this phone schedules its own.
+ useEffect(() => { if (!onboarding) notificationPermission().then(() => startPush(account ? tools : null)).then(() => rescheduleReminders(db)).catch(() => {}); }, [onboarding, account?.id]);
  useEffect(() => { const t = setTimeout(() => rescheduleReminders(db).catch(() => {}), 1500); return () => clearTimeout(t); }, [db.todos, db.settings]);
  // The tool sign-in page ends with a todochecker://settings/tools link: back in the app, open 설정 → 도구 연결.
  useEffect(() => {

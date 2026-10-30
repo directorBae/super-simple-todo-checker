@@ -8,7 +8,8 @@ export function db(env) {
   const go = (path, init) => json(env.fetch, base + path, { ...init, headers: { ...headers, ...(init?.headers || {}) } });
   return {
     select: (table, query) => go(`${table}?${query}`).then((r) => r || []),
-    insert: (table, rows, { upsert = false, onConflict } = {}) => go(`${table}${onConflict ? '?on_conflict=' + onConflict : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: upsert ? { Prefer: 'return=representation,resolution=merge-duplicates' } : {} }).then((r) => r || []),
+    // upsert: merge into an existing row; ignore: keep the existing row (only the rows really inserted come back).
+    insert: (table, rows, { upsert = false, ignore = false, onConflict } = {}) => go(`${table}${onConflict ? '?on_conflict=' + onConflict : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: upsert ? { Prefer: 'return=representation,resolution=merge-duplicates' } : ignore ? { Prefer: 'return=representation,resolution=ignore-duplicates' } : {} }).then((r) => r || []),
     update: (table, query, patch) => go(`${table}?${query}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r || []),
     remove: (table, query) => go(`${table}?${query}`, { method: 'DELETE' }),
   };

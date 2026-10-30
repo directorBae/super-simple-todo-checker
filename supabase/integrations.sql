@@ -145,11 +145,56 @@ grant select on public.user_prefs to authenticated;
 alter table public.user_prefs add column if not exists playlist jsonb not null default '[]'::jsonb;
 grant insert (playlist), update (playlist) on public.user_prefs to authenticated;
 
+-- 폰 알림은 서버가 보낸다: 알림 시각이 되면 그때의 할 일로 문구를 만들어 푸시(Expo push)한다.
+-- 폰을 열지 않고 데스크탑에서 고쳐도 폰 알림이 늘 최신이다. 알림 설정은 계정에 둔다(기기끼리 같다).
+alter table public.user_prefs add column if not exists notify_start boolean not null default true;
+alter table public.user_prefs add column if not exists notify_end boolean not null default true;
+alter table public.user_prefs add column if not exists wrapup_on boolean not null default true;
+alter table public.user_prefs add column if not exists wrapup_time text not null default '21:00';
+grant insert (notify_start, notify_end, wrapup_on, wrapup_time), update (notify_start, notify_end, wrapup_on, wrapup_time) on public.user_prefs to authenticated;
+-- 푸시를 받을 폰(로그인한 사람마다, 로그아웃하면 지운다).
+create table if not exists public.push_devices (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  token text not null,
+  platform text,
+  disabled_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, token)
+);
+alter table public.push_devices enable row level security;
+drop policy if exists "own read" on public.push_devices;
+drop policy if exists "own write" on public.push_devices;
+drop policy if exists "own change" on public.push_devices;
+drop policy if exists "own remove" on public.push_devices;
+create policy "own read" on public.push_devices for select to authenticated using (user_id = auth.uid());
+create policy "own write" on public.push_devices for insert to authenticated with check (user_id = auth.uid());
+create policy "own change" on public.push_devices for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own remove" on public.push_devices for delete to authenticated using (user_id = auth.uid());
+revoke all on public.push_devices from anon, authenticated;
+grant select, insert, delete, update (platform, disabled_at, updated_at) on public.push_devices to authenticated;
+-- 이미 보낸 알림(같은 알림은 한 번만). Edge Function만 쓴다.
+create table if not exists public.push_sent (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  key text not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, key)
+);
+alter table public.push_sent enable row level security;
+revoke all on public.push_sent from anon, authenticated;
+
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$
 begin
   if exists (select 1 from pg_extension where extname = 'pg_cron') then
-    perform cron.unschedule(jobid) from cron.job where jobname in ('renew-google-channels', 'morning-sweep');
+    perform cron.unschedule(jobid) from cron.job where jobname in ('renew-google-channels', 'morning-sweep', 'push-reminders');
+    -- 폰 알림: 1분마다 지금 울릴 알림을 찾아 보낸다.
+    perform cron.schedule('push-reminders', '* * * * *', $cron$
+      select net.http_post(
+        url := (select value from public.function_settings where key = 'functions_url') || '/push',
+        body := '{}'::jsonb,
+        headers := jsonb_build_object('Content-Type', 'application/json', 'X-Hook-Secret', (select value from public.function_settings where key = 'hook_secret'))
+      )
+    $cron$);
     perform cron.schedule('morning-sweep', '*/10 * * * *', $cron$
       select net.http_post(
         url := (select value from public.function_settings where key = 'functions_url') || '/sweep',

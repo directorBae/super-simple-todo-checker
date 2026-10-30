@@ -5,13 +5,14 @@
 //     POST /subscribe {resource_id, type}   → subscribe to a Notion page/DB (first import starts right away)
 //     POST /unsubscribe {id} · /disconnect {provider} · /sync {id}
 //   Providers: GET /oauth/callback/<provider>, POST /webhook/notion, POST /webhook/google
-//   Database (X-Hook-Secret): POST /push-back {id}, POST /renew, POST /sweep (Mon/Thu morning check-up)
+//   Database (X-Hook-Secret): POST /push-back {id}, POST /renew, POST /sweep (Mon/Thu morning check-up), POST /push (phone reminders, every minute)
 import { HttpError, hmac, safeEqual, signState, readState } from './http.js';
 import { db, eq, userOf } from './db.js';
 import * as notion from './notion.js';
 import * as google from './google.js';
 import { syncSubscription, syncSoon, pushBack } from './sync.js';
 import { sweep } from './sweep.js';
+import { sendDue } from './push.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
@@ -165,10 +166,11 @@ export async function handle(req, env) {
     if (callback && req.method === 'GET') return await oauthCallback(env, callback[1], url);
     if (route === '/webhook/notion' && req.method === 'POST') return await notionWebhook(env, req);
     if (route === '/webhook/google' && req.method === 'POST') return await googleWebhook(env, req);
-    if (route === '/push-back' || route === '/renew' || route === '/sweep') {
+    if (route === '/push-back' || route === '/renew' || route === '/sweep' || route === '/push') {
       if (!safeEqual(req.headers.get('x-hook-secret'), env.HOOK_SECRET)) throw new HttpError('허용되지 않은 요청이에요.', 401);
       if (route === '/renew') return await renew(env);
       if (route === '/sweep') return reply({ ok: true, ...(await sweep({ ...env, channelToken: (id) => channelToken(env, id) })) });
+      if (route === '/push') return reply({ ok: true, ...(await sendDue(env)) });
       const { id } = await req.json();
       return reply({ ok: true, result: await pushBack(env, id) });
     }

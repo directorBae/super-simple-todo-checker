@@ -6,7 +6,7 @@ import { migrateTeams } from './migrate-teams.js';
 import supabaseEngine from '../../shared/supabase-sync.cjs';
 import supabaseAuth from '../../shared/supabase-auth.cjs';
 import toolsEngine from '../../shared/tools-client.cjs';
-import { rescheduleReminders } from './notifications.js';
+import { rescheduleReminders, stopPush } from './notifications.js';
 import { REMINDER_DEFAULTS, postponePatches } from '../../shared/reminders.js';
 import repeatEngine from '../../shared/repeat.cjs';
 import { fillRepeats, applyRepeat } from './edit-helpers.js';
@@ -27,11 +27,12 @@ const keeper = supabaseAuth.createSessionKeeper(SUPABASE, {
 
 // Notion · Google Calendar connections of the signed-in person (Edge Function `integrations`, see src/tools.js).
 export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, key: SUPABASE.key, fetch: (...a) => fetch(...a), token: async () => (await keeper.current())?.accessToken }) : null;
-// The morning alert time goes to the server too, so the Monday/Thursday check-up runs just before it.
+// The reminder settings go to the server too: it sends this phone's reminders, and runs the Monday/Thursday check-up
+// just before the morning one.
 let sentPrefs = '';
 function sharePrefs(settings) {
   const s = { ...REMINDER_DEFAULTS, ...settings }, zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const key = JSON.stringify([s.dailySummary, s.dailySummaryTime, zone]);
+  const key = JSON.stringify([s.dailySummary, s.dailySummaryTime, s.notifyStart, s.notifyEnd, s.dailyWrapup, s.dailyWrapupTime, zone]);
   if (!tools || key === sentPrefs) return;
   sentPrefs = key;
   tools.savePrefs(s, zone).catch(() => { sentPrefs = ''; });
@@ -325,6 +326,7 @@ export function DbProvider({ children }) {
         await self.supabaseNow().catch(() => {});
         await self.supabaseNow().catch(() => {}); // the first may have been one already running
         authGen.current += 1;
+        await stopPush(tools); // while still signed in, so the server forgets this phone
         await keeper.signOut();
         const empty = wipe();
         setAccount(null);

@@ -91,10 +91,11 @@ const recover = (email) => attempt(() => keeper.recover(email));
 // The signed-in person's token for the tool connections (노션 · 구글 캘린더); null when nobody is in.
 const accessToken = async () => (await keeper.current())?.accessToken || null;
 const tools = require('./tools.cjs').client(cfg, accessToken);
-// Tell the server when the morning alert goes off (for the Monday/Thursday check-up) — whenever it changes.
+// Tell the server the reminder settings (the phone's reminders are sent from there; the morning time also places the
+// Monday/Thursday check-up) — whenever they change.
 let sentPrefs = '';
 function sharePrefs(settings) {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, key = JSON.stringify([settings.dailySummary, settings.dailySummaryTime, zone]);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, key = JSON.stringify([settings.dailySummary, settings.dailySummaryTime, settings.notifyStart, settings.notifyEnd, settings.dailyWrapup, settings.dailyWrapupTime, zone]);
   if (key === sentPrefs) return;
   sentPrefs = key;
   tools.savePrefs?.(settings, zone).catch(() => { sentPrefs = ''; });

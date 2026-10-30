@@ -5,8 +5,15 @@
  * jobs straight from the database (RLS shows only theirs) and calls the `integrations` Edge Function for the rest.
  */
 // What the server needs from the reminder settings (names shared by every device: shared/reminders.js).
+// Phone reminders are sent by the server (Edge Function /push), so it needs every reminder setting, not only the morning.
+const hhmm = (v, fallback) => (/^\d{2}:\d{2}$/.test(v || '') ? v : fallback);
 function prefsOf(settings = {}, timeZone) {
-  return { morning_on: settings.dailySummary !== false, morning_time: /^\d{2}:\d{2}$/.test(settings.dailySummaryTime || '') ? settings.dailySummaryTime : '09:00', time_zone: timeZone || null, updated_at: new Date().toISOString() };
+  return {
+    morning_on: settings.dailySummary !== false, morning_time: hhmm(settings.dailySummaryTime, '09:00'),
+    notify_start: settings.notifyStart !== false, notify_end: settings.notifyEnd !== false,
+    wrapup_on: settings.dailyWrapup !== false, wrapup_time: hhmm(settings.dailyWrapupTime, '21:00'),
+    time_zone: timeZone || null, updated_at: new Date().toISOString(),
+  };
 }
 
 // What a playlist entry may hold (YouTube links only, at most 200 entries).
@@ -54,6 +61,12 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify({ playlist: cleanPlaylist(list), updated_at: new Date().toISOString() }),
     }),
+    // This phone's push address (Expo push token): the server sends the reminders there. Removed when signing out.
+    registerPush: (token, platform) => call('/rest/v1/push_devices?on_conflict=user_id,token', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ token, platform, disabled_at: null, updated_at: new Date().toISOString() }),
+    }),
+    unregisterPush: (token) => call('/rest/v1/push_devices?token=eq.' + encodeURIComponent(token), { method: 'DELETE', headers: { Prefer: 'return=minimal' } }),
     // The morning alert time, so the Monday/Thursday check-up runs just before it (or at 9:00 when it is off).
     savePrefs: (settings, timeZone) => call('/rest/v1/user_prefs?on_conflict=user_id', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
