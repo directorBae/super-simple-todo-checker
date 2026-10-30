@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# EAS 로컬 빌드 산출물 (--local 로 만든 .ipa/.aab/.apk)
+build-*.ipa
+build-*.aab
+build-*.apk
