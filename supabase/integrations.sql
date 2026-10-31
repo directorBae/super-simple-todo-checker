@@ -244,6 +244,11 @@ drop policy if exists "own read" on public.oauth_grants;
 create policy "own read" on public.oauth_grants for select to authenticated using (user_id = auth.uid());
 grant select (id, client_name, created_at, last_used_at, revoked_at) on public.oauth_grants to authenticated;
 
+-- 처음 며칠 ChatGPT로 넣은 할 일은 출처가 {type:'app', via:'chatgpt'}였다: ChatGPT 로고가 보이도록 고친다(한 번만 해당).
+update public.todos set origin = jsonb_build_object('type', 'external', 'provider', 'chatgpt', 'subscription', 'chatgpt', 'id', id, 'url', 'https://chatgpt.com/'),
+  updated_at = greatest(updated_at + 1, (extract(epoch from now()) * 1000)::bigint)
+  where origin->>'via' = 'chatgpt';
+
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$
 begin
