@@ -6,7 +6,7 @@ const now=Date.now(), today=new Date().toLocaleDateString('en-CA');
 const db={ todos:[{ id:'a',title:'Design review',teamId:'team',kind:'todo',status:'todo',date:today,createdAt:now,updatedAt:now }], teams:[{id:'team',name:'Studio',color:'#6685e8'}], projects:[], gcalEvents:[], tombstones:[], notifLog:[], settings:{theme:'light',sync:{lastSync:now},notifyStart:true,notifyEnd:true} };
 const state={ok:true,connections:[],targets:[],jobs:[],configured:{}};
 // 노션 · 구글 캘린더 as the signed-in person sees them (window.api.tools); imported to-dos carry origin.
-let tools={ok:true,connections:[],subscriptions:[],jobs:[]};const toolCalls=[],opened=[];
+let tools={ok:true,connections:[],subscriptions:[],jobs:[]};let mcpLinks=[];const toolCalls=[],opened=[];
 db.todos[0].origin={type:'external',provider:'notion',subscription:'s-p1',id:'row-1',url:'https://www.notion.so/design-review'};
 db.todos.push(...['apple','google'].map((provider,i)=>({...db.todos[0],id:'logo-'+provider,title:i?'Client meeting':'Afternoon appointment',origin:{type:'external',provider:'google',url:'https://calendar.google.com/calendar/r'}})));
 db.todos.push({...db.todos[0],id:'local-logo-test',title:'Write a quick note',origin:{type:'app'}});
@@ -40,6 +40,10 @@ ipcMain.handle('smoke:tools',(_,{action,payload={}})=>{
  if(action==='pages')return {ok:true,pages:[{id:'p1',type:'database',title:'주간 업무',icon:'📋'},{id:'p2',type:'page',title:'회의록',icon:null}].filter(p=>!payload.q||p.title.includes(payload.q))};
  if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,connection_id:payload.connectionId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
  if(action==='unsubscribe'){tools.subscriptions=tools.subscriptions.filter(x=>x.id!==payload.id);return {ok:true};}
+ // ChatGPT (MCP) links: the address shows once; the list keeps only the label and dates.
+ if(action==='mcpLinks')return {ok:true,links:mcpLinks.map(({url,...l})=>l)};
+ if(action==='createMcpLink'){const l={id:'l'+(mcpLinks.length+1),label:payload.label,created_at:new Date().toISOString(),last_used_at:null,url:'https://x.supabase.co/functions/v1/integrations/mcp/'+'k'.repeat(32)};mcpLinks.push(l);return {ok:true,link:l};}
+ if(action==='revokeMcpLink'){mcpLinks=mcpLinks.filter(l=>l.id!==payload.id);return {ok:true};}
  if(action==='state')return JSON.parse(JSON.stringify(tools));
  if(action==='playlist')return {ok:true,playlist:[]};
  if(action==='savePlaylist')return {ok:true};
@@ -201,8 +205,14 @@ app.whenReady().then(async()=>{
   await aria('메뉴');await click('설정');await click('도구 연결');
   const text=await js('document.querySelector(".settings-pane").innerText');
   for(const hidden of ['OpenAI','개인 메모리','전송 작업','AI 목적지'])if(text.includes(hidden))throw Error('Tool screen leaked '+hidden);
-  if(await js('document.querySelectorAll(".settings-pane .tool-card").length')!==2||!text.includes('지켜보는 중')&&!text.includes('읽는 중'))throw Error('Settings must show the two tools and the watched page');
+  if(await js('document.querySelectorAll(".settings-pane .tool-card").length')!==3||!text.includes('지켜보는 중')&&!text.includes('읽는 중'))throw Error('Settings must show the two tools and the watched page');
   await snap('desktop-tools');
+  // ChatGPT: 연결 주소 만들기 shows the address once with how to add it; 끊기 removes it.
+  await js(`[...document.querySelectorAll('.settings-pane .tool-card[aria-label="ChatGPT"] button')].find(b=>b.textContent==='연결 주소 만들기').click()`);await pause(300);
+  if(!(await js(`document.querySelector('.mcp-url input')?.value||''`)).includes('/integrations/mcp/')||!(await js(`document.querySelector('.mcp-steps').innerText`)).includes('Add custom MCP server'))throw Error('The ChatGPT link and the steps must show');
+  await js(`document.querySelector('.settings-pane .tool-card[aria-label="ChatGPT"]').scrollIntoView({block:'center'})`);await pause(150);await snap('desktop-chatgpt');
+  await js(`[...document.querySelectorAll('.settings-pane .tool-card[aria-label="ChatGPT"] button')].find(b=>b.textContent==='끊기').click()`);await pause(300);
+  if(mcpLinks.length||await js(`!!document.querySelector('.mcp-url')`))throw Error('끊기 must remove the link');
   // Several accounts per tool: 연결하기, then "+ 계정 추가" waits for the NEW account; each account has its own 연결 끊기 and calendars.
   const gcard=`document.querySelector('.tool-card[aria-label="구글 캘린더"]')`,gbtn=t=>js(`[...${gcard}.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(t)}).click()`);
   await gbtn('연결하기');await pause(400);
@@ -425,7 +435,7 @@ app.whenReady().then(async()=>{
     const tomorrowDay=new Date(Date.now()+864e5).toLocaleDateString('en-CA');
     if(!left.length||left.some(id=>db.todos.find(t=>t.id===id).date!==tomorrowDay)||await js(`!!document.querySelector('.postpone-panel')`))throw Error('내일로 미루기 must move every open to-do of today and close');
   }
-  console.log('UI UX smoke passed: Tab team tag while editing (moves when done, Backspace removes it), repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
+  console.log('UI UX smoke passed: ChatGPT link (make, copy, cut off), Tab team tag while editing (moves when done, Backspace removes it), repeat on/off, postpone to tomorrow, tool connections (connect, pick a Notion page), source marks, pet jobs, typed imports + rainbow edge, played changes (rename, removal, move, done), onboarding/skip, default month, date-only editor, single theme, row drag (order, team in/out, calendar date), 내 팀 전부 넣기, week view, notepad Backspace, multi-select + Delete, teams room, tools in settings.');app.exit(0);
  }catch(e){console.error(e);await snap('failure');app.exit(1);}
 });
 setTimeout(()=>app.exit(1),110000).unref();

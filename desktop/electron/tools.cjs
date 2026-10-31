@@ -32,6 +32,14 @@ const ACTIONS = {
   // { id } drops that one account, { provider } every account of the tool.
   disconnect: (c, p) => c.disconnect(p.id ? id(p.id) : provider(p.provider)),
   sync: (c, p) => c.syncNow(p.id ? id(p.id) : undefined),
+  // ChatGPT (MCP) links: the address is shown once when made; it must be this project's own function.
+  mcpLinks: async (c) => ({ links: await c.mcpLinks() }),
+  createMcpLink: async (c, p) => {
+    const link = await c.createMcpLink(String(p.label || 'ChatGPT').slice(0, 40));
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/functions\/v1\/integrations\/mcp\/[A-Za-z0-9_-]{20,}$/.test(link?.url || '')) throw new Error('연결 주소를 만들지 못했어요.');
+    return { link };
+  },
+  revokeMcpLink: (c, p) => c.revokeMcpLink(id(p.id)),
   // 음악 재생목록: one per person. Only YouTube https links get through (the same rules the client applies).
   playlist: async (c) => ({ playlist: cleanPlaylist(await c.playlist()) }),
   savePlaylist: async (c, p) => {

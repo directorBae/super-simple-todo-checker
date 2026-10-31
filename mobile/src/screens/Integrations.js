@@ -4,6 +4,7 @@ import { Text, TextInput } from '../text.js';
 import { useDesign, Surface, Sheet, Button, ProviderIcon } from '../design.js';
 import { useTools } from '../tools.js';
 import { subscriptionLine, accountsOf } from '../tool-jobs.js';
+import * as Clipboard from 'expo-clipboard';
 
 // 도구 연결: each person connects their own Notion and Google Calendar (OAuth in the browser; several accounts per
 // tool, e.g. personal + work), then picks the Notion pages or databases to watch per workspace; every Google
@@ -90,6 +91,38 @@ function Account({ provider, account, busy, act, onPick }) {
   </View>;
 }
 
+// ChatGPT: a secret link (an MCP server address) to paste into ChatGPT → 플러그인 → + → Add custom MCP server. Shown once.
+const shortDate = (iso) => { if (!iso) return ''; const t = new Date(iso); return `${t.getMonth() + 1}월 ${t.getDate()}일`; };
+function ChatGpt({ client, busy, act }) {
+  const d = useDesign(), [links, setLinks] = useState(null), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
+  const load = () => client.mcpLinks().then(setLinks).catch(() => setLinks([]));
+  useEffect(() => { load(); }, []);
+  const make = () => act('mcp', async () => { const link = await client.createMcpLink('ChatGPT'); if (!/\/functions\/v1\/integrations\/mcp\/[A-Za-z0-9_-]{20,}$/.test(link?.url || '')) throw new Error('연결 주소를 만들지 못했어요.'); setFresh(link); setCopied(false); await load(); });
+  const cut = (id) => confirm('연결 끊기', '이 주소로는 ChatGPT가 더 이상 할 일을 넣지 못해요.', '끊기', () => act('mcp', async () => { await client.revokeMcpLink(id); if (fresh?.id === id) setFresh(null); await load(); }));
+  const on = (links || []).length > 0;
+  return <Surface native contentStyle={{ padding: 16, gap: 12 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={{ width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#10a37f' }}><Text style={{ color: '#fff', fontSize: 18 }}>✦</Text></View>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={{ color: d.text, fontWeight: '700', fontSize: 16 }}>ChatGPT</Text>
+        <Text numberOfLines={2} style={{ color: on ? d.accent : d.muted, fontSize: 12 }}>{!links ? '확인하는 중…' : on ? `연결 주소 ${links.length}개` : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</Text>
+      </View>
+      {on && <Link title="+ 주소 추가" disabled={!!busy} onPress={make} />}
+    </View>
+    {!!links && !on && !fresh && <Button title="연결 주소 만들기" primary disabled={!!busy} onPress={make} />}
+    {!!fresh && <View style={{ gap: 8 }}>
+      <Text style={{ color: RED, fontSize: 12, fontWeight: '600' }}>이 주소는 지금 한 번만 보여요. 다른 사람에게 알려 주지 마세요.</Text>
+      <Text selectable style={{ color: d.text, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{fresh.url}</Text>
+      <Button title={copied ? '복사됨' : '주소 복사'} primary onPress={() => Clipboard.setStringAsync(fresh.url).then(() => setCopied(true))} />
+      <Text style={{ color: d.text, fontSize: 12, lineHeight: 18 }}>{'1. ChatGPT 웹 → 플러그인 → + → Add custom MCP server\n2. 이름은 체커, Server URL에 이 주소, 인증은 없음(No authentication)\n3. 대화에서 @체커를 부르고 "체커에 넣어줘"'}</Text>
+    </View>}
+    {(links || []).map((l) => <View key={l.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#ffffff4d' }}>
+      <View style={{ flex: 1 }}><Text style={{ color: d.text, fontSize: 13, fontWeight: '600' }}>{l.label || 'ChatGPT'}</Text><Text style={{ color: d.muted, fontSize: 11 }}>{shortDate(l.created_at)} 만듦 · {l.last_used_at ? `마지막 사용 ${shortDate(l.last_used_at)}` : '아직 안 씀'}</Text></View>
+      <Link title="끊기" color={RED} disabled={!!busy} onPress={() => cut(l.id)} />
+    </View>)}
+  </Surface>;
+}
+
 export default function Integrations() {
   const d = useDesign(), { client, state, error, waiting, refresh, waitFor } = useTools();
   const [busy, setBusy] = useState(''), [problem, setProblem] = useState(''), [picker, setPicker] = useState(null);
@@ -128,6 +161,7 @@ export default function Integrations() {
         {accounts.map((account) => <Account key={account.conn.id} provider={provider} account={account} busy={busy} act={act} onPick={() => setPicker(account.conn.id)} />)}
       </Surface>;
     })}
+    <ChatGpt client={client} busy={busy} act={act} />
     {!!pickerAccount && <PagePicker account={pickerAccount} onClose={() => setPicker(null)} />}
   </View>;
 }

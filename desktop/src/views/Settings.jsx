@@ -97,7 +97,7 @@ export default function Settings({ db, initialTab = 'general' }) {
       {TABS.map(([key, label]) => <button key={key} className={'settings-tab' + (tab === key ? ' active' : '')} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}>{label}</button>)}
     </nav>
     <div className="settings-pane">
-      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} /> : <About />}
+      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} chatgpt /> : <About />}
     </div>
   </div>;
 }

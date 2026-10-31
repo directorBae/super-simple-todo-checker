@@ -182,6 +182,23 @@ create table if not exists public.push_sent (
 alter table public.push_sent enable row level security;
 revoke all on public.push_sent from anon, authenticated;
 
+-- ChatGPT(MCP) 연결 주소: 사람마다 비밀 주소를 만들어 ChatGPT 플러그인에 붙인다. 주소의 키는 해시만 저장한다.
+-- 앱은 목록을 보고 끊을 수만 있고, 만들기와 확인은 Edge Function이 한다.
+create table if not exists public.mcp_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  token_hash text not null unique,
+  label text,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz
+);
+alter table public.mcp_tokens enable row level security;
+drop policy if exists "own read" on public.mcp_tokens;
+create policy "own read" on public.mcp_tokens for select to authenticated using (user_id = auth.uid());
+revoke all on public.mcp_tokens from anon, authenticated;
+grant select (id, label, created_at, last_used_at, revoked_at) on public.mcp_tokens to authenticated;
+
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$
 begin

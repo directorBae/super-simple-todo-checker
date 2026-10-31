@@ -5,6 +5,7 @@
 //     POST /subscribe {resource_id, type}   → subscribe to a Notion page/DB (first import starts right away)
 //     POST /unsubscribe {id} · /disconnect {provider} · /sync {id}
 //   Providers: GET /oauth/callback/<provider>, POST /webhook/notion, POST /webhook/google
+//   ChatGPT / MCP clients: POST /mcp/<key> (JSON-RPC: initialize, tools/list, tools/call); app: /mcp/links, /mcp/link, /mcp/revoke
 //   Database (X-Hook-Secret): POST /push-back {id}, POST /renew, POST /sweep (Mon/Thu morning check-up), POST /push (phone reminders, every minute)
 import { HttpError, hmac, safeEqual, signState, readState } from './http.js';
 import { db, eq, userOf } from './db.js';
@@ -13,6 +14,7 @@ import * as google from './google.js';
 import { syncSubscription, syncSoon, pushBack } from './sync.js';
 import { sweep } from './sweep.js';
 import { sendDue } from './push.js';
+import { handleMcp, createLink, listLinks, revokeLink } from './mcp.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
@@ -142,6 +144,10 @@ async function appRoute(env, req, route) {
     if (sub) await forgetSubscription(env, store, sub);
     return reply({ ok: true });
   }
+  // ChatGPT links (MCP): make one (its address is shown once), list them, cut one off.
+  if (route === '/mcp/links') return reply({ links: await listLinks(env, user.id) });
+  if (route === '/mcp/link') return reply({ link: await createLink(env, user.id, body.label) });
+  if (route === '/mcp/revoke') { await revokeLink(env, user.id, String(body.id || '')); return reply({ ok: true }); }
   if (route === '/disconnect') {
     // One account (id), or every account of a tool (provider).
     for (const conn of await mine('connections', (body.id ? 'id=' + eq(body.id) : 'provider=' + eq(body.provider)) + '&select=*')) {
@@ -166,6 +172,9 @@ export async function handle(req, env) {
     if (callback && req.method === 'GET') return await oauthCallback(env, callback[1], url);
     if (route === '/webhook/notion' && req.method === 'POST') return await notionWebhook(env, req);
     if (route === '/webhook/google' && req.method === 'POST') return await googleWebhook(env, req);
+    // ChatGPT (MCP): the person's secret link is the key.
+    const mcp = /^\/mcp\/([A-Za-z0-9_-]{20,})$/.exec(route);
+    if (mcp) return await handleMcp(env, req, mcp[1]);
     if (route === '/push-back' || route === '/renew' || route === '/sweep' || route === '/push') {
       if (!safeEqual(req.headers.get('x-hook-secret'), env.HOOK_SECRET)) throw new HttpError('허용되지 않은 요청이에요.', 401);
       if (route === '/renew') return await renew(env);
