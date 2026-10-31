@@ -1,1 +1,45 @@
-{ "cleanUrls": true }
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/mcp",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/mcp"
+    },
+    {
+      "source": "/.well-known/oauth-authorization-server",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/.well-known/oauth-authorization-server"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/.well-known/oauth-protected-resource"
+    },
+    {
+      "source": "/.well-known/oauth-protected-resource/mcp",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/.well-known/oauth-protected-resource/mcp"
+    },
+    {
+      "source": "/oauth/register",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/register"
+    },
+    {
+      "source": "/oauth/token",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/token"
+    },
+    {
+      "source": "/oauth/revoke",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/revoke"
+    },
+    {
+      "source": "/oauth/check",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/check"
+    },
+    {
+      "source": "/oauth/approve",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/approve"
+    },
+    {
+      "source": "/oauth/deny",
+      "destination": "https://tbvzihouducxiaelfxxs.supabase.co/functions/v1/integrations/oauth/deny"
+    }
+  ]
+}

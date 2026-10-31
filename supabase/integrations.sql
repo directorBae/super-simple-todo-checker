@@ -199,6 +199,51 @@ create policy "own read" on public.mcp_tokens for select to authenticated using 
 revoke all on public.mcp_tokens from anon, authenticated;
 grant select (id, label, created_at, last_used_at, revoked_at) on public.mcp_tokens to authenticated;
 
+-- ChatGPT 공개 플러그인: 체커 계정으로 로그인하는 우리 전용 OAuth 2.1 서버(Edge Function). 코드·토큰은 해시만 저장한다.
+-- oauth_clients: 자동 등록된 앱(ChatGPT 등) · oauth_grants: 사람이 허락한 연결(앱 설정에서 보고 끊는다)
+-- oauth_codes: 10분짜리 일회용 인가 코드(PKCE) · oauth_tokens: 접근 토큰(1시간)과 갱신 토큰(60일, 쓸 때마다 교체)
+create table if not exists public.oauth_clients (
+  client_id text primary key,
+  client_name text,
+  redirect_uris jsonb not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.oauth_grants (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  client_id text not null references public.oauth_clients(client_id) on delete cascade,
+  client_name text,
+  scope text,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz
+);
+create table if not exists public.oauth_codes (
+  code_hash text primary key,
+  grant_id uuid not null references public.oauth_grants(id) on delete cascade,
+  redirect_uri text not null,
+  code_challenge text not null,
+  resource text,
+  expires_at timestamptz not null,
+  used_at timestamptz
+);
+create table if not exists public.oauth_tokens (
+  token_hash text primary key,
+  grant_id uuid not null references public.oauth_grants(id) on delete cascade,
+  kind text not null check (kind in ('access', 'refresh')),
+  resource text,
+  expires_at timestamptz not null,
+  revoked_at timestamptz
+);
+alter table public.oauth_clients enable row level security;
+alter table public.oauth_grants enable row level security;
+alter table public.oauth_codes enable row level security;
+alter table public.oauth_tokens enable row level security;
+revoke all on public.oauth_clients, public.oauth_grants, public.oauth_codes, public.oauth_tokens from anon, authenticated;
+drop policy if exists "own read" on public.oauth_grants;
+create policy "own read" on public.oauth_grants for select to authenticated using (user_id = auth.uid());
+grant select (id, client_name, created_at, last_used_at, revoked_at) on public.oauth_grants to authenticated;
+
 -- 구글 웹훅 채널은 최대 일주일이라 매일 갱신한다(pg_cron). 대시보드 → Database → Extensions에서 pg_cron을 켠 뒤 실행됩니다.
 do $$
 begin

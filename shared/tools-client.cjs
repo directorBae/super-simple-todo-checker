@@ -65,6 +65,9 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
     mcpLinks: () => fn('/mcp/links').then((r) => r.links || []),
     createMcpLink: (label) => fn('/mcp/link', { label }).then((r) => r.link),
     revokeMcpLink: (id) => fn('/mcp/revoke', { id }),
+    // Sign-ins through the public ChatGPT plugin (our OAuth): what was allowed, and cutting one off.
+    oauthGrants: () => fn('/oauth/grants').then((r) => r.grants || []),
+    revokeOauthGrant: (id) => fn('/oauth/grants/revoke', { id }),
     // This phone's push address (Expo push token): the server sends the reminders there. Removed when signing out.
     registerPush: (token, platform) => call('/rest/v1/push_devices?on_conflict=user_id,token', {
       method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },

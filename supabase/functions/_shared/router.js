@@ -15,6 +15,7 @@ import { syncSubscription, syncSoon, pushBack } from './sync.js';
 import { sweep } from './sweep.js';
 import { sendDue } from './push.js';
 import { handleMcp, createLink, listLinks, revokeLink } from './mcp.js';
+import * as oauth from './oauth.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
@@ -114,6 +115,25 @@ async function forgetSubscription(env, store, sub) {
   await store.remove('subscriptions', 'id=' + eq(sub.id));
 }
 
+async function oauthRoute(env, req, route) {
+  const post = req.method === 'POST', body = async () => (await req.json().catch(() => null)) || {};
+  try {
+    if (req.method === 'GET' && route === '/.well-known/oauth-authorization-server') return reply(oauth.serverMetadata(env));
+    if (req.method === 'GET' && (route === '/.well-known/oauth-protected-resource' || route === '/.well-known/oauth-protected-resource/mcp')) return reply(oauth.resourceMetadata(env));
+    if (route === '/mcp') return await oauth.mcpWithToken(env, req);
+    if (post && route === '/oauth/register') return await oauth.register(env, await body());
+    if (post && route === '/oauth/token') return await oauth.token(env, req);
+    if (post && route === '/oauth/revoke') return await oauth.revoke(env, req);
+    if (post && route === '/oauth/check') return reply(await oauth.check(env, await body()));
+    if (post && route === '/oauth/approve') return reply(await oauth.approve(env, req, await body()));
+    if (post && route === '/oauth/deny') return reply(await oauth.deny(env, await body()));
+  } catch (e) {
+    if (e instanceof oauth.OAuthError) return oauth.oauthReply(e);
+    throw e;
+  }
+  return null;
+}
+
 async function appRoute(env, req, route) {
   const store = db(env), user = await userOf(env, req), body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
   const mine = (table, query) => store.select(table, `user_id=${eq(user.id)}&${query}`);
@@ -144,6 +164,9 @@ async function appRoute(env, req, route) {
     if (sub) await forgetSubscription(env, store, sub);
     return reply({ ok: true });
   }
+  // The public plugin's sign-ins (OAuth): what the person allowed, and cutting one off.
+  if (route === '/oauth/grants') return reply({ grants: await oauth.listGrants(env, user.id) });
+  if (route === '/oauth/grants/revoke') { await oauth.revokeGrant(env, user.id, String(body.id || '')); return reply({ ok: true }); }
   // ChatGPT links (MCP): make one (its address is shown once), list them, cut one off.
   if (route === '/mcp/links') return reply({ links: await listLinks(env, user.id) });
   if (route === '/mcp/link') return reply({ link: await createLink(env, user.id, body.label) });
@@ -172,6 +195,9 @@ export async function handle(req, env) {
     if (callback && req.method === 'GET') return await oauthCallback(env, callback[1], url);
     if (route === '/webhook/notion' && req.method === 'POST') return await notionWebhook(env, req);
     if (route === '/webhook/google' && req.method === 'POST') return await googleWebhook(env, req);
+    // The public ChatGPT plugin: our own OAuth 2.1 server and the protected MCP endpoint (oauth.js).
+    const signedIn = await oauthRoute(env, req, route);
+    if (signedIn) return signedIn;
     // ChatGPT (MCP): the person's secret link is the key.
     const mcp = /^\/mcp\/([A-Za-z0-9_-]{20,})$/.exec(route);
     if (mcp) return await handleMcp(env, req, mcp[1]);

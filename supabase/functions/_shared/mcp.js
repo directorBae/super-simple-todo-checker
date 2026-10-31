@@ -9,8 +9,8 @@ export const PROTOCOL = '2025-06-18';
 const MAX_ADD = 50;
 const DATE = /^\d{4}-\d{2}-\d{2}$/, TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-const sha256 = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, '0')).join('');
-const newKey = () => { const b = crypto.getRandomValues(new Uint8Array(24)); return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+export const sha256 = async (text) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, '0')).join('');
+export const newKey = () => { const b = crypto.getRandomValues(new Uint8Array(24)); return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 export const linkUrl = (env, key) => env.SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/integrations/mcp/' + key;
 
 // ---- the app's side: make, list and cut off the person's links ----
@@ -30,15 +30,20 @@ function titleFields(title, notes = '') {
   const source = `원문: ${original}`;
   return { title: chars.slice(0, 49).join('').trimEnd() + '…', notes: [notes, source].filter(Boolean).join('\n\n') };
 }
+// Tool hints, all explicit (the plugin guidelines): reads, an additive write, and writes that overwrite or delete.
+// Everything stays inside the person's own to-dos, so none of them reaches the open world.
+const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+const ADD = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
+const CHANGE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false };
 const dateArg = { type: 'string', description: 'YYYY-MM-DD (the person\'s own calendar day)' };
 const timeArg = { type: 'string', description: 'HH:MM, 24-hour' };
 export const TOOLS = [
-  { name: 'list_teams', title: '팀 목록', description: 'The teams (groups) the person files to-dos under. Use these names for `team`.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
+  { name: 'list_teams', title: '팀 목록', description: 'The teams (groups) the person files to-dos under. Use these names for `team`.', inputSchema: { type: 'object', properties: {} }, annotations: READ },
   {
     name: 'list_todos', title: '할 일 보기',
     description: 'The to-dos between two days (default: today and the 6 days after), with their ids, dates, times, teams and whether they are done. Call this before changing or deleting one.',
     inputSchema: { type: 'object', properties: { from: dateArg, to: dateArg, include_done: { type: 'boolean', description: 'Also list finished ones (default true).' } } },
-    annotations: { readOnlyHint: true },
+    annotations: READ,
   },
   {
     name: 'add_todos', title: '할 일 추가',
@@ -50,20 +55,22 @@ export const TOOLS = [
         team: { type: 'string', description: 'A team name from list_teams (optional)' }, notes: { type: 'string' },
       } } } },
     },
-    annotations: { readOnlyHint: false, destructiveHint: false },
+    annotations: ADD,
   },
   {
     name: 'update_todo', title: '할 일 고치기',
     description: 'Change one to-do (id from list_todos): title, day, times, team, or mark it done / not done. Send only what changes; null clears a time or the team.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, title: { type: 'string' }, date: dateArg, start_time: { type: ['string', 'null'] }, end_time: { type: ['string', 'null'] }, team: { type: ['string', 'null'] }, done: { type: 'boolean' } } },
-    annotations: { readOnlyHint: false, destructiveHint: false },
+    annotations: CHANGE,
   },
   {
     name: 'delete_todo', title: '할 일 지우기', description: 'Delete one to-do (id from list_todos). Ask the person first.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
-    annotations: { readOnlyHint: false, destructiveHint: true },
+    annotations: CHANGE,
   },
 ];
+// With the public plugin's sign-in (OAuth), each tool says it needs it (ChatGPT shows "connect" when it is missing).
+export const toolsFor = (oauth) => (oauth ? TOOLS.map((t) => ({ ...t, securitySchemes: [{ type: 'oauth2', scopes: ['todos'] }] })) : TOOLS);
 
 const bad = (message) => { const e = new Error(message); e.toolError = true; throw e; };
 const line = (t, teams) => `${t.id} | ${t.date || '날짜 없음'}${t.start_time ? ' ' + t.start_time + (t.end_time ? '~' + t.end_time : '') : ''} | ${t.status === 'done' ? '✓ ' : ''}${t.title}${t.team_id && teams.get(t.team_id) ? ' | ' + teams.get(t.team_id) : ''}`;
@@ -143,7 +150,7 @@ async function callTool(env, user, name, args = {}) {
 const rpc = (id, result) => ({ jsonrpc: '2.0', id, result });
 const rpcError = (id, code, message) => ({ jsonrpc: '2.0', id, error: { code, message } });
 
-async function answer(env, user, msg) {
+async function answer(env, user, msg, oauth) {
   const { id, method, params = {} } = msg || {};
   if (id === undefined || id === null) return null; // a notification (e.g. notifications/initialized): nothing to say
   if (method === 'initialize') {
@@ -154,7 +161,7 @@ async function answer(env, user, msg) {
     });
   }
   if (method === 'ping') return rpc(id, {});
-  if (method === 'tools/list') return rpc(id, { tools: TOOLS });
+  if (method === 'tools/list') return rpc(id, { tools: toolsFor(oauth) });
   if (method === 'tools/call') {
     try {
       const { text, data } = await callTool(env, user, params.name, params.arguments || {});
@@ -167,6 +174,17 @@ async function answer(env, user, msg) {
   return rpcError(id, -32601, 'Method not found: ' + method);
 }
 
+// One MCP exchange for a person already identified (by their secret link, or by an OAuth token: oauth.js).
+export async function mcpReply(env, req, userId, { oauth = false } = {}) {
+  if (req.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
+  const body = await req.json().catch(() => null);
+  if (!body) return Response.json(rpcError(null, -32700, 'Parse error'), { status: 400 });
+  const out = Array.isArray(body) ? (await Promise.all(body.map((m) => answer(env, userId, m, oauth)))).filter(Boolean) : await answer(env, userId, body, oauth);
+  if (!out || (Array.isArray(out) && !out.length)) return new Response(null, { status: 202 });
+  return Response.json(out, { headers: { 'Content-Type': 'application/json' } });
+}
+
+// The personal secret link (/mcp/<key>).
 export async function handleMcp(env, req, key) {
   if (req.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
   const store = db(env);
@@ -174,9 +192,5 @@ export async function handleMcp(env, req, key) {
   if (!link) throw new HttpError('이 연결 주소는 끊겼거나 올바르지 않아요. 앱에서 새로 만들어 주세요.', 401);
   // Note when it was last used (at most once a minute).
   if (!link.last_used_at || env.now() - Date.parse(link.last_used_at) > 60_000) await store.update('mcp_tokens', 'id=' + eq(link.id), { last_used_at: new Date(env.now()).toISOString() }).catch(() => {});
-  const body = await req.json().catch(() => null);
-  if (!body) return Response.json(rpcError(null, -32700, 'Parse error'), { status: 400 });
-  const out = Array.isArray(body) ? (await Promise.all(body.map((m) => answer(env, link.user_id, m)))).filter(Boolean) : await answer(env, link.user_id, body);
-  if (!out || (Array.isArray(out) && !out.length)) return new Response(null, { status: 202 });
-  return Response.json(out, { headers: { 'Content-Type': 'application/json' } });
+  return mcpReply(env, req, link.user_id);
 }

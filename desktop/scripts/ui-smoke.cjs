@@ -41,6 +41,7 @@ ipcMain.handle('smoke:tools',(_,{action,payload={}})=>{
  if(action==='subscribe'){tools.subscriptions.push({id:'s-'+payload.resourceId,connection_id:payload.connectionId,provider:'notion',resource_type:payload.type,resource_id:payload.resourceId,title:'주간 업무',url:'https://www.notion.so/p1',state:'syncing',last_error:null,last_synced_at:null});return {ok:true};}
  if(action==='unsubscribe'){tools.subscriptions=tools.subscriptions.filter(x=>x.id!==payload.id);return {ok:true};}
  // ChatGPT (MCP) links: the address shows once; the list keeps only the label and dates.
+ if(action==='oauthGrants')return {ok:true,grants:[]};
  if(action==='mcpLinks')return {ok:true,links:mcpLinks.map(({url,...l})=>l)};
  if(action==='createMcpLink'){const l={id:'l'+(mcpLinks.length+1),label:payload.label,created_at:new Date().toISOString(),last_used_at:null,url:'https://x.supabase.co/functions/v1/integrations/mcp/'+'k'.repeat(32)};mcpLinks.push(l);return {ok:true,link:l};}
  if(action==='revokeMcpLink'){mcpLinks=mcpLinks.filter(l=>l.id!==payload.id);return {ok:true};}

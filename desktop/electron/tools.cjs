@@ -40,6 +40,8 @@ const ACTIONS = {
     return { link };
   },
   revokeMcpLink: (c, p) => c.revokeMcpLink(id(p.id)),
+  oauthGrants: async (c) => ({ grants: await c.oauthGrants() }),
+  revokeOauthGrant: (c, p) => c.revokeOauthGrant(id(p.id)),
   // 음악 재생목록: one per person. Only YouTube https links get through (the same rules the client applies).
   playlist: async (c) => ({ playlist: cleanPlaylist(await c.playlist()) }),
   savePlaylist: async (c, p) => {

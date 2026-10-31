@@ -94,18 +94,19 @@ function Account({ provider, account, busy, act, onPick }) {
 // ChatGPT: a secret link (an MCP server address) to paste into ChatGPT → 플러그인 → + → Add custom MCP server. Shown once.
 const shortDate = (iso) => { if (!iso) return ''; const t = new Date(iso); return `${t.getMonth() + 1}월 ${t.getDate()}일`; };
 function ChatGpt({ client, busy, act }) {
-  const d = useDesign(), [links, setLinks] = useState(null), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
-  const load = () => client.mcpLinks().then(setLinks).catch(() => setLinks([]));
+  const d = useDesign(), [links, setLinks] = useState(null), [grants, setGrants] = useState([]), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
+  const load = () => Promise.all([client.mcpLinks().then(setLinks).catch(() => setLinks([])), client.oauthGrants().then(setGrants).catch(() => {})]);
   useEffect(() => { load(); }, []);
   const make = () => act('mcp', async () => { const link = await client.createMcpLink('ChatGPT'); if (!/\/functions\/v1\/integrations\/mcp\/[A-Za-z0-9_-]{20,}$/.test(link?.url || '')) throw new Error('연결 주소를 만들지 못했어요.'); setFresh(link); setCopied(false); await load(); });
   const cut = (id) => confirm('연결 끊기', '이 주소로는 ChatGPT가 더 이상 할 일을 넣지 못해요.', '끊기', () => act('mcp', async () => { await client.revokeMcpLink(id); if (fresh?.id === id) setFresh(null); await load(); }));
-  const on = (links || []).length > 0;
+  const cutGrant = (id) => confirm('연결 끊기', 'ChatGPT가 더 이상 체커에 접근하지 못해요.', '끊기', () => act('mcp', async () => { await client.revokeOauthGrant(id); await load(); }));
+  const on = (links || []).length > 0 || grants.length > 0;
   return <Surface native contentStyle={{ padding: 16, gap: 12 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <View style={{ width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#10a37f' }}><Text style={{ color: '#fff', fontSize: 18 }}>✦</Text></View>
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: d.text, fontWeight: '700', fontSize: 16 }}>ChatGPT</Text>
-        <Text numberOfLines={2} style={{ color: on ? d.accent : d.muted, fontSize: 12 }}>{!links ? '확인하는 중…' : on ? `연결 주소 ${links.length}개` : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</Text>
+        <Text numberOfLines={2} style={{ color: on ? d.accent : d.muted, fontSize: 12 }}>{!links ? '확인하는 중…' : on ? [grants.length && `로그인 연결 ${grants.length}개`, links.length && `연결 주소 ${links.length}개`].filter(Boolean).join(' · ') : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</Text>
       </View>
       {on && <Link title="+ 주소 추가" disabled={!!busy} onPress={make} />}
     </View>
@@ -116,6 +117,10 @@ function ChatGpt({ client, busy, act }) {
       <Button title={copied ? '복사됨' : '주소 복사'} primary onPress={() => Clipboard.setStringAsync(fresh.url).then(() => setCopied(true))} />
       <Text style={{ color: d.text, fontSize: 12, lineHeight: 18 }}>{'1. ChatGPT 웹 → 플러그인 → + → Add custom MCP server\n2. 이름은 체커, Server URL에 이 주소, 인증은 없음(No authentication)\n3. 대화에서 @체커를 부르고 "체커에 넣어줘"'}</Text>
     </View>}
+    {grants.map((g) => <View key={g.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#ffffff4d' }}>
+      <View style={{ flex: 1 }}><Text style={{ color: d.text, fontSize: 13, fontWeight: '600' }}>{(g.client_name || 'ChatGPT') + ' · 로그인으로 연결'}</Text><Text style={{ color: d.muted, fontSize: 11 }}>{shortDate(g.created_at)} 허락함 · {g.last_used_at ? `마지막 사용 ${shortDate(g.last_used_at)}` : '아직 안 씀'}</Text></View>
+      <Link title="끊기" color={RED} disabled={!!busy} onPress={() => cutGrant(g.id)} />
+    </View>)}
     {(links || []).map((l) => <View key={l.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#ffffff4d' }}>
       <View style={{ flex: 1 }}><Text style={{ color: d.text, fontSize: 13, fontWeight: '600' }}>{l.label || 'ChatGPT'}</Text><Text style={{ color: d.muted, fontSize: 11 }}>{shortDate(l.created_at)} 만듦 · {l.last_used_at ? `마지막 사용 ${shortDate(l.last_used_at)}` : '아직 안 씀'}</Text></View>
       <Link title="끊기" color={RED} disabled={!!busy} onPress={() => cut(l.id)} />

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>체커로 로그인</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; box-sizing: border-box; font-family: Pretendard, -apple-system, "Segoe UI", sans-serif; color: #141a2e;
+    background: radial-gradient(1000px 600px at 15% 10%, #a8d8ff, transparent 60%), radial-gradient(800px 600px at 90% 85%, #7d8cff, transparent 60%), #dfe8f8; }
+  main { width: min(400px, 100%); padding: 30px 24px 24px; border-radius: 26px; background: linear-gradient(160deg, rgba(255,255,255,.7), rgba(255,255,255,.42));
+    border: 1px solid rgba(255,255,255,.7); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); box-shadow: inset 0 1px 1px #fff, 0 24px 70px rgba(8,14,40,.18); }
+  .mark { width: 54px; height: 54px; margin: 0 auto 10px; display: grid; place-items: center; font-size: 26px; border-radius: 17px; background: rgba(255,255,255,.75); color: #5b5bd6; }
+  h1 { font-size: 20px; margin: 0 0 6px; text-align: center; } p { color: #4f5670; line-height: 1.6; margin: 0 0 16px; font-size: 14px; text-align: center; }
+  ul { margin: 0 0 18px; padding: 12px 14px 12px 32px; border-radius: 14px; background: rgba(255,255,255,.45); font-size: 13px; line-height: 1.7; color: #2b3150; }
+  label { display: block; font-size: 12px; color: #4f5670; margin: 0 0 4px 2px; }
+  input { width: 100%; box-sizing: border-box; padding: 11px 13px; margin: 0 0 12px; border-radius: 12px; border: 1px solid rgba(20,26,46,.14); background: rgba(255,255,255,.75); font: inherit; font-size: 15px; }
+  .row { display: flex; gap: 8px; margin-top: 4px; }
+  button { flex: 1; padding: 12px 14px; border-radius: 14px; border: 0; font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; }
+  .primary { background: linear-gradient(135deg, #7a6cff, #5b5bd6); color: #fff; }
+  .ghost { background: rgba(255,255,255,.6); color: #2b3150; border: 1px solid rgba(20,26,46,.1); }
+  button:disabled { opacity: .55; cursor: default; }
+  .who { font-size: 13px; color: #4f5670; text-align: center; margin: -6px 0 14px; }
+  .error { color: #b4233c; font-size: 13px; text-align: center; margin: 10px 0 0; min-height: 1em; }
+  .fine { font-size: 11.5px; color: #6a7088; text-align: center; margin: 14px 0 0; line-height: 1.6; }
+  .fine a { color: #5b5bd6; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark">✓</div>
+  <h1 id="title">체커로 로그인</h1>
+  <p id="lead">확인하는 중…</p>
+  <section id="consent" hidden>
+    <ul>
+      <li>할 일과 팀 이름을 볼 수 있어요</li>
+      <li>할 일을 추가·수정·완료·삭제할 수 있어요</li>
+      <li>언제든 체커 설정 → 도구 연결 → ChatGPT에서 끊을 수 있어요</li>
+    </ul>
+    <form id="login">
+      <label for="email">체커 이메일</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="password">비밀번호</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <div class="row"><button type="button" class="ghost" id="deny">거절</button><button type="submit" class="primary" id="allow">로그인하고 허락</button></div>
+    </form>
+    <p class="error" id="error" role="alert"></p>
+    <p class="fine">계정이 없으면 체커 앱에서 먼저 가입해 주세요. 비밀번호는 체커 로그인에만 쓰이고 연결된 서비스에 전달되지 않아요.<br><a href="/privacy">개인정보처리방침</a> · <a href="/terms">이용약관</a></p>
+  </section>
+</main>
+<script>
+  // The OAuth consent step of 체커's own sign-in for ChatGPT (supabase/functions/_shared/oauth.js, reached through
+  // /oauth/* on this site). The request is checked first; the person signs in with their 체커 account (Supabase Auth,
+  // the same as the apps — the password goes only there), then the server hands ChatGPT a one-time code.
+  const SUPABASE_URL = 'https://tbvzihouducxiaelfxxs.supabase.co', ANON_KEY = 'sb_publishable_NwxJx90kVoLp4Xrkc1MvBg_oTIrr0p0';
+  const q = Object.fromEntries(new URLSearchParams(location.search));
+  const $ = (id) => document.getElementById(id);
+  const post = async (path, body, token) => {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error_description || data.error || '요청을 처리하지 못했어요.');
+    return data;
+  };
+  const stop = (message) => { $('title').textContent = '연결할 수 없어요'; $('lead').textContent = message; $('consent').hidden = true; };
+  const busy = (on) => { for (const id of ['allow', 'deny', 'email', 'password']) $(id).disabled = on; };
+  (async () => {
+    try {
+      const info = await post('/oauth/check', q);
+      $('title').textContent = `${info.client_name}이(가) 체커에 연결하려고 해요`;
+      $('lead').textContent = '체커 계정으로 로그인하면 아래 권한을 허락해요.';
+      $('consent').hidden = false;
+      $('email').focus();
+    } catch (e) { stop(e.message); }
+  })();
+  $('login').addEventListener('submit', async (e) => {
+    e.preventDefault(); busy(true); $('error').textContent = '';
+    try {
+      const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: $('email').value.trim(), password: $('password').value }) });
+      const session = await res.json().catch(() => ({}));
+      if (!res.ok || !session.access_token) throw new Error(session.error_code === 'invalid_credentials' || res.status === 400 ? '이메일 또는 비밀번호가 맞지 않아요.' : '로그인하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      const { redirect } = await post('/oauth/approve', q, session.access_token);
+      location.replace(redirect);
+    } catch (err) { $('error').textContent = err.message; busy(false); }
+  });
+  $('deny').addEventListener('click', async () => {
+    busy(true);
+    try { location.replace((await post('/oauth/deny', q)).redirect); } catch (err) { $('error').textContent = err.message; busy(false); }
+  });
+</script>
+</body>
+</html>

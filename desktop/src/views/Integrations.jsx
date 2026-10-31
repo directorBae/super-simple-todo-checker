@@ -97,18 +97,23 @@ function ToolCard({ provider, state, waiting, busy, run, connect }) {
 // The address is shown once when made; links can be cut off here.
 const shortDate = (iso) => { if (!iso) return ''; const d = new Date(iso); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
 function ChatGptCard({ busy, run }) {
-  const [links, setLinks] = useState(null), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
-  const load = async () => { const r = await toolAction('mcpLinks'); if (r.ok) setLinks(r.links); };
+  const [links, setLinks] = useState(null), [grants, setGrants] = useState([]), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
+  const load = async () => {
+    const [r, g] = await Promise.all([toolAction('mcpLinks'), toolAction('oauthGrants')]);
+    if (r.ok) setLinks(r.links);
+    if (g.ok) setGrants(g.grants);
+  };
   useEffect(() => { load(); }, []);
   const make = async () => { const r = await run('createMcpLink', { label: 'ChatGPT' }); if (r.ok) { setFresh(r.link); setCopied(false); load(); } };
   const cut = async (id) => { const r = await run('revokeMcpLink', { id }); if (r.ok) { if (fresh?.id === id) setFresh(null); load(); } };
   const copy = async () => { try { await navigator.clipboard.writeText(fresh.url); setCopied(true); } catch { setCopied(false); } };
-  const on = (links || []).length > 0;
+  const cutGrant = async (id) => { const r = await run('revokeOauthGrant', { id }); if (r.ok) load(); };
+  const on = (links || []).length > 0 || grants.length > 0;
   return <section className={'tool-card tool-row' + (on ? ' is-connected' : '')} aria-label="ChatGPT">
     <div className="tool-head">
       <span className="tool-ai-mark" aria-hidden="true">✦</span>
       <div className="tool-name"><strong>ChatGPT</strong>
-        <span className={on ? 'connected-label' : 'meta'}>{!links ? '확인하는 중…' : on ? `연결 주소 ${links.length}개` : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</span></div>
+        <span className={on ? 'connected-label' : 'meta'}>{!links ? '확인하는 중…' : on ? [grants.length && `로그인 연결 ${grants.length}개`, links.length && `연결 주소 ${links.length}개`].filter(Boolean).join(' · ') : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</span></div>
       <button className={on ? 'ghost' : 'primary'} disabled={busy} onClick={make}>{on ? '+ 주소 추가' : '연결 주소 만들기'}</button>
     </div>
     {(fresh || on) && <div className="tool-body">
@@ -121,6 +126,10 @@ function ChatGptCard({ busy, run }) {
           <li>대화에서 <b>@체커</b>를 부르고 "이 계획을 체커에 넣어줘"라고 하면 돼요</li>
         </ol>
       </div>}
+      {grants.map((g) => <div key={g.id} className="tool-sub">
+        <div className="tool-sub-text"><strong>{g.client_name || 'ChatGPT'} · 로그인으로 연결</strong><span className="meta">{shortDate(g.created_at)} 허락함 · {g.last_used_at ? `마지막 사용 ${shortDate(g.last_used_at)}` : '아직 안 씀'}</span></div>
+        <button className="ghost" disabled={busy} onClick={() => cutGrant(g.id)}>끊기</button>
+      </div>)}
       {(links || []).map((l) => <div key={l.id} className="tool-sub">
         <div className="tool-sub-text"><strong>{l.label || 'ChatGPT'}</strong><span className="meta">{shortDate(l.created_at)} 만듦 · {l.last_used_at ? `마지막 사용 ${shortDate(l.last_used_at)}` : '아직 안 씀'}</span></div>
         <button className="ghost" disabled={busy} onClick={() => cut(l.id)}>끊기</button>
