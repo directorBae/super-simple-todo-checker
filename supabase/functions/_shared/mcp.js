@@ -72,6 +72,13 @@ export const TOOLS = [
 // With the public plugin's sign-in (OAuth), each tool says it needs it (ChatGPT shows "connect" when it is missing).
 export const toolsFor = (oauth) => (oauth ? TOOLS.map((t) => ({ ...t, securitySchemes: [{ type: 'oauth2', scopes: ['todos'] }] })) : TOOLS);
 
+// The pet plays what ChatGPT does, like a Notion or Google import: a job tells the apps it is at work (the pet goes to
+// the line and writes, the window edge glows), and the to-dos carry ChatGPT as their source (logo at the line's end).
+export const ORIGIN = (id) => ({ type: 'external', provider: 'chatgpt', subscription: 'chatgpt', id, url: 'https://chatgpt.com/' });
+async function petJob(store, user, summary) {
+  const [job] = await store.insert('pet_jobs', [{ user_id: user, provider: 'chatgpt', kind: 'import', state: 'writing', summary }]).catch(() => []);
+  return (done, counts) => (job ? store.update('pet_jobs', 'id=' + eq(job.id), { state: 'done', summary: done, counts, updated_at: new Date().toISOString() }).catch(() => {}) : Promise.resolve());
+}
 const bad = (message) => { const e = new Error(message); e.toolError = true; throw e; };
 const line = (t, teams) => `${t.id} | ${t.date || '날짜 없음'}${t.start_time ? ' ' + t.start_time + (t.end_time ? '~' + t.end_time : '') : ''} | ${t.status === 'done' ? '✓ ' : ''}${t.title}${t.team_id && teams.get(t.team_id) ? ' | ' + teams.get(t.team_id) : ''}`;
 
@@ -110,25 +117,34 @@ async function callTool(env, user, name, args = {}) {
     const days = [...new Set(prepared.map((p) => p.date))];
     const there = await store.select('todos', `user_id=${eq(user)}&deleted_at=is.null&date=in.(${days.join(',')})&select=title,date`);
     const seen = new Set(there.map((t) => t.date + '|' + t.title.trim()));
-    const rows = [], skipped = [];
+    const rows = [], skipped = [], fresh = prepared.filter((p) => !seen.has(p.date + '|' + p.title)).length;
+    const finish = fresh ? await petJob(store, user, `ChatGPT가 할 일 ${fresh}개를 적는 중`) : null;
+    const at = env.now();
     for (const p of prepared) {
       if (seen.has(p.date + '|' + p.title)) { skipped.push(p); continue; }
       seen.add(p.date + '|' + p.title);
       rows.push({
         id: crypto.randomUUID(), user_id: user, title: p.title, notes: p.notes, date: p.date, end_date: null, start_time: p.start, end_time: p.end,
         time_zone: zone, team_id: p.team, project_id: null, status: 'todo', sort_order: null, important: false, channel: null, completed_at: null,
-        created_at: now + rows.length, updated_at: now + rows.length, deleted_at: null, extra: { kind: 'todo' }, origin: { type: 'app', via: 'chatgpt' },
+        created_at: at + rows.length, updated_at: at + rows.length, deleted_at: null, extra: { kind: 'todo' }, origin: null,
       });
+      rows.at(-1).origin = ORIGIN(rows.at(-1).id);
     }
     if (rows.length) await store.insert('todos', rows);
+    await finish?.(`ChatGPT에서 할 일 ${rows.length}개 추가`, { created: rows.length });
     const text = [rows.length ? `${rows.length}건을 넣었어요.\n` + rows.map((t) => line(t, teams)).join('\n') : '새로 넣은 할 일이 없어요.', skipped.length ? `이미 있어서 건너뜀 ${skipped.length}건: ${skipped.map((p) => `${p.date} ${p.title}`).join(', ')}` : ''].filter(Boolean).join('\n');
     return { text, data: { added: rows.map((t) => ({ id: t.id, title: t.title, date: t.date })), skipped: skipped.map((p) => ({ title: p.title, date: p.date })) } };
   }
   if (name === 'update_todo' || name === 'delete_todo') {
     const [t] = await store.select('todos', `user_id=${eq(user)}&id=${eq(String(args.id || ''))}&deleted_at=is.null&select=*`);
     if (!t) bad('그 할 일을 찾지 못했어요. list_todos로 id를 확인해 주세요.');
+    // Changes to ChatGPT's own to-dos are played too (the pet can only replay lines that have a source).
+    const play = t.origin?.provider === 'chatgpt';
     if (name === 'delete_todo') {
-      await store.update('todos', 'id=' + eq(t.id), { deleted_at: now, updated_at: now });
+      const finish = play ? await petJob(store, user, `ChatGPT가 "${t.title}" 지우는 중`) : null;
+      const at = env.now();
+      await store.update('todos', 'id=' + eq(t.id), { deleted_at: at, updated_at: at });
+      await finish?.(`ChatGPT가 "${t.title}" 지움`, { deleted: 1 });
       return { text: `지웠어요: ${t.title}`, data: { deleted: t.id } };
     }
     const patch = {};
@@ -140,7 +156,9 @@ async function callTool(env, user, name, args = {}) {
     if ('team' in args) patch.team_id = teamId(args.team);
     if ('done' in args) { patch.status = args.done ? 'done' : 'todo'; patch.completed_at = args.done ? now : null; }
     if (!Object.keys(patch).length) bad('바꿀 내용이 없어요.');
-    const [after] = await store.update('todos', 'id=' + eq(t.id), { ...patch, updated_at: Math.max(now, Number(t.updated_at || 0) + 1) });
+    const finish = play ? await petJob(store, user, `ChatGPT가 "${t.title}" 고치는 중`) : null;
+    const [after] = await store.update('todos', 'id=' + eq(t.id), { ...patch, updated_at: Math.max(env.now(), Number(t.updated_at || 0) + 1) });
+    await finish?.(`ChatGPT가 "${t.title}" 고침`, { updated: 1 });
     return { text: '고쳤어요: ' + line(after || { ...t, ...patch }, teams), data: { id: t.id } };
   }
   bad('없는 도구예요: ' + name);

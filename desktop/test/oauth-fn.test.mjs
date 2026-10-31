@@ -11,7 +11,7 @@ const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g
 
 function world() {
   let now = NOW;
-  const tables = { oauth_clients: [], oauth_grants: [], oauth_codes: [], oauth_tokens: [], todos: [], teams: [], user_prefs: [{ user_id: 'u1', time_zone: 'Asia/Seoul' }], mcp_tokens: [] };
+  const tables = { pet_jobs: [], oauth_clients: [], oauth_grants: [], oauth_codes: [], oauth_tokens: [], todos: [], teams: [], user_prefs: [{ user_id: 'u1', time_zone: 'Asia/Seoul' }], mcp_tokens: [] };
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     const v = row[key], [op, ...rest] = cond.split('.'), arg = decodeURIComponent(rest.join('.'));

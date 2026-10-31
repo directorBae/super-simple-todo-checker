@@ -103,7 +103,7 @@ function ChatGpt({ client, busy, act }) {
   const on = (links || []).length > 0 || grants.length > 0;
   return <Surface native contentStyle={{ padding: 16, gap: 12 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-      <View style={{ width: 38, height: 38, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#10a37f' }}><Text style={{ color: '#fff', fontSize: 18 }}>✦</Text></View>
+      <ProviderIcon provider="chatgpt" size={38} />
       <View style={{ flex: 1, gap: 2 }}>
         <Text style={{ color: d.text, fontWeight: '700', fontSize: 16 }}>ChatGPT</Text>
         <Text numberOfLines={2} style={{ color: on ? d.accent : d.muted, fontSize: 12 }}>{!links ? '확인하는 중…' : on ? [grants.length && `로그인 연결 ${grants.length}개`, links.length && `연결 주소 ${links.length}개`].filter(Boolean).join(' · ') : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</Text>

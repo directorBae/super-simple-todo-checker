@@ -111,7 +111,7 @@ function ChatGptCard({ busy, run }) {
   const on = (links || []).length > 0 || grants.length > 0;
   return <section className={'tool-card tool-row' + (on ? ' is-connected' : '')} aria-label="ChatGPT">
     <div className="tool-head">
-      <span className="tool-ai-mark" aria-hidden="true">✦</span>
+      <ProviderIcon provider="chatgpt" size={40} />
       <div className="tool-name"><strong>ChatGPT</strong>
         <span className={on ? 'connected-label' : 'meta'}>{!links ? '확인하는 중…' : on ? [grants.length && `로그인 연결 ${grants.length}개`, links.length && `연결 주소 ${links.length}개`].filter(Boolean).join(' · ') : '대화하다가 "체커에 넣어줘" 하면 바로 들어와요'}</span></div>
       <button className={on ? 'ghost' : 'primary'} disabled={busy} onClick={make}>{on ? '+ 주소 추가' : '연결 주소 만들기'}</button>

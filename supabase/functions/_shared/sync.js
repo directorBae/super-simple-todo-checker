@@ -130,7 +130,8 @@ export async function pushBack(env, todoId) {
   const store = db(env);
   const [t] = await store.select('todos', 'id=' + eq(todoId) + '&select=*');
   const o = t?.origin;
-  if (!t || !o?.provider || !o.subscription) return 'skip';
+  // ChatGPT has no original to write back to: its to-dos live only here.
+  if (!t || !o?.provider || !o.subscription || !['notion', 'google'].includes(o.provider)) return 'skip';
   const remote = o.remote || {}, now = { date: t.date, start_time: t.start_time, end_time: t.end_time, done: t.status === 'done' };
   // Brought back (Ctrl+Z) after its source item was deleted: it stays in the app as an ordinary to-do.
   if (!t.deleted_at && remote.deleted) { await store.update('todos', 'id=' + eq(t.id), { origin: null, updated_at: env.now() }); return 'detached'; }

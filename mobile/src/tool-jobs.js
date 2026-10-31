@@ -1,6 +1,6 @@
 // What the phone shows of the tool connections' work (no pet here): the toast text for a job, which jobs just
 // finished between two polls, and the status line of a watched page or calendar. Pure, so node --test can run it.
-export const PROVIDER_NAMES = { notion: '노션', google: '구글 캘린더' };
+export const PROVIDER_NAMES = { notion: '노션', google: '구글 캘린더', chatgpt: 'ChatGPT' };
 const ACTIVE = { reading: ['📄', '읽는 중'], thinking: ['💭', '생각하는 중'], writing: ['✏️', '적는 중'] };
 const STALE_MS = 3 * 60_000; // a job stuck this long in one step was cut off; don't keep showing it
 const FINISHED = ['done', 'error'];

@@ -7,7 +7,7 @@ import { handle, environment } from '../../supabase/functions/_shared/router.js'
 const NOW = Date.parse('2026-11-01T03:00:00Z'); // Sunday, 12:00 in Seoul
 
 function world() {
-  const tables = { mcp_tokens: [], todos: [], teams: [{ id: 'team-1', user_id: 'u1', name: 'Studio', color: '#6685e8', deleted_at: null, created_at: 1 }, { id: 'team-x', user_id: 'u2', name: 'Other', deleted_at: null, created_at: 1 }], user_prefs: [{ user_id: 'u1', time_zone: 'Asia/Seoul' }] };
+  const tables = { mcp_tokens: [], pet_jobs: [], todos: [], teams: [{ id: 'team-1', user_id: 'u1', name: 'Studio', color: '#6685e8', deleted_at: null, created_at: 1 }, { id: 'team-x', user_id: 'u2', name: 'Other', deleted_at: null, created_at: 1 }], user_prefs: [{ user_id: 'u1', time_zone: 'Asia/Seoul' }] };
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     const v = row[key], [op, ...rest] = cond.split('.'), arg = decodeURIComponent(rest.join('.'));
@@ -69,7 +69,9 @@ test('mcp: ChatGPT adds a plan, lists it, finishes, moves and deletes to-dos —
   assert.equal(added.isError, undefined);
   assert.equal(added.structuredContent.added.length, 3);
   const plan = w.tables.todos.find((t) => t.title === '기획서 초안 쓰기');
-  assert.deepEqual({ user: plan.user_id, date: plan.date, start: plan.start_time, end: plan.end_time, team: plan.team_id, status: plan.status, origin: plan.origin }, { user: 'u1', date: '2026-11-02', start: '10:00', end: '11:30', team: 'team-1', status: 'todo', origin: { type: 'app', via: 'chatgpt' } });
+  assert.deepEqual({ user: plan.user_id, date: plan.date, start: plan.start_time, end: plan.end_time, team: plan.team_id, status: plan.status, origin: plan.origin }, { user: 'u1', date: '2026-11-02', start: '10:00', end: '11:30', team: 'team-1', status: 'todo', origin: { type: 'external', provider: 'chatgpt', subscription: 'chatgpt', id: plan.id, url: 'https://chatgpt.com/' } });
+  // The pet plays it: a ChatGPT job, finished with what it did.
+  assert.deepEqual(w.tables.pet_jobs.map((j) => [j.user_id, j.provider, j.state, j.summary, j.counts]), [['u1', 'chatgpt', 'done', 'ChatGPT에서 할 일 3개 추가', { created: 3 }]]);
   assert.equal(w.tables.todos.find((t) => t.title === '운동').date, '2026-11-01', 'no date: today in Seoul');
   const long = w.tables.todos.find((t) => t.title.startsWith('아주 긴'));
   assert.ok(Array.from(long.title).length <= 50 && long.notes.startsWith('원문: 아주 긴 제목'));
@@ -77,6 +79,7 @@ test('mcp: ChatGPT adds a plan, lists it, finishes, moves and deletes to-dos —
 
   // The same plan again: nothing doubles. A team that doesn't exist is an error the model can fix.
   assert.match((await call('add_todos', { todos: [{ title: '운동' }] })).content[0].text, /건너뜀 1건/);
+  assert.equal(w.tables.pet_jobs.length, 1, 'nothing new, no job');
   const wrong = await call('add_todos', { todos: [{ title: 'x', team: '없는팀' }] });
   assert.equal(wrong.isError, true); assert.match(wrong.content[0].text, /없는팀.*Studio/);
   assert.equal((await call('add_todos', { todos: [{ title: 'x', date: '11/2' }] })).isError, true);
@@ -91,9 +94,11 @@ test('mcp: ChatGPT adds a plan, lists it, finishes, moves and deletes to-dos —
   assert.deepEqual({ status: plan.status, date: plan.date, start: plan.start_time, end: plan.end_time }, { status: 'done', date: '2026-11-03', start: null, end: null });
   assert.ok(plan.updated_at > NOW - 1 && plan.completed_at === NOW);
   assert.equal((await call('update_todo', { id: plan.id })).isError, true, 'nothing to change');
+  assert.deepEqual(w.tables.pet_jobs.slice(1).map((j) => [j.state, j.summary]), [['done', 'ChatGPT가 "기획서 초안 쓰기" 고침']], 'a bad request leaves no job hanging');
 
   await call('delete_todo', { id: plan.id });
   assert.equal(plan.deleted_at, NOW, 'deleted the way the apps sync deletions');
+  assert.equal(w.tables.pet_jobs.at(-1).summary, 'ChatGPT가 "기획서 초안 쓰기" 지움');
   assert.equal((await call('delete_todo', { id: plan.id })).isError, true);
   // Another person's to-do can't be reached.
   w.tables.todos.push({ id: 'theirs', user_id: 'u2', title: 'x', date: '2026-11-01', status: 'todo', deleted_at: null });

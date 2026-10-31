@@ -20,7 +20,7 @@ function configuration(env = process.env) {
 // A to-do's source as the server keeps it: imports from Notion / Google Calendar keep what identifies the item there.
 const text = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : null);
 function originOf(o) {
-  if (o?.type === 'external' && ['notion', 'google'].includes(o.provider)) {
+  if (o?.type === 'external' && ['notion', 'google', 'chatgpt'].includes(o.provider)) {
     const r = o.remote && typeof o.remote === 'object' ? o.remote : {};
     return { type: 'external', provider: o.provider, subscription: text(o.subscription, 100), id: text(o.id, 300), url: text(o.url, 2000),
       remote: { title: text(r.title, 300), date: text(r.date, 10), start_time: text(r.start_time, 5), end_time: text(r.end_time, 5), done: !!r.done, ...(r.deleted ? { deleted: true } : {}) } };

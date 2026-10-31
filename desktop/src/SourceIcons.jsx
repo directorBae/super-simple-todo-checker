@@ -2,9 +2,10 @@ import React from 'react';
 import apple from './assets/providers/apple-calendar.png';
 import google from './assets/providers/google-calendar.png';
 import notion from './assets/providers/notion.png';
+import chatgpt from './assets/providers/chatgpt.png';
 
-export const PROVIDER_LOGOS = { apple, google, notion };
-export const PROVIDER_NAMES = { notion: '노션', google: '구글 캘린더', apple: 'Apple 캘린더' };
+export const PROVIDER_LOGOS = { apple, google, notion, chatgpt };
+export const PROVIDER_NAMES = { notion: '노션', google: '구글 캘린더', apple: 'Apple 캘린더', chatgpt: 'ChatGPT' };
 export function ProviderIcon({ provider, size = 52 }) {
   if (!PROVIDER_LOGOS[provider]) return null;
   return <span aria-hidden="true" className="provider-logo" style={{ width:size, height:size, borderRadius:size*.2 }}><img src={PROVIDER_LOGOS[provider]} alt="" draggable={false} style={{ width:'100%', height:'100%', objectFit:'contain', transform:provider==='apple'?'scale(1.22)':undefined }} /></span>;

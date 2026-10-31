@@ -6,9 +6,7 @@
 .tool-account-head .ghost { flex-shrink: 0; padding: 5px 10px; border-radius: 10px; font-size: 12px; }
 .tool-picker-title { padding: 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
 
-/* ChatGPT card: a neutral mark (no brand logo), the one-time link with a copy button, and how to add it in ChatGPT. */
-.tool-ai-mark { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; font-size: 20px; color: #fff;
-  background: linear-gradient(135deg, #10a37f, #0d8a6b); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.35); }
+/* ChatGPT card: the one-time link with a copy button, and how to add it in ChatGPT. */
 .mcp-fresh { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.22); }
 .mcp-warn { margin: 0; font-size: 12px; font-weight: 600; color: #b4233c; }
 .mcp-url { display: flex; gap: 6px; }

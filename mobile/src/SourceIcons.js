@@ -1,9 +1,9 @@
 import React from 'react';
 import { Image, Linking, Pressable, View } from 'react-native';
 
-const logos = { apple:require('../assets/providers/apple-calendar.png'), google:require('../assets/providers/google-calendar.png'), notion:require('../assets/providers/notion.png') };
-const names = { apple:'Apple Calendar', google:'Google Calendar', notion:'Notion' };
-const korean = { notion:'노션', google:'구글 캘린더' };
+const logos = { apple:require('../assets/providers/apple-calendar.png'), google:require('../assets/providers/google-calendar.png'), notion:require('../assets/providers/notion.png'), chatgpt:require('../assets/providers/chatgpt.png') };
+const names = { apple:'Apple Calendar', google:'Google Calendar', notion:'Notion', chatgpt:'ChatGPT' };
+const korean = { notion:'노션', google:'구글 캘린더', chatgpt:'ChatGPT' };
 export function ProviderIcon({provider,size=48}) {
   if(!logos[provider])return null;
   return <View pointerEvents="none" style={{width:size,height:size,borderRadius:size*.2,overflow:'hidden',flexShrink:0}}><Image source={logos[provider]} accessible={false} resizeMode="contain" style={{width:size,height:size,transform:[{scale:provider==='apple'?1.22:1}]}}/></View>;

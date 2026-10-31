@@ -146,3 +146,13 @@ test('typing queue: the note a carried to-do shows', () => {
   assert.equal(moveNote(todo('a', { startTime: '09:00' }), todo('a', { startTime: '10:30' })), '09:00 → 10:30');
   assert.equal(moveNote(todo('a', { date: '2026-10-29', startTime: '09:00' }), todo('a', { date: '2026-11-02', startTime: '14:00' })), '10/29 09:00 → 11/2 14:00');
 });
+
+test('typing queue: ChatGPT\'s to-dos are typed too, even when its job is already done by the first look', () => {
+  const w = createTypingWatch();
+  noteJobs(w, [], now - 10_000);
+  takeNew(w, [todo('old')], now - 10_000);
+  // ChatGPT writes and finishes in a moment: the app first sees the job done (no subscription, matched by tool).
+  const gpt = (id, extra) => todo(id, { createdAt: now - 400, updatedAt: now - 400, origin: { type: 'external', provider: 'chatgpt', subscription: 'chatgpt', id, url: 'https://chatgpt.com/' }, ...extra });
+  noteJobs(w, [{ id: 'g1', provider: 'chatgpt', kind: 'import', state: 'done', subscription_id: null, summary: 'ChatGPT에서 할 일 2개 추가', created_at: iso(now - 500), updated_at: iso(now - 300) }], now);
+  assert.deepEqual(ids(takeNew(w, [todo('old'), gpt('p2', { startTime: '10:00' }), gpt('p1', { startTime: '09:00' })], now)), ['p1', 'p2']);
+});
