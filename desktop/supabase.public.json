@@ -1,0 +1,5 @@
+{
+  "_comment": "Public Supabase settings (the project URL and its publishable key, the same ones every client ships with). Secret keys never go here.",
+  "url": "https://tbvzihouducxiaelfxxs.supabase.co",
+  "anonKey": "sb_publishable_NwxJx90kVoLp4Xrkc1MvBg_oTIrr0p0"
+}

@@ -1,12 +1,12 @@
-# 데스크톱 릴리스 — 태그를 밀면 Windows/macOS 설치본을 만들어 GitHub Releases 에 올린다.
-# 올라간 latest.yml / latest-mac.yml 을 앱의 electron-updater 가 보고 자동 업데이트한다.
+# macOS 설치본 — 릴리스(v* 태그)가 만들어지면 GitHub의 맥에서 빌드해 그 릴리스에 붙인다. 맥이 따로 없어도 된다.
+# Windows 설치본은 지금처럼 PC에서 만들어 `gh release create`로 올리고, 이 작업이 맥 파일(dmg·zip·latest-mac.yml)을 더한다.
+# 앱의 electron-updater가 latest-mac.yml을 보고 자동 업데이트한다 (맥 자동 업데이트는 서명된 앱에서만 동작).
 #
-#   npm version 1.0.1 --prefix desktop   (package.json 버전 올리고 커밋)
-#   git tag v1.0.1 && git push --tags
-#
-# macOS 서명·공증은 아래 Secrets 가 설정된 경우에만 수행된다 (없으면 미서명으로 빌드).
-#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID, CSC_LINK, CSC_KEY_PASSWORD
-name: desktop-release
+# 서명·공증은 아래 Secrets가 있을 때만 한다 (없으면 미서명 빌드 — 처음 열 때 "확인되지 않은 개발자" 경고).
+#   CSC_LINK, CSC_KEY_PASSWORD               — Developer ID Application 인증서(.p12, base64)와 비밀번호
+#   APPLE_API_KEY_P8, APPLE_API_KEY_ID, APPLE_API_ISSUER — 공증용 App Store Connect API 키(.p8 내용), 키 ID, Issuer ID
+# 손으로 돌리면(workflow_dispatch) 릴리스에는 손대지 않고 빌드 결과만 Artifacts로 남긴다.
+name: desktop-release-mac
 
 on:
   push:
@@ -14,39 +14,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            args: --win
-          - os: macos-latest
-            args: --mac
-    runs-on: ${{ matrix.os }}
+  mac:
+    runs-on: macos-latest
     permissions:
-      contents: write        # Releases 에 업로드하려면 필요
+      contents: write        # 릴리스에 파일을 붙이려면 필요
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
 
       - name: 의존성 설치
         working-directory: desktop
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
-      - name: 빌드 · 배포
+      - name: 빌드 (Apple 칩 · 인텔)
         working-directory: desktop
-        run: npx vite build && npx electron-builder ${{ matrix.args }} --publish always
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 서명 자격증명 — Secrets 에 없으면 빈 값이라 electron-builder 가 미서명으로 진행한다
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          node scripts/write-supabase-config.cjs
+          npx vite build
+          extra=""
+          if [ -z "$CSC_LINK" ]; then
+            echo "서명 인증서가 없어 미서명으로 빌드합니다."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            extra="-c.mac.notarize=false -c.mac.identity=null"
+          elif [ -n "$APPLE_API_KEY_P8" ]; then
+            printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+            export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
+          else
+            extra="-c.mac.notarize=false"
+          fi
+          npx electron-builder --mac --arm64 --x64 --publish never $extra
+
+      - name: 릴리스에 붙이기
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" desktop/release/*.dmg desktop/release/*.zip desktop/release/*.blockmap desktop/release/latest-mac.yml --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: 빌드 결과 보관 (손으로 돌린 경우)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: checker-mac
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/latest-mac.yml

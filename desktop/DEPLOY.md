@@ -40,25 +40,24 @@ npm run release       # 빌드 + GitHub Releases 업로드 (GH_TOKEN 환경변�
 
 미서명 상태로도 배포는 되지만 설치 시 경고가 뜬다. 서명하면 사라진다.
 
-### macOS — Apple Developer 계정으로 지금 가능
+### macOS — 맥 없이 GitHub에서 빌드
 
-App Store 밖으로 배포하는 앱은 **Developer ID Application** 인증서가 필요하다 (이미 보유한 연 $99 멤버십에 포함).
+`gh release create vX.Y.Z …`로 릴리스를 만들면 `.github/workflows/desktop-release.yml`이 GitHub의 맥에서
+Apple 칩·인텔용 dmg/zip과 `latest-mac.yml`을 만들어 **같은 릴리스에 붙인다** (10~15분). 공개 저장소라 비용 없음.
+Supabase 설정은 `desktop/.env`가 없으면 `desktop/supabase.public.json`(주소 + publishable 키, 공개 값)을 쓴다.
 
-1. [Certificates](https://developer.apple.com/account/resources/certificates/list) → **Developer ID Application** 생성
-2. 키체인에서 `.p12` 로 내보내고 base64 인코딩:
-   `base64 -i cert.p12 | pbcopy`
-3. GitHub 저장소 Secrets 에 등록:
+서명·공증(선택, 이미 있는 연 $99 멤버십으로 가능)을 하려면 저장소 Secrets에:
 
-   | Secret | 값 |
-   |---|---|
-   | `CSC_LINK` | 위 base64 문자열 |
-   | `CSC_KEY_PASSWORD` | `.p12` 내보낼 때 정한 비밀번호 |
-   | `APPLE_ID` | 애플 계정 이메일 |
-   | `APPLE_APP_SPECIFIC_PASSWORD` | [appleid.apple.com](https://appleid.apple.com) → 앱 암호 생성 |
-   | `APPLE_TEAM_ID` | 10자리 팀 ID |
+| Secret | 값 |
+|---|---|
+| `CSC_LINK` | **Developer ID Application** 인증서 `.p12`의 base64 |
+| `CSC_KEY_PASSWORD` | `.p12` 비밀번호 |
+| `APPLE_API_KEY_P8` | 공증용 App Store Connect API 키 `.p8` 파일 내용 |
+| `APPLE_API_KEY_ID` | 그 키 ID |
+| `APPLE_API_ISSUER` | Issuer ID |
 
-공증(notarization)은 `package.json` 의 `mac.notarize: true` 설정으로 빌드 중 자동 수행된다.
-Secrets 가 없으면 미서명으로 빌드된다 (실행 시 "확인되지 않은 개발자" 경고).
+Secrets가 없으면 미서명으로 빌드된다: 처음 열 때 "확인되지 않은 개발자" 경고(오른쪽 클릭 → 열기),
+인터넷에서 받은 경우 "손상됨"이라 나오면 `xattr -cr "/Applications/할 일 체커.app"`. 맥 자동 업데이트는 서명된 앱에서만 된다.
 
 ### Windows — 별도 인증서 필요
 
