@@ -59,11 +59,27 @@ jobs:
             echo "서명 인증서가 없어 미서명으로 빌드합니다."
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             extra="-c.mac.notarize=false -c.mac.identity=null"
-          elif [ -n "$APPLE_API_KEY_P8" ]; then
-            printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
-            export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
           else
-            extra="-c.mac.notarize=false"
+            # The signing keychain is made here, not by electron-builder (its own temporary keychain fails to unlock
+            # on the current macOS runners). electron-builder then finds the Developer ID identity in it.
+            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"; KC_PASS="$(openssl rand -hex 24)"
+            security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN"
+            security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+            printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+            security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+            rm -f "$RUNNER_TEMP/signing.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PASS" "$KEYCHAIN" > /dev/null
+            security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+            security find-identity -v -p codesigning "$KEYCHAIN" | sed -E 's/[0-9A-F]{40}/<id>/'
+            export CSC_KEYCHAIN="$KEYCHAIN"
+            unset CSC_LINK CSC_KEY_PASSWORD
+            if [ -n "$APPLE_API_KEY_P8" ]; then
+              printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+              export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
+            else
+              extra="-c.mac.notarize=false"
+            fi
           fi
           npx electron-builder --mac --arm64 --x64 --publish never $extra
 
