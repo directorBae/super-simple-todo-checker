@@ -14,7 +14,7 @@ function Reminders() {
   const { db, api } = useDb(), d = useDesign(), s = { ...REMINDER_DEFAULTS, ...db.settings };
   const [permission, setPermission] = useState('granted');
   useEffect(() => { notificationPermission(false).then(setPermission).catch(() => {}); }, []);
-  const rows = [['notifyStart', '시작 시간 알림'], ['notifyEnd', '마무리 시간 알림'], ['dailySummary', `아침 요약 (${s.dailySummaryTime}, 오늘 할 일 개수)`], ['dailyWrapup', `하루 마무리 (${s.dailyWrapupTime}, 완료·남은 일)`]];
+  const rows = [['notifyBefore', '시작 30분 전 알림 (시간이 있는 할 일)'], ['notifyStart', '시작 시간 알림'], ['notifyEnd', '마무리 시간 알림'], ['dailySummary', `아침 요약 (${s.dailySummaryTime}, 오늘 할 일 개수)`], ['dailyWrapup', `하루 마무리 (${s.dailyWrapupTime}, 완료·남은 일)`]];
   return <View style={{ gap: 12 }}>
     {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => setPermission(await notificationPermission(true))} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 휴대폰 설정 > 체커 > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
     {rows.map(([key, label]) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><Text style={{ color: d.text, fontSize: 14, flexShrink: 1 }}>{label}</Text><Switch accessibilityLabel={label} value={!!s[key]} onValueChange={(v) => api.updateSettings({ [key]: v })} /></View>)}

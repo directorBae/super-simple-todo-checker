@@ -37,6 +37,7 @@ function General({ db }) {
     {db.auth?.email && <Account email={db.auth.email} />}
     <Section title="알림">
       {window.api.platform === 'web' && <BrowserNotify />}
+      <label className="setting-row"><input type="checkbox" checked={s.notifyBefore !== false} onChange={(e) => upd({ notifyBefore: e.target.checked })} />시작 30분 전 알림 (시간이 있는 할 일)</label>
       <label className="setting-row"><input type="checkbox" checked={s.notifyStart} onChange={(e) => upd({ notifyStart: e.target.checked })} />시작 시간 알림</label>
       <label className="setting-row"><input type="checkbox" checked={s.notifyEnd} onChange={(e) => upd({ notifyEnd: e.target.checked })} />마무리 시간 알림</label>
       <label className="setting-row">

@@ -95,7 +95,7 @@ const tools = require('./tools.cjs').client(cfg, accessToken);
 // Monday/Thursday check-up) — whenever they change.
 let sentPrefs = '';
 function sharePrefs(settings) {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, key = JSON.stringify([settings.dailySummary, settings.dailySummaryTime, settings.notifyStart, settings.notifyEnd, settings.dailyWrapup, settings.dailyWrapupTime, zone]);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, key = JSON.stringify([settings.dailySummary, settings.dailySummaryTime, settings.notifyBefore, settings.notifyStart, settings.notifyEnd, settings.dailyWrapup, settings.dailyWrapupTime, zone]);
   if (key === sentPrefs) return;
   sentPrefs = key;
   tools.savePrefs?.(settings, zone).catch(() => { sentPrefs = ''; });

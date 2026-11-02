@@ -15,14 +15,16 @@ const db = (settings = {}) => ({
 
 test('reminders: start/end of open to-dos, the morning count and the evening wrap-up, in time order', () => {
   const list = reminders(db(), ms(0), ms(23, 59));
-  assert.deepEqual(list.map((r) => r.key), ['daily:' + day, 'a:start', 'a:end', 'wrapup:' + day]);
+  assert.deepEqual(list.map((r) => r.key), ['daily:' + day, 'a:before', 'a:start', 'a:end', 'wrapup:' + day]);
+  assert.equal(list[1].at, ms(9, 30)); assert.equal(list[1].title, '⏰ 30분 뒤 시작'); assert.equal(list[1].body, '회의 (10:00)');
   assert.equal(list[0].body, '오늘 예정된 할 일이 2건 있어요.');
-  assert.equal(list[3].body, '남은 할 일 2건을 내일로 전부 미루시겠어요?\n⏳ 회의, 정리');
-  assert.equal(list[1].at, ms(10));
+  assert.equal(list[4].body, '남은 할 일 2건을 내일로 전부 미루시겠어요?\n⏳ 회의, 정리');
+  assert.equal(list[2].at, ms(10));
 });
 
 test('reminders respect the settings and the time window', () => {
-  assert.deepEqual(reminders(db({ notifyEnd: false, dailySummary: false, dailyWrapup: false }), ms(0), ms(23)).map((r) => r.key), ['a:start']);
+  assert.deepEqual(reminders(db({ notifyEnd: false, dailySummary: false, dailyWrapup: false }), ms(0), ms(23)).map((r) => r.key), ['a:before', 'a:start']);
+  assert.deepEqual(reminders(db({ notifyBefore: false, notifyEnd: false, dailySummary: false, dailyWrapup: false }), ms(0), ms(23)).map((r) => r.key), ['a:start'], '30분 전 알림 끄기');
   assert.deepEqual(reminders(db(), ms(10), ms(10, 30)).map((r) => r.key), []); // exactly at `from` already went out
   assert.deepEqual(reminders(db(), ms(9, 59), ms(10)).map((r) => r.key), ['a:start']);
 });

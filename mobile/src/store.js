@@ -32,7 +32,7 @@ export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, 
 let sentPrefs = '';
 function sharePrefs(settings) {
   const s = { ...REMINDER_DEFAULTS, ...settings }, zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const key = JSON.stringify([s.dailySummary, s.dailySummaryTime, s.notifyStart, s.notifyEnd, s.dailyWrapup, s.dailyWrapupTime, zone]);
+  const key = JSON.stringify([s.dailySummary, s.dailySummaryTime, s.notifyBefore, s.notifyStart, s.notifyEnd, s.dailyWrapup, s.dailyWrapupTime, zone]);
   if (!tools || key === sentPrefs) return;
   sentPrefs = key;
   tools.savePrefs(s, zone).catch(() => { sentPrefs = ''; });

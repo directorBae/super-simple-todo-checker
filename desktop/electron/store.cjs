@@ -34,6 +34,7 @@ const DEFAULTS = {
   gcalEvents: [],  // { id, title, start, end, allDay }
   settings: {
     theme: 'light',
+    notifyBefore: true,
     notifyStart: true,
     notifyEnd: true,
     dailySummary: true,

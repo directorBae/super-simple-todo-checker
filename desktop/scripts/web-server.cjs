@@ -40,7 +40,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
   const locked = () => authRequired && !account;
   const authState = () => ({ required: authRequired, loading: false, email: account?.email || null });
   const settingsFile = path.join(dataDir, 'web-settings.json'), wallpaperFile = path.join(dataDir, 'wallpaper-custom.jpg');
-  const defaults = { theme: 'light', onboardingDone: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailyWrapup: true, dailySummaryTime: '09:00', dailyWrapupTime: '21:00', autoLaunch: false };
+  const defaults = { theme: 'light', onboardingDone: true, notifyBefore: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailyWrapup: true, dailySummaryTime: '09:00', dailyWrapupTime: '21:00', autoLaunch: false };
   let settings = { ...defaults };
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }; } catch (e) { if (e.code !== 'ENOENT') { core.store.close(); throw e; } }
   const state = () => ({ ...(locked() ? { teams: [], projects: [], todos: [], tombstones: [] } : core.snapshot()), settings: { ...settings, sync: { lastSync: Date.now() } }, notifLog: [], gcalEvents: [], auth: authState() });
@@ -140,7 +140,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       if (url.pathname.startsWith('/api/')) {
         const method = url.pathname.slice(5);
         if (req.method === 'GET' && method === 'state') { await ready; return send(res, 200, state()); }
-        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.3.4-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
+        if (req.method === 'GET' && method === 'info') return send(res, 200, { version: '1.3.5-web', userData: '로컬 서버 SQLite · 웹 설정', platform: 'web' });
         if (req.method === 'GET' && method === 'integrations') return send(res, 200, { ok: true, ...core.integrations.state() });
         if (req.method === 'GET' && method === 'wallpaper-image') { const image = await fsp.readFile(wallpaperFile); res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' }); return res.end(image); }
         if (req.method !== 'POST') throw error('요청을 찾을 수 없습니다.', 404);

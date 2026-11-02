@@ -5,6 +5,7 @@ const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 const FRESH_MS = 2 * 60 * 1000;          // 이 시간 이내로 늦은 알림은 개별 토스트
 const DAILY_LATE_MS = 6 * 60 * 60 * 1000; // 데일리 요약이 이보다 늦으면 조용히 건너뜀
 const TICK_MS = 30 * 1000;
+const BEFORE_MS = 30 * 60 * 1000;          // 시작 30분 전 알림
 
 function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -29,14 +30,17 @@ function collectDue(db, now) {
 
   for (const t of db.todos) {
     if (t.status !== 'todo' || !t.date) continue;
-    for (const type of ['start', 'end']) {
+    for (const type of ['before', 'start', 'end']) {
+      if (type === 'before' && db.settings.notifyBefore === false) continue; // on unless turned off (older settings lack it)
       if (type === 'start' && !db.settings.notifyStart) continue;
       if (type === 'end' && !db.settings.notifyEnd) continue;
-      const time = type === 'start' ? t.startTime : t.endTime;
+      const time = type === 'end' ? t.endTime : t.startTime;
       if (!time) continue;
       const key = `${t.id}:${type}`;
       if (fired.has(key)) continue;
-      const due = dueMs(t.date, time);
+      const due = dueMs(type === 'end' ? t.endDate || t.date : t.date, time) - (type === 'before' ? BEFORE_MS : 0);
+      // A heads-up is no use once the start has come: it is just noted, never shown late.
+      if (type === 'before' && due <= now && now >= due + BEFORE_MS) { out.push({ key, todoId: t.id, type, due, title: t.title, time, stale: true }); continue; }
       if (due <= now) out.push({ key, todoId: t.id, type, due, title: t.title, time });
     }
   }
@@ -114,9 +118,11 @@ function runTick(store, broadcast, openView) {
       continue;
     }
 
-    if (late <= FRESH_MS) {
+    // A 30-minute heads-up whose start has already come is only noted (not shown, not counted as missed).
+    if (d.stale) { entry.ackAt = now; db.notifLog.push(entry); continue; }
+    if (late <= FRESH_MS || d.type === 'before') {
       db.notifLog.push(entry);
-      const label = d.type === 'start' ? '▶ 시작할 시간' : '✔ 마무리할 시간';
+      const label = d.type === 'before' ? '⏰ 30분 뒤 시작' : d.type === 'start' ? '▶ 시작할 시간' : '✔ 마무리할 시간';
       notify(label, `${d.title} (${d.time})`, () => openView('today'));
     } else {
       entry.missed = true;

@@ -10,7 +10,7 @@ const hhmm = (v, fallback) => (/^\d{2}:\d{2}$/.test(v || '') ? v : fallback);
 function prefsOf(settings = {}, timeZone) {
   return {
     morning_on: settings.dailySummary !== false, morning_time: hhmm(settings.dailySummaryTime, '09:00'),
-    notify_start: settings.notifyStart !== false, notify_end: settings.notifyEnd !== false,
+    notify_before: settings.notifyBefore !== false, notify_start: settings.notifyStart !== false, notify_end: settings.notifyEnd !== false,
     wrapup_on: settings.dailyWrapup !== false, wrapup_time: hhmm(settings.dailyWrapupTime, '21:00'),
     time_zone: timeZone || null, updated_at: new Date().toISOString(),
   };

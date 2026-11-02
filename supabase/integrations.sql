@@ -152,6 +152,9 @@ alter table public.user_prefs add column if not exists notify_end boolean not nu
 alter table public.user_prefs add column if not exists wrapup_on boolean not null default true;
 alter table public.user_prefs add column if not exists wrapup_time text not null default '21:00';
 grant insert (notify_start, notify_end, wrapup_on, wrapup_time), update (notify_start, notify_end, wrapup_on, wrapup_time) on public.user_prefs to authenticated;
+-- 시작 30분 전 알림(켜고 끌 수 있다).
+alter table public.user_prefs add column if not exists notify_before boolean not null default true;
+grant insert (notify_before), update (notify_before) on public.user_prefs to authenticated;
 -- 푸시를 받을 폰(로그인한 사람마다, 로그아웃하면 지운다).
 create table if not exists public.push_devices (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,

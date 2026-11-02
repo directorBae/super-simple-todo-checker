@@ -8,7 +8,8 @@ import { localDate, offsetOf, addDays } from './http.js';
 const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
 // A run that came late still sends what fell due since; each reminder goes out once (push_sent).
 export const LOOKBACK_MS = 3 * 60_000;
-const DEFAULTS = { notify_start: true, notify_end: true, morning_on: true, morning_time: '09:00', wrapup_on: true, wrapup_time: '21:00' };
+const BEFORE_MIN = 30;
+const DEFAULTS = { notify_before: true, notify_start: true, notify_end: true, morning_on: true, morning_time: '09:00', wrapup_on: true, wrapup_time: '21:00' };
 
 // The moment a local date and time happen in a zone.
 export function zonedMs(date, time, zone) {
@@ -24,6 +25,7 @@ export function dueReminders(todos, prefs, zone, from, to) {
   const at = (date, time) => zonedMs(date, time, zone);
   for (const t of todos) {
     if (t.status !== 'todo' || !t.date) continue;
+    if (s.notify_before && t.startTime) out.push({ key: `${t.id}:before`, at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
     if (s.notify_start && t.startTime) out.push({ key: `${t.id}:start`, at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
     if (s.notify_end && t.endTime) out.push({ key: `${t.id}:end`, at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
   }

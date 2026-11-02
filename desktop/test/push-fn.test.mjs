@@ -63,12 +63,13 @@ test('push: local times in the person\'s zone, the same reminders the app makes'
   ];
   const from = at('2026-10-30T15:00:00Z'), to = at('2026-10-31T14:59:00Z'); // the whole of Oct 31 in Seoul
   const server = dueReminders(todos, {}, SEOUL, from, to);
-  assert.deepEqual(server.map((r) => r.key), ['daily:2026-10-31', 'a:start', 'a:end', 'wrapup:2026-10-31']);
+  assert.deepEqual(server.map((r) => r.key), ['daily:2026-10-31', 'a:before', 'a:start', 'a:end', 'wrapup:2026-10-31']);
+  assert.equal(new Date(server[1].at).toISOString(), '2026-10-31T00:30:00.000Z', '09:30 in Seoul');
   assert.equal(server.at(-1).body, '남은 할 일 2건을 내일로 전부 미루시겠어요?\n⏳ 회의, 정리');
   // This machine is in Seoul too: the app's own rules give the same reminders at the same moments.
   if (Intl.DateTimeFormat().resolvedOptions().timeZone === SEOUL) assert.deepEqual(server, reminders({ settings: {}, todos }, from, to));
   // Settings from the account: no start/end, a 7:30 morning, wrap-up off.
-  const quiet = dueReminders(todos, { notify_start: false, notify_end: false, morning_time: '07:30', wrapup_on: false }, SEOUL, from, to);
+  const quiet = dueReminders(todos, { notify_before: false, notify_start: false, notify_end: false, morning_time: '07:30', wrapup_on: false }, SEOUL, from, to);
   assert.deepEqual(quiet.map((r) => [r.key, new Date(r.at).toISOString()]), [['daily:2026-10-31', '2026-10-30T22:30:00.000Z']]);
 });
 

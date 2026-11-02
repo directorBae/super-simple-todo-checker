@@ -19,3 +19,21 @@ test('desktop morning alert: today plus the last three days left undone, older d
   assert.equal(daily.count, 1);
   assert.deepEqual(daily.overdue.map((t) => t.id), ['b']);
 });
+
+test('desktop: a heads-up 30 minutes before a timed to-do starts, on unless turned off, never shown after the start', () => {
+  const at = (h, m) => new Date(2026, 10, 2, h, m).getTime();
+  const db = (settings) => ({ notifLog: [], settings: { notifyStart: true, notifyEnd: true, ...settings }, todos: [
+    { id: 'a', status: 'todo', date: '2026-11-02', startTime: '10:00', title: '회의' },
+    { id: 'b', status: 'todo', date: '2026-11-02', title: '시간 없는 일' },
+    { id: 'c', status: 'done', date: '2026-11-02', startTime: '10:00', title: '끝난 일' },
+  ] });
+  const types = (list) => list.map((d) => d.key + (d.stale ? ' (stale)' : ''));
+  assert.deepEqual(types(collectDue(db({}), at(9, 29))), [], 'not yet');
+  const due = collectDue(db({}), at(9, 30));
+  assert.deepEqual(types(due), ['a:before'], 'older settings (no notifyBefore) count as on');
+  assert.equal(due[0].due, at(9, 30)); assert.equal(due[0].time, '10:00');
+  assert.deepEqual(types(collectDue(db({ notifyBefore: false }), at(9, 30))), [], 'turned off');
+  assert.deepEqual(types(collectDue(db({}), at(10, 0))), ['a:before (stale)', 'a:start'], 'once it has started, only noted');
+  const shown = db({}); shown.notifLog.push({ key: 'a:before' });
+  assert.deepEqual(types(collectDue(shown, at(9, 45))), [], 'once');
+});

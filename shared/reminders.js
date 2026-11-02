@@ -7,7 +7,9 @@ const at = (date, time) => {
   const [y, m, d] = date.split('-').map(Number), [hh, mm] = time.split(':').map(Number);
   return new Date(y, m - 1, d, hh, mm).getTime();
 };
-export const REMINDER_DEFAULTS = { notifyStart: true, notifyEnd: true, dailySummary: true, dailySummaryTime: '09:00', dailyWrapup: true, dailyWrapupTime: '21:00' };
+// notifyBefore: a heads-up 30 minutes before a to-do's start time.
+export const BEFORE_MIN = 30;
+export const REMINDER_DEFAULTS = { notifyBefore: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailySummaryTime: '09:00', dailyWrapup: true, dailyWrapupTime: '21:00' };
 
 const names = (list, max) => list.slice(0, max).map((t) => t.title).join(', ') + (list.length > max ? ` 외 ${list.length - max}` : '');
 
@@ -17,6 +19,7 @@ export function reminders(db, from, to) {
   const todos = db.todos || [];
   for (const t of todos) {
     if (t.status !== 'todo' || !t.date) continue;
+    if (s.notifyBefore && t.startTime) out.push({ key: `${t.id}:before`, at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
     if (s.notifyStart && t.startTime) out.push({ key: `${t.id}:start`, at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
     if (s.notifyEnd && t.endTime) out.push({ key: `${t.id}:end`, at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
   }
