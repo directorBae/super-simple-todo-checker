@@ -29,6 +29,20 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
 
+      # 서명 인증서 점검: 값은 찍지 않고, 풀리는지·열리는지·맥 키체인이 받아들이는지만 알린다.
+      - name: 서명 인증서 점검
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then echo "인증서 없음 → 미서명 빌드"; exit 0; fi
+          echo "CSC_LINK 길이 ${#CSC_LINK}, 비밀번호 길이 ${#CSC_KEY_PASSWORD}"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/check.p12" && echo "base64 풀기: 성공 ($(wc -c < "$RUNNER_TEMP/check.p12") bytes)"
+          openssl pkcs12 -in "$RUNNER_TEMP/check.p12" -passin env:CSC_KEY_PASSWORD -noout && echo "비밀번호로 열기: 성공" || echo "비밀번호로 열기: 실패"
+          security create-keychain -p check "$RUNNER_TEMP/check.keychain" >/dev/null
+          security import "$RUNNER_TEMP/check.p12" -k "$RUNNER_TEMP/check.keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign >/dev/null && echo "맥 키체인 가져오기: 성공" || echo "맥 키체인 가져오기: 실패"
+          rm -f "$RUNNER_TEMP/check.p12"; security delete-keychain "$RUNNER_TEMP/check.keychain" || true
+
       - name: 빌드 (Apple 칩 · 인텔)
         working-directory: desktop
         env:
