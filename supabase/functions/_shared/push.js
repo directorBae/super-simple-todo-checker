@@ -19,15 +19,17 @@ export function zonedMs(date, time, zone) {
 }
 const names = (list, max) => list.slice(0, max).map((t) => t.title).join(', ') + (list.length > max ? ` 외 ${list.length - max}` : '');
 
-// Every reminder due after `from` and up to `to`: { key, at, title, body } (keys as on the phone: '<id>:start', 'wrapup:<day>' …).
+// Every reminder due after `from` and up to `to`: { key, at, title, body }. A to-do's key carries its day and time
+// ('<id>:start@<day> <time>', as shared/reminders.js), so a time changed anywhere is sent again; 'wrapup:<day>' …
+const keyOf = (id, type, day, time) => `${id}:${type}@${day} ${time}`;
 export function dueReminders(todos, prefs, zone, from, to) {
   const s = { ...DEFAULTS, ...Object.fromEntries(Object.entries(prefs || {}).filter(([, v]) => v !== null && v !== undefined)) }, out = [];
   const at = (date, time) => zonedMs(date, time, zone);
   for (const t of todos) {
     if (t.status !== 'todo' || !t.date) continue;
-    if (s.notify_before && t.startTime) out.push({ key: `${t.id}:before`, at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
-    if (s.notify_start && t.startTime) out.push({ key: `${t.id}:start`, at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
-    if (s.notify_end && t.endTime) out.push({ key: `${t.id}:end`, at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
+    if (s.notify_before && t.startTime) out.push({ key: keyOf(t.id, 'before', t.date, t.startTime), at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
+    if (s.notify_start && t.startTime) out.push({ key: keyOf(t.id, 'start', t.date, t.startTime), at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
+    if (s.notify_end && t.endTime) out.push({ key: keyOf(t.id, 'end', t.endDate || t.date, t.endTime), at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
   }
   for (let day = localDate(from, zone); at(day, '00:00') <= to; day = addDays(day, 1)) {
     const open = todos.filter((t) => t.status === 'todo' && t.date === day), done = todos.filter((t) => t.status === 'done' && t.date === day);

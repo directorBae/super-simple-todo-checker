@@ -9,6 +9,9 @@ const at = (date, time) => {
 };
 // notifyBefore: a heads-up 30 minutes before a to-do's start time.
 export const BEFORE_MIN = 30;
+// A to-do's reminder is named by its day and time too, so a time changed on any device (phone, web, ChatGPT, a
+// calendar import) is a new reminder that goes off, while the same time still goes off only once.
+export const reminderKey = (id, type, day, time) => `${id}:${type}@${day} ${time}`;
 export const REMINDER_DEFAULTS = { notifyBefore: true, notifyStart: true, notifyEnd: true, dailySummary: true, dailySummaryTime: '09:00', dailyWrapup: true, dailyWrapupTime: '21:00' };
 
 const names = (list, max) => list.slice(0, max).map((t) => t.title).join(', ') + (list.length > max ? ` 외 ${list.length - max}` : '');
@@ -19,9 +22,9 @@ export function reminders(db, from, to) {
   const todos = db.todos || [];
   for (const t of todos) {
     if (t.status !== 'todo' || !t.date) continue;
-    if (s.notifyBefore && t.startTime) out.push({ key: `${t.id}:before`, at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
-    if (s.notifyStart && t.startTime) out.push({ key: `${t.id}:start`, at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
-    if (s.notifyEnd && t.endTime) out.push({ key: `${t.id}:end`, at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
+    if (s.notifyBefore && t.startTime) out.push({ key: reminderKey(t.id, 'before', t.date, t.startTime), at: at(t.date, t.startTime) - BEFORE_MIN * 60_000, title: `⏰ ${BEFORE_MIN}분 뒤 시작`, body: `${t.title} (${t.startTime})` });
+    if (s.notifyStart && t.startTime) out.push({ key: reminderKey(t.id, 'start', t.date, t.startTime), at: at(t.date, t.startTime), title: '▶ 시작할 시간', body: `${t.title} (${t.startTime})` });
+    if (s.notifyEnd && t.endTime) out.push({ key: reminderKey(t.id, 'end', t.endDate || t.date, t.endTime), at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
   }
   const first = new Date(from);
   for (let i = 0; ; i++) {

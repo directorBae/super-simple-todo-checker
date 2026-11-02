@@ -6,6 +6,7 @@ const FRESH_MS = 2 * 60 * 1000;          // 이 시간 이내로 늦은 알림�
 const DAILY_LATE_MS = 6 * 60 * 60 * 1000; // 데일리 요약이 이보다 늦으면 조용히 건너뜀
 const TICK_MS = 30 * 1000;
 const BEFORE_MS = 30 * 60 * 1000;          // 시작 30분 전 알림
+const KEEP_MS = 12 * 60 * 60 * 1000;      // 이보다 오래 지난 할 일 알림은 다시 보지 않음
 
 function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -27,6 +28,8 @@ function dueMs(dateStr, timeStr) {
 function collectDue(db, now) {
   const out = [];
   const fired = new Set(db.notifLog.map((n) => n.key));
+  // Before the day and time were part of the key ('<id>:<type>'): those entries still count for the moment they were for.
+  const firedBefore = new Set(db.notifLog.map((n) => n.key + '|' + n.due));
 
   for (const t of db.todos) {
     if (t.status !== 'todo' || !t.date) continue;
@@ -36,9 +39,10 @@ function collectDue(db, now) {
       if (type === 'end' && !db.settings.notifyEnd) continue;
       const time = type === 'end' ? t.endTime : t.startTime;
       if (!time) continue;
-      const key = `${t.id}:${type}`;
-      if (fired.has(key)) continue;
-      const due = dueMs(type === 'end' ? t.endDate || t.date : t.date, time) - (type === 'before' ? BEFORE_MS : 0);
+      // Named by day and time too: a time changed on another device (phone, web, ChatGPT, a calendar) goes off again.
+      const day = type === 'end' ? t.endDate || t.date : t.date, key = `${t.id}:${type}@${day} ${time}`;
+      const due = dueMs(day, time) - (type === 'before' ? BEFORE_MS : 0);
+      if (fired.has(key) || firedBefore.has(`${t.id}:${type}|${due}`) || due < now - KEEP_MS) continue;
       // A heads-up is no use once the start has come: it is just noted, never shown late.
       if (type === 'before' && due <= now && now >= due + BEFORE_MS) { out.push({ key, todoId: t.id, type, due, title: t.title, time, stale: true }); continue; }
       if (due <= now) out.push({ key, todoId: t.id, type, due, title: t.title, time });

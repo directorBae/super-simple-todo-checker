@@ -63,7 +63,7 @@ test('push: local times in the person\'s zone, the same reminders the app makes'
   ];
   const from = at('2026-10-30T15:00:00Z'), to = at('2026-10-31T14:59:00Z'); // the whole of Oct 31 in Seoul
   const server = dueReminders(todos, {}, SEOUL, from, to);
-  assert.deepEqual(server.map((r) => r.key), ['daily:2026-10-31', 'a:before', 'a:start', 'a:end', 'wrapup:2026-10-31']);
+  assert.deepEqual(server.map((r) => r.key), ['daily:2026-10-31', 'a:before@2026-10-31 10:00', 'a:start@2026-10-31 10:00', 'a:end@2026-10-31 11:00', 'wrapup:2026-10-31']);
   assert.equal(new Date(server[1].at).toISOString(), '2026-10-31T00:30:00.000Z', '09:30 in Seoul');
   assert.equal(server.at(-1).body, '남은 할 일 2건을 내일로 전부 미루시겠어요?\n⏳ 회의, 정리');
   // This machine is in Seoul too: the app's own rules give the same reminders at the same moments.
@@ -99,6 +99,11 @@ test('push: every minute, what fell due is sent once to each phone, written from
   now += 60_000; w.tables.todos.push({ id: 'e', user_id: 'u1', title: '마감', date: '2026-10-31', start_time: '21:11', status: 'todo', deleted_at: null });
   await w.run();
   assert.deepEqual(w.pushes.slice(-1).map((p) => [p.to, p.body]), [['ExponentPushToken[a]', '마감 (21:11)']]);
+  // Moved on another device after its reminder went out (21:11 → 21:20): the new time is sent again, once.
+  w.tables.todos.find((t) => t.id === 'e').start_time = '21:20';
+  now = at('2026-10-31T12:20:05Z'); assert.equal((await w.run()).sent, 1);
+  assert.equal(w.pushes.at(-1).body, '마감 (21:20)');
+  now += 60_000; assert.equal((await w.run()).sent, 0);
   // Without the hook secret nothing runs.
   const bad = await handle(new Request('https://x.supabase.co/functions/v1/integrations/push', { method: 'POST' }), environment(() => 'x', {}));
   assert.equal(bad.status, 401);

@@ -54,5 +54,12 @@ if (!window.api) {
     },
     onDbChanged: fn => { listeners.add(fn); return () => listeners.delete(fn); }, onOpenView: () => {},
   };
-  setInterval(() => { if (!document.hidden) request('state').then(emit).catch(() => {}); }, 3000);
+  // Every 3 s while the tab is in front; behind other tabs every 30 s, so reminders still follow changes made on another
+  // device (the phone, ChatGPT, a calendar) while nobody is looking at this one.
+  let lastLook = 0;
+  setInterval(() => {
+    if (Date.now() - lastLook < (document.hidden ? 30000 : 3000) - 100) return;
+    lastLook = Date.now();
+    request('state').then(emit).catch(() => {});
+  }, 3000);
 }

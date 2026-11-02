@@ -30,10 +30,27 @@ test('desktop: a heads-up 30 minutes before a timed to-do starts, on unless turn
   const types = (list) => list.map((d) => d.key + (d.stale ? ' (stale)' : ''));
   assert.deepEqual(types(collectDue(db({}), at(9, 29))), [], 'not yet');
   const due = collectDue(db({}), at(9, 30));
-  assert.deepEqual(types(due), ['a:before'], 'older settings (no notifyBefore) count as on');
+  assert.deepEqual(types(due), ['a:before@2026-11-02 10:00'], 'older settings (no notifyBefore) count as on');
   assert.equal(due[0].due, at(9, 30)); assert.equal(due[0].time, '10:00');
   assert.deepEqual(types(collectDue(db({ notifyBefore: false }), at(9, 30))), [], 'turned off');
-  assert.deepEqual(types(collectDue(db({}), at(10, 0))), ['a:before (stale)', 'a:start'], 'once it has started, only noted');
-  const shown = db({}); shown.notifLog.push({ key: 'a:before' });
+  assert.deepEqual(types(collectDue(db({}), at(10, 0))), ['a:before@2026-11-02 10:00 (stale)', 'a:start@2026-11-02 10:00'], 'once it has started, only noted');
+  const shown = db({}); shown.notifLog.push({ key: 'a:before@2026-11-02 10:00' });
   assert.deepEqual(types(collectDue(shown, at(9, 45))), [], 'once');
+});
+
+test('desktop: a time changed on another device goes off again; the log from before the change still counts; old ones never flood', () => {
+  const at = (d, h, m) => new Date(2026, 10, d, h, m).getTime();
+  const db = { notifLog: [], settings: { notifyBefore: false, notifyStart: true, notifyEnd: false }, todos: [{ id: 'a', status: 'todo', date: '2026-11-02', startTime: '10:00', title: '회의' }] };
+  assert.deepEqual(collectDue(db, at(2, 10, 0)).map((d) => d.key), ['a:start@2026-11-02 10:00']);
+  db.notifLog.push({ key: 'a:start@2026-11-02 10:00', due: at(2, 10, 0) });
+  // The phone moves it to 15:00 (synced in; nothing on this computer cleared the log).
+  db.todos[0].startTime = '15:00';
+  assert.deepEqual(collectDue(db, at(2, 14, 59)).map((d) => d.key), []);
+  assert.deepEqual(collectDue(db, at(2, 15, 0)).map((d) => d.key), ['a:start@2026-11-02 15:00']);
+  // The log written before keys had the day and time ('a:start') still covers that same moment.
+  const old = { ...db, notifLog: [{ key: 'a:start', due: at(2, 15, 0) }] };
+  assert.deepEqual(collectDue(old, at(2, 15, 1)).map((d) => d.key), []);
+  // A to-do from days ago that is not in the log (or is, under an old key) is not dug up as missed.
+  const stale = { ...db, notifLog: [], todos: [{ id: 'b', status: 'todo', date: '2026-10-30', startTime: '09:00', title: '지난 일' }] };
+  assert.deepEqual(collectDue(stale, at(2, 15, 1)).map((d) => d.key), []);
 });
