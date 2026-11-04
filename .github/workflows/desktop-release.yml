@@ -97,4 +97,5 @@ jobs:
           path: |
             desktop/release/*.dmg
             desktop/release/*.zip
+            desktop/release/*.blockmap
             desktop/release/latest-mac.yml
