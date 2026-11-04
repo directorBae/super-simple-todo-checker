@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { DEFAULT_PET, PetSprite } from './Pet.jsx';
 import { createPet, stepPet, summonPet, hidePet, movePetTo, releasePet, petHop, petRoom } from '../../../shared/pixel-pet.js';
 import { PetWork, PetSay } from './PetWork.jsx';
+import PetStudio from './PetStudio.jsx';
 
 // working / bubble: the tool connections' job the pet is on and what it says when done (tools-state.js usePetJobs).
 // typing: the tool whose new to-dos it is writing out on screen right now (typing.jsx) — it goes to each line with its pencil.
@@ -10,10 +11,12 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
   const model=useRef(createPet(innerWidth,innerHeight)),element=useRef(null),drag=useRef(null),moved=useRef(false),reduced=useRef(false);
   const busy=useRef(false);busy.current=!!(working||bubble||typing);
   const writing=useRef(null);writing.current=typing;const face=useRef(0);
-  const game=useRef(null),grow=useRef(1);const instance=useRef('pet-'+Math.random().toString(36).slice(2)),view=useRef(room);view.current=room;
+  const game=useRef(null),grow=useRef(1);
+  // The pet studio (the pet button): the pet is taken off the floor and shown big while you dress it; from = where it stood.
+  const [studio,setStudio]=useState(null),inStudio=useRef(false);const instance=useRef('pet-'+Math.random().toString(36).slice(2)),view=useRef(room);view.current=room;
   const [sprite,setSprite]=useState({pose:'enter',frame:0,direction:-1,hidden:false});
   const completed=useRef(db.todos.filter(t=>t.status==='done').length);
-  const call=()=>summonPet(model.current,innerWidth,innerHeight,view.current);
+  const call=()=>{if(!inStudio.current)summonPet(model.current,innerWidth,innerHeight,view.current);};
   useEffect(()=>{
     const count=db.todos.filter(t=>t.status==='done').length;
     if(count>completed.current)call();completed.current=count;
@@ -28,7 +31,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
     const leave=()=>hidePet(model.current,innerWidth);
     // Over to the line it is about to write (window coordinates in the main room): a hop when far, then a dash.
     const goto=e=>{
-      if(view.current!==0||drag.current)return;
+      if(view.current!==0||drag.current||inStudio.current)return;
       const s=model.current,{x,y}=e.detail,far=s.hidden||Math.hypot(x-s.x,y-s.y)>150;
       face.current=e.detail.face||0;s.hidden=false;s.targetX=x;s.targetY=y;s.age=0;
       if(reduced.current){s.x=x;s.y=y;s.mode='idle';}else if(far){s.mode='jump';s.afterJump='summon';}else s.mode='summon';
@@ -38,6 +41,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
     const playGame=e=>{
       const s=model.current,d=e.detail;
       if(d.step==='enter'){
+        if(inStudio.current){inStudio.current=false;setStudio(null);}
         drag.current=null;game.current={scale:d.size/72,arrived:false};
         // Out of sight (resting, or in another room): it comes in from the right edge.
         if(s.hidden||petRoom(s,innerWidth)!==view.current){s.x=view.current*innerWidth+innerWidth-40;s.y=d.y;}
@@ -80,6 +84,18 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
     if(r===view.current)return {x:s.x-r*innerWidth,y:s.y};
     return r===0?{x:s.x,y:s.y,under:true}:null;
   };
+  const openStudio=()=>{
+    if(inStudio.current){window.dispatchEvent(new CustomEvent('checker:pet-studio-close'));return;}
+    const s=model.current,spot=!s.hidden&&place(s);inStudio.current=true;drag.current=null;
+    setStudio({from:spot?{x:spot.x,y:spot.y-petHop(s,reduced.current),size:72*grow.current}:null});
+    s.mode='hidden';s.hidden=true;s.wait=Infinity;s.age=0;
+  };
+  // Back on the floor where it stood (or, if it was away, it comes over).
+  const closeStudio=()=>{
+    const s=model.current;inStudio.current=false;
+    if(studio?.from){s.mode='idle';s.hidden=false;s.age=0;s.wait=2;}else summonPet(s,innerWidth,innerHeight,view.current);
+    setStudio(null);
+  };
   const toWorld=(x,y)=>({x:x+view.current*innerWidth,y});
   const grab=(e,s)=>{const spot=place(s)||s;drag.current={x:e.clientX-spot.x,y:e.clientY-spot.y,startX:e.clientX,startY:e.clientY};};
   const dragTo=e=>{const w=toWorld(e.clientX-drag.current.x,e.clientY-drag.current.y);movePetTo(model.current,w.x,w.y,innerWidth,innerHeight,view.current);};
@@ -95,8 +111,9 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
       <PetWork pet={pet} work={bubble?.mood==='error'?{state:'error'}:typing?{state:'writing',provider:typing}:working} direction={sprite.direction}/>
       <PetSay say={bubble}/>
     </button>
+    {studio&&<PetStudio db={db} from={studio.from} onClosed={closeStudio}/>}
     <span className="pet-live" role="status" aria-live="polite">{bubble?.text||''}</span>
-    <button className="pet-call-button" aria-label="펫 부르기" title={`${pet.name} 부르기`} onClick={call}>
+    <button className={'pet-call-button'+(studio?' active':'')} aria-label="펫 꾸미기" aria-expanded={!!studio} title={`${pet.name} 꾸미기`} onClick={openStudio}>
       <svg viewBox="0 0 16 16" aria-hidden="true" shapeRendering="crispEdges"><path d="M2 3h3v4H2zM6 1h3v4H6zM11 3h3v4h-3zM5 8h6v2h2v4H3v-4h2z" fill="currentColor"/></svg>
     </button>
   </div>;

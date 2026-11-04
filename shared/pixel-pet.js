@@ -26,13 +26,15 @@ export function petLabel(pet = {}) {
 }
 const mix = (a, b, t) => '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('');
 
-export function petPixels(pet = {}, pose = 'idle', frame = 0) {
+// parts 'bare' leaves the face (eyes, brows, cheeks, nose, mouth, beak) off, 'noeyes' just the eyes: the smooth big pet
+// scales those on their own.
+export function petPixels(pet = {}, pose = 'idle', frame = 0, parts = 'all') {
   const species = speciesOf(pet).id, old = designOf(pet) < 0 && ['cat', 'bunny', 'dino'].includes(species), design = old ? -1 : Math.max(0, designOf(pet));
   const [body, shade, light, mark] = petColors(pet), shine = old ? light : mix(body, '#ffffff', .35);
   const grid=Array.from({length:24},()=>Array(24).fill(null));
   const rect=(x,y,w,h,color)=>{for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)if(grid[j]&&i>=0&&i<24)grid[j][i]=color;};
   const ink='#263f3c',pink='#e69ca4',walk=['walk','enter','hide','summon'].includes(pose),step=walk?frame%4:0;
-  const blink=pose==='sleep'||pose==='idle'&&frame%10===9,up=step===1?1:0,eyes=pose!=='eyeless';
+  const blink=pose==='sleep'||pose==='idle'&&frame%10===9,up=step===1?1:0,face=parts!=='bare',eyes=parts==='all'&&pose!=='eyeless';
   let feet=[shade,body];
   rect(5,22,15,1,'#152c3030');
   if(species==='dino') {
@@ -50,8 +52,8 @@ export function petPixels(pet = {}, pose = 'idle', frame = 0) {
     if(design===1){rect(6,9,12,1,body);rect(8,8,8,1,body);}                                         // little blue: a smaller white face
     if(design===2){rect(4,7,5,1,mark);rect(15,7,5,1,mark);rect(3,6,2,1,mark);rect(19,6,2,1,mark);}   // rockhopper: yellow crests
     if(eyes){rect(7,10,2,blink?1:2,ink);rect(15,10,2,blink?1:2,ink);}
-    if(pose==='jump'){rect(6,9,3,1,ink);rect(15,9,3,1,ink);}
-    rect(5,12,2,1,pink);rect(17,12,2,1,pink);rect(10,12,4,1,'#f0a24a');rect(11,13,2,1,'#c97a2a');
+    if(face){if(pose==='jump'){rect(6,9,3,1,ink);rect(15,9,3,1,ink);}
+    rect(5,12,2,1,pink);rect(17,12,2,1,pink);rect(10,12,4,1,'#f0a24a');rect(11,13,2,1,'#c97a2a');}
     feet=['#f0a24a','#f6bd6e'];
   } else {
     // Mammals share one head and face (the eyes stay where PetWork redraws them); ears, tails, muzzles and markings differ.
@@ -88,10 +90,10 @@ export function petPixels(pet = {}, pose = 'idle', frame = 0) {
     if(eyes)rect(7,11,2,blink?1:2,ink),rect(15,11,2,blink?1:2,ink);
     if(eyes&&!blink&&species==='mouse'&&design===1){rect(8,11,1,1,'#c44d64');rect(16,11,1,1,'#c44d64');}
     if(eyes&&!blink&&species==='bear'&&design===1){rect(8,11,1,1,'#ffffff');rect(16,11,1,1,'#ffffff');}
-    if(pose==='jump'){rect(6,10,3,1,ink);rect(15,10,3,1,ink);}
+    if(face){if(pose==='jump'){rect(6,10,3,1,ink);rect(15,10,3,1,ink);}
     rect(5,13,2,1,pink);rect(17,13,2,1,pink);
     if(species==='dog'||species==='bear'||species==='fox'){rect(11,12,2,2,ink);rect(10,14,1,1,ink);rect(13,14,1,1,ink);}
-    else {rect(11,13,2,1,species==='mouse'||species==='bunny'&&!old?'#e07d93':ink);rect(10,14,1,1,ink);rect(13,14,1,1,ink);}
+    else {rect(11,13,2,1,species==='mouse'||species==='bunny'&&!old?'#e07d93':ink);rect(10,14,1,1,ink);rect(13,14,1,1,ink);}}
   }
   rect(6-(step===1?1:0),20-(step===3?1:0),5,2,ink);rect(7-(step===1?1:0),20-(step===3?1:0),3,1,feet[0]);
   rect(14+(step===3?1:0),20-(step===1?1:0),5,2,ink);rect(15+(step===3?1:0),20-(step===1?1:0),3,1,feet[1]);
@@ -104,6 +106,32 @@ export function petEyes(pet = {}) {
   const species = speciesOf(pet).id, box = species === 'dino' ? [[16, 7]] : [[7, species === 'penguin' ? 10 : 11], [15, species === 'penguin' ? 10 : 11]];
   const under = petPixels(pet, 'eyeless').filter((p) => box.some(([x, y]) => p.x >= x - 1 && p.x <= x + 2 && p.y >= y && p.y <= y + 1));
   return { y: box[0][1], x: box.map(([x]) => x), under };
+}
+
+// The pet drawn big (the pet studio): each pass of Scale2x doubles the pixels and rounds the stair-step diagonals the
+// way a pixel artist would, so at 96×96 (two passes) it looks drawn at that size rather than blown up.
+export function scale2x(grid) {
+  const h = grid.length, w = grid[0].length, at = (x, y) => (y < 0 || y >= h || x < 0 || x >= w ? null : grid[y][x]);
+  const out = Array.from({ length: h * 2 }, () => Array(w * 2).fill(null));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const p = grid[y][x], A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    out[y * 2][x * 2] = C === A && C !== D && A !== B ? A : p;
+    out[y * 2][x * 2 + 1] = A === B && A !== C && B !== D ? B : p;
+    out[y * 2 + 1][x * 2] = D === C && D !== B && C !== A ? C : p;
+    out[y * 2 + 1][x * 2 + 1] = B === D && B !== A && D !== C ? D : p;
+  }
+  return out;
+}
+// The face is laid on top of the smoothed body: the eyes smoothed on their own (they come out round), the nose, mouth
+// and cheeks simply enlarged (smoothing joins their diagonal pixels into odd shapes).
+export function petGridSmooth(pet = {}, pose = 'idle', frame = 0, passes = 2) {
+  const gridOf = (pixels) => { const g = Array.from({ length: 24 }, () => Array(24).fill(null)); for (const p of pixels) g[p.y][p.x] = p.color; return g; };
+  const only = (a, b) => a.map((row, y) => row.map((c, x) => (c !== b[y][x] ? c : null)));
+  const bare = gridOf(petPixels(pet, pose, frame, 'bare')), eyeless = gridOf(petPixels(pet, pose, frame, 'noeyes'));
+  let body = bare, eyes = only(gridOf(petPixels(pet, pose, frame)), eyeless);
+  const rest = only(eyeless, bare), k = 2 ** passes;
+  for (let i = 0; i < passes; i++) { body = scale2x(body); eyes = scale2x(eyes); }
+  return body.map((row, y) => row.map((c, x) => eyes[y][x] || rest[Math.floor(y / k)][Math.floor(x / k)] || c));
 }
 
 const clamp=(n,min,max)=>Math.max(min,Math.min(Math.max(min,max),n));

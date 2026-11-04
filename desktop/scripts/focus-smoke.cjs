@@ -106,10 +106,10 @@ app.whenReady().then(async () => {
     assert.ok(await js(`!document.querySelector('.clock-dock.is-open')&&getComputedStyle(document.querySelector('.clock-dock')).visibility==='hidden'`));
     assert.ok(await js(`{const r=document.querySelector('.roaming-pet').getBoundingClientRect();r.left>200&&r.right<innerWidth}`),'pet is back in view with the main room');
     await js(`document.querySelector('.roaming-pet').dispatchEvent(new PointerEvent('pointerup',{pointerId:21,bubbles:true}))`);
-    await js(`document.querySelector('.pet-call-button').click()`);await pause(100);assert.equal(await js(`document.querySelector('.roaming-pet').dataset.phase`),'jump');
+    await js(`document.querySelector('.roaming-pet').click()`);await pause(100);assert.equal(await js(`document.querySelector('.roaming-pet').dataset.phase`),'jump');
     await js(`document.body.dispatchEvent(new MouseEvent('contextmenu',{ctrlKey:true,bubbles:true,cancelable:true}))`);await pause(250);assert.ok(await js(`!!document.querySelector('.clock-dock.is-open')`));
     // Called while the clock is up, the pet comes into the clock room and shows on the popup card, above it.
-    await js(`document.querySelector('.pet-call-button').click()`);await pause(2200);
+    await js(`document.querySelector('.roaming-pet').click()`);await pause(2200);
     assert.ok(await js(`{const pet=document.querySelector('.roaming-pet'),r=pet.getBoundingClientRect(),c=document.querySelector('.clock-popup').getBoundingClientRect();pet.dataset.room==='clock'&&getComputedStyle(pet).visibility==='visible'&&Number(getComputedStyle(pet).zIndex)>80&&r.left>=c.left-2&&r.right<=c.right+2&&r.top>=c.top-30&&r.bottom<=c.bottom+2}`),'summoned pet must be on the clock card');
     await snap('clock-pet-on-card');
     // Either half can be picked at any hour: a drop on the 오전 dial gives a morning time, on the 오후 dial an afternoon one.
@@ -249,7 +249,7 @@ await snap('clock-drag-calendar');await js(`window.dispatchEvent(new PointerEven
     await js(`document.querySelector('[aria-label="닫기"]').click()`);await pause(100);
     await js(`{const pet=document.querySelector('.roaming-pet'),r=pet.getBoundingClientRect();pet.dispatchEvent(new PointerEvent('pointerdown',{pointerId:22,button:0,clientX:r.left+5,clientY:r.top+5,bubbles:true}));pet.dispatchEvent(new PointerEvent('pointermove',{pointerId:22,clientX:125,clientY:135,bubbles:true,cancelable:true}));pet.dispatchEvent(new PointerEvent('pointerup',{pointerId:22,clientX:125,clientY:135,bubbles:true}));}`);await pause(750);
     const origin=await js(`({x:Number(document.querySelector('.roaming-pet').dataset.x),y:Number(document.querySelector('.roaming-pet').dataset.y)})`);
-    await js(`document.querySelector('.pet-call-button').click()`);await pause(80);
+    await js(`document.querySelector('.roaming-pet').click()`);await pause(80);
     const called=await js(`({x:Number(document.querySelector('.roaming-pet').dataset.x),y:Number(document.querySelector('.roaming-pet').dataset.y),phase:document.querySelector('.roaming-pet').dataset.phase})`);
     assert.equal(called.x,origin.x);assert.equal(called.y,origin.y);assert.equal(called.phase,'jump');
     await snap('pet-summoned');

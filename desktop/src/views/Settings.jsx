@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Section, TimeField } from '../components.jsx';
 import Integrations from './Integrations.jsx';
 import { WALLPAPERS, shrinkImage, wallpaperSrc } from '../wallpapers.js';
-import { DEFAULT_PET, PetSprite } from '../focus/Pet.jsx';
-import { petPixels, petLabel, PET_SPECIES } from '../../../shared/pixel-pet.js';
+import { DEFAULT_PET } from '../focus/Pet.jsx';
+import { petPixels } from '../../../shared/pixel-pet.js';
 import { webNotifyState, askWebNotify } from '../web-notify.js';
 
-const TABS = [['general', '일반'], ['wallpaper', '배경 화면'], ['pet', '펫'], ['tools', '도구 연결'], ['about', '정보']];
+const TABS = [['general', '일반'], ['wallpaper', '배경 화면'], ['tools', '도구 연결'], ['about', '정보']];
 
 // Web only: the browser has to be allowed to show notifications.
 function BrowserNotify() {
@@ -85,34 +85,6 @@ function Wallpaper({ db }) {
   </>;
 }
 
-// The pet that roams the screen and plays the games: its name, its animal and one of that animal's three designs.
-function PetPicker({ db }) {
-  const pet = { ...DEFAULT_PET, ...db.settings.focusPet };
-  const [name, setName] = useState(pet.name);
-  const save = (patch) => window.api.updateSettings({ focusPet: { ...db.settings.focusPet, ...patch } });
-  const saveName = () => { const n = name.trim().slice(0, 12); if (n && n !== pet.name) save({ name: n }); else setName(pet.name); };
-  return <>
-    <Section title="이름">
-      <input className="pet-name-input" value={name} maxLength={12} aria-label="펫 이름" onChange={(e) => setName(e.target.value)} onBlur={saveName} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
-      <p className="desc">지금은 {petLabel(pet)} · 화면을 돌아다니다가 게임에서도 이 펫이 뛰어요.</p>
-    </Section>
-    <Section title="동물과 디자인">
-      <div className="pet-picker">
-        {PET_SPECIES.map((s) => <div key={s.id} className="pet-picker-row">
-          <span className="pet-picker-animal">{s.name}</span>
-          {s.designs.map(([label], design) => {
-            const on = pet.species === s.id && pet.design === design;
-            return <button key={design} className={'pet-tile' + (on ? ' active' : '')} aria-pressed={on} aria-label={label} title={label} onClick={() => save({ species: s.id, design })}>
-              <PetSprite pet={{ name: label, species: s.id, design }} />
-              <span>{label}</span>
-            </button>;
-          })}
-        </div>)}
-      </div>
-    </Section>
-  </>;
-}
-
 function About() {
   const [info, setInfo] = useState(null);
   useEffect(() => { window.api.getInfo().then(setInfo); }, []);
@@ -126,7 +98,7 @@ export default function Settings({ db, initialTab = 'general' }) {
       {TABS.map(([key, label]) => <button key={key} className={'settings-tab' + (tab === key ? ' active' : '')} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}>{label}</button>)}
     </nav>
     <div className="settings-pane">
-      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'pet' ? <PetPicker db={db} /> : tab === 'tools' ? <Integrations db={db} chatgpt /> : <About />}
+      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} chatgpt /> : <About />}
     </div>
   </div>;
 }

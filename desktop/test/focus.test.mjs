@@ -10,7 +10,7 @@ import { createRunner, hurt, powerUp } from '../src/focus/runner.mjs';
 import titlePolicy from '../electron/todo-title.cjs';
 import wallpaper from '../electron/wallpaper.cjs';
 import { isClockShortcut, isHorizontalSwipe } from '../src/focus/clock-gestures.mjs';
-import { petPixels,petEyes,petLabel,PET_SPECIES,createPet,stepPet,summonPet,hidePet,movePetTo,releasePet,petRoom } from '../../shared/pixel-pet.js';
+import { petPixels,petEyes,scale2x,petGridSmooth,petLabel,PET_SPECIES,createPet,stepPet,summonPet,hidePet,movePetTo,releasePet,petRoom } from '../../shared/pixel-pet.js';
 
 test('pixel pets have integer grid cells and distinct walking/blinking/species frames',()=>{
  for(const species of ['cat','bunny','dino']){
@@ -38,6 +38,18 @@ test('every animal has three designs that each look different, and the eyes can 
  // A pet chosen before the designs (pastel colour, no design) is drawn as it always was.
  assert.equal(petLabel({species:'cat',color:'mint'}),'고양이');
  assert.ok(petPixels({species:'cat',color:'peach'}).some(p=>p.color==='#ffc2a7'));
+});
+test('the big pet is smoothed (round corners, no stairs) but keeps its colours and its face',()=>{
+ const X='#000',_=null;
+ // A lone 2×2 block comes out as a rounded 4×4 (corners cut); a diagonal stair is filled in.
+ assert.deepEqual(scale2x([[_,_,_,_],[_,X,X,_],[_,X,X,_],[_,_,_,_]]).slice(2,6).map(r=>r.slice(2,6).map(c=>c?1:0)),[[0,1,1,0],[1,1,1,1],[1,1,1,1],[0,1,1,0]]);
+ assert.equal(scale2x([[X,_],[X,X]])[1][2],X);
+ for(const pet of [{species:'cat',design:0},{species:'penguin',design:2},{species:'bunny',color:'mint'}]){
+  const g=petGridSmooth(pet,'walk',1);assert.equal(g.length,96);assert.equal(g[0].length,96);
+  const colours=new Set(petPixels(pet,'walk',1).map(p=>p.color));assert.ok(g.flat().every(c=>c===null||colours.has(c)));
+  // The mouth corners stay sharp 4×4 squares.
+  const mouth=g.slice(56,60).map(r=>r.slice(40,44));if(pet.species==='cat')assert.ok(mouth.flat().every(c=>c==='#263f3c'));
+ }
 });
 test('pet enters/exits at screen edge and summons without teleporting from its real location',()=>{
  const s=createPet(1000,700);assert.ok(s.x>1000);

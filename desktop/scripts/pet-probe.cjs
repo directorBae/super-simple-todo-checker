@@ -20,14 +20,25 @@ app.whenReady().then(async () => {
   const pet = () => js('(()=>{const p=document.querySelector(".roaming-pet");const r=p.getBoundingClientRect();return {x:Math.round(r.left),y:Math.round(r.top),w:Math.round(r.width),vis:p.style.visibility,z:p.style.zIndex,mode:p.dataset.phase}})()');
   try {
     await win.loadFile(path.join(__dirname, '../dist/index.html')); await pause(1200);
-    // Settings → 펫: pick 시바견.
-    await js('document.querySelector(\'[aria-label="메뉴"]\').click()'); await pause(150);
-    await js('[...document.querySelectorAll(".menu-pop button")].find(b=>b.textContent==="설정").click()'); await pause(250);
-    await js('[...document.querySelectorAll(".settings-tab")].find(b=>b.textContent==="펫").click()'); await pause(250);
-    await js('document.querySelector(\'[aria-label="시바견"]\').click()'); await pause(300);
-    if (db.settings.focusPet?.species !== 'dog' || db.settings.focusPet?.design !== 0) throw Error('pick did not save: ' + JSON.stringify(db.settings.focusPet));
-    await snap('picker');
-    await js('document.querySelector(\'.settings-panel [aria-label="닫기"]\').click()'); await pause(2500);
+    // The pet button opens the studio: the pet grows out of its spot, the glass bar rises.
+    await pause(1500); const stood = await pet(); console.log('stood', stood);
+    await js('document.querySelector(\'[aria-label="펫 꾸미기"]\').click()'); await pause(120);
+    await snap('studio-opening'); await pause(700);
+    if (!await js('!!document.querySelector(".pet-studio canvas")')) throw Error('studio did not open');
+    console.log('roaming pet while in the studio', await pet());
+    await snap('studio');
+    // Pick 강아지 (its first design), then 비글: the big pet changes each time and the choice is saved.
+    await js('[...document.querySelectorAll(".pet-studio-animal")].find(b=>b.textContent==="강아지").click()'); await pause(400);
+    await snap('studio-dog');
+    await js('[...document.querySelectorAll(".pet-studio-design")].find(b=>b.textContent==="비글").click()'); await pause(900);
+    if (db.settings.focusPet?.species !== 'dog' || db.settings.focusPet?.design !== 2) throw Error('pick did not save: ' + JSON.stringify(db.settings.focusPet));
+    await snap('studio-beagle');
+    // Shiba for the game part below.
+    await js('[...document.querySelectorAll(".pet-studio-design")].find(b=>b.textContent==="시바견").click()'); await pause(300);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); await pause(200); await snap('studio-closing'); await pause(600);
+    const back = await pet(); console.log('back', back);
+    if (await js('!!document.querySelector(".pet-studio")') || back.vis !== 'visible' || back.x !== stood.x) throw Error('the pet did not come back where it stood');
+    await pause(1000);
     console.log('before', await pet());
     // Ctrl+G: curtain + pet runs in.
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'G', modifiers: ['control'] });
