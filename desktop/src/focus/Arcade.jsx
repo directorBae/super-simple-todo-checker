@@ -36,6 +36,33 @@ function paint(ctx, g, pet, buffers) {
   drawRunner(ctx, g, pet, p.x, p.bottom, p);
 }
 
+// How to play, shown small and faint over the top of the game: at the very start (the dino road) and each time a
+// game begins, until it has been played for HINT_SECONDS. Keys are drawn as little keycaps.
+const HINT_SECONDS = 30;
+const HINTS = {
+  dino: (r) => [[['up'], '점프'], [['down'], '숙이기'], (r.fire || r.hammer > 0) && [['space'], r.fire ? '불꽃' : '망치']],
+  mario: (r, g) => [[['left', 'right'], '이동'], [['up'], '점프'], r.fire && [['space'], '불꽃'], g.level === 1 && [['down'], '파이프']],
+  galaga: () => [[['left', 'right'], '이동 · 자동 발사']],
+  pacman: () => [[['up', 'down', 'left', 'right'], '이동']],
+  donkeykong: () => [[['left', 'right'], '이동'], [['up'], '점프 · 사다리'], [['down'], '내려가기'], [['space'], '망치']],
+  flappy: () => [[['up'], '날갯짓']],
+  breakout: () => [[['left', 'right'], '이동'], [['space'], '공 발사']],
+  tetris: () => [[['left', 'right'], '이동'], [['up'], '회전'], [['down'], '내리기'], [['space'], '바로 놓기']],
+};
+// The hint for this moment, or null (later dino legs have none; it goes after 30 s in the stage).
+function hintOf(g, enteredAt) {
+  if (g.gameOver || (g.stage === 'dino' && g.index > 0) || g.elapsed - enteredAt > HINT_SECONDS) return null;
+  return HINTS[g.stage]?.(g.runner, g).filter(Boolean) ?? null;
+}
+const ARROW = { up: 'M8 3 13 10H3z', down: 'M8 13 3 6h10z', left: 'M3 8l7-5v10z', right: 'M13 8 6 3v10z' };
+const Keycap = ({ k }) => k === 'space' ? <kbd className="key-cap space">Space</kbd>
+  : <kbd className="key-cap" aria-label={{ up: '위', down: '아래', left: '왼쪽', right: '오른쪽' }[k]}><svg viewBox="0 0 16 16" aria-hidden="true"><path d={ARROW[k]} fill="currentColor" /></svg></kbd>;
+function ControlsHint({ hint }) {
+  return <div className={'arcade-hint' + (hint ? '' : ' gone')} aria-hidden={!hint}>
+    {(hint || []).map(([keys, label]) => <span key={label} className="arcade-hint-item"><span className="key-caps">{keys.map((k) => <Keycap key={k} k={k} />)}</span>{label}</span>)}
+  </div>;
+}
+
 // What the pet carries, for the score strip.
 const gearOf = (r) => [r.fire && '🔥', r.wings && '🪽', r.shield && '🛡', r.hammer > 0 && '🔨' + r.hammer].filter(Boolean).join(' ');
 
@@ -43,6 +70,9 @@ export default function Arcade({ db, active = true }) {
   const canvas = useRef(null), game = useRef(createGame()), keys = useRef(new Set());
   const [running, setRunning] = useState(false), [stats, setStats] = useState({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }), [best, setBest] = useState(db.settings.arcadeBest || 0);
   const bestRef = useRef(best); bestRef.current = best;
+  // When the current stop began (game time), for the controls hint; it stays put once the hint has gone.
+  const entered = useRef({ index: 0, at: 0 }), [hint, setHint] = useState(() => hintOf(game.current, 0));
+  const lastHint = useRef(hint);
   const sound = db.settings.arcadeSound !== false;
   useEffect(() => { setSoundOn(sound); }, [sound]);
   const pet = { ...DEFAULT_PET, ...db.settings.focusPet };
@@ -57,7 +87,9 @@ export default function Arcade({ db, active = true }) {
         const before = soundState(game.current, petPose(game.current));
         stepGame(game.current, (time - last) / 1000, keys.current);
         hearSounds(before, soundState(game.current, petPose(game.current)));
-        if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver, title: stageTitle(game.current), gear: gearOf(game.current.runner) }); }
+        const g = game.current;
+        if (g.index !== entered.current.index) entered.current = { index: g.index, at: g.elapsed };
+        if (time - report > 80 || game.current.gameOver) { report = time; const h = hintOf(g, entered.current.at); if (JSON.stringify(h) !== JSON.stringify(lastHint.current)) { lastHint.current = h; setHint(h); } setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver, title: stageTitle(game.current), gear: gearOf(game.current.runner) }); }
         if (game.current.gameOver) { setRunning(false); const value = Math.floor(game.current.score); if (value > bestRef.current) { setBest(value); window.api.updateSettings({ arcadeBest: value }); } }
       }
       last = time; paint(ctx, game.current, pet, buffers.current); frame = requestAnimationFrame(draw);
@@ -70,7 +102,7 @@ export default function Arcade({ db, active = true }) {
     window.addEventListener('blur', pause); document.addEventListener('visibilitychange', pause);
     return () => { window.removeEventListener('blur', pause); document.removeEventListener('visibilitychange', pause); };
   }, []);
-  const start = () => { unlockSound(); playSound('start'); if (game.current.gameOver) { game.current = createGame(); setStats({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }); } setRunning(true); canvas.current.focus(); };
+  const start = () => { unlockSound(); playSound('start'); if (game.current.gameOver) { game.current = createGame(); entered.current = { index: 0, at: 0 }; lastHint.current = hintOf(game.current, 0); setHint(lastHint.current); setStats({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }); } setRunning(true); canvas.current.focus(); };
   // Like Chrome's dino: Space / ↑ (or a tap) starts and restarts the run.
   useEffect(() => { canvas.current?.focus(); }, []);
   const key = (e, down) => {
@@ -92,7 +124,7 @@ export default function Arcade({ db, active = true }) {
   // Just the game: the HUD sits on the score strip, controls are keyboard (touch buttons only on touch screens).
   return <section className="arcade-card" aria-label="오프라인 게임">
     <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}{stats.gear && <i className="arcade-gear">{stats.gear}</i>}</span><span className="arcade-stage">{stats.title}</span><span><button className="arcade-sound" aria-label={sound ? '소리 끄기 (M)' : '소리 켜기 (M)'} title={sound ? '소리 끄기 (M)' : '소리 켜기 (M)'} aria-pressed={!sound} onClick={toggleSound}>{sound ? '🔊' : '🔇'}</button><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
-    <div className="arcade-screen"><canvas ref={canvas} width="500" height="280" tabIndex="0" aria-label="게임" onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onBlur={() => { keys.current.clear(); }}
+    <div className="arcade-screen"><ControlsHint hint={hint} /><canvas ref={canvas} width="500" height="280" tabIndex="0" aria-label="게임" onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onBlur={() => { keys.current.clear(); }}
       onPointerDown={e => { if (!running) { start(); return; } keys.current.add('ArrowUp'); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={() => keys.current.delete('ArrowUp')} onPointerCancel={() => keys.current.delete('ArrowUp')} />
       {!running && <button className="arcade-start" aria-label={stats.over || stats.score ? '다시 시작' : '게임 시작'} onClick={start}>{stats.over ? '↻' : '▶'}</button>}
     </div>
