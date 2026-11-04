@@ -281,3 +281,27 @@ test('two notices for one edit, close together: read once, after they settle, wi
   assert.equal(w.rest.tables.todos[0].date, '2026-10-30', 'the final state');
   assert.equal(w.rest.tables.subscriptions[0].pending, false);
 });
+
+test('the check box is the person\'s: imports come in unchecked, and a re-import never unticks (or ticks) what was checked in the app', async () => {
+  const w = world();
+  w.notionDb.push({ id: 'p1', title: '보고서', date: '2026-10-29', done: true }, { id: 'p2', title: '회의 준비', date: '2026-10-30' });
+  w.rest.tables.connections.push({ id: 'c1', user_id: 'user-1', provider: 'notion', meta: { workspace_id: 'ws1' }, secret: { access_token: 'ntn' } });
+  const sub = (await (await w.request('/subscribe', { body: { resource_id: 'db1', type: 'database' }, headers: app })).json()).subscription;
+  await w.settle();
+  const todo = (title) => w.rest.tables.todos.find((t) => t.title === title);
+  assert.deepEqual([todo('보고서').status, todo('회의 준비').status], ['todo', 'todo'], 'done at the source, still unchecked here');
+  // Checked in the app; the source (a calendar has no "done" at all) still says not done; the source edits the title.
+  Object.assign(todo('회의 준비'), { status: 'done', completed_at: 1 });
+  w.notionDb.find((r) => r.id === 'p2').title = '회의 준비 (자료 포함)';
+  await w.request('/sync', { body: { id: sub.id }, headers: app });
+  await w.settle();
+  const after = w.rest.tables.todos.find((t) => t.origin?.id === 'p2');
+  assert.equal(after.title, '회의 준비 (자료 포함)', 'the title follows the source');
+  assert.equal(after.status, 'done', 'the check stays');
+  assert.equal(after.deleted_at, null, 'and the to-do stays');
+  // A source that turns "done" doesn't tick the app's to-do either.
+  w.notionDb.find((r) => r.id === 'p1').title = '보고서 v2';
+  await w.request('/sync', { body: { id: sub.id }, headers: app });
+  await w.settle();
+  assert.equal(w.rest.tables.todos.find((t) => t.origin?.id === 'p1').status, 'todo');
+});

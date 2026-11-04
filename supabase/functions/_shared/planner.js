@@ -92,7 +92,9 @@ export async function plan(env, { sub, raw, existing, week, window }) {
   }
 }
 
-const FIELDS = ['title', 'date', 'start_time', 'end_time', 'done'];
+// The check box is the person's alone: imports never tick or untick it (a calendar has no 'done', and a source's
+// state would undo what was checked in the app). Only the title and the schedule follow the source.
+const FIELDS = ['title', 'date', 'start_time', 'end_time'];
 // What to write: new to-dos, changes the SOURCE made since the last import (edits made in the app stay), and
 // to-dos whose source item is gone. `ids` = everything that exists in the source now; `week` = the app's to-dos in
 // the window. A source item GPT matched to one of the app's to-dos (same_as) is not created again: a to-do the
@@ -106,7 +108,7 @@ export function diff(desired, existing, ids, week = []) {
     if (!t) { create.push(d); continue; }
     const before = t.origin?.remote || {}, patch = {};
     for (const f of FIELDS) if ((d[f] ?? null) !== (before[f] ?? null)) patch[f] = d[f];
-    if (Object.keys(patch).length) update.push({ todo: t, patch, remote: Object.fromEntries(FIELDS.map((f) => [f, d[f] ?? null])) });
+    if (Object.keys(patch).length) update.push({ todo: t, patch, remote: { ...before, ...Object.fromEntries(FIELDS.map((f) => [f, d[f] ?? null])) } });
   }
   for (const t of existing) if (!ids.has(t.origin?.id)) remove.push(t);
   return { create, update, remove, adopt };

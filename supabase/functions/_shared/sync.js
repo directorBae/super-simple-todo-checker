@@ -8,7 +8,9 @@ import * as google from './google.js';
 import { plan, diff } from './planner.js';
 
 const NAMES = { notion: '노션', google: '구글 캘린더' };
-const remoteOf = (d) => ({ title: d.title, date: d.date, start_time: d.start_time, end_time: d.end_time, done: !!d.done });
+// What the app last agreed with the source. `done` is the app's own check (imports never change it), so a later
+// push-back never ticks or unticks the source on its own.
+const remoteOf = (d, done = false) => ({ title: d.title, date: d.date, start_time: d.start_time, end_time: d.end_time, done });
 
 // A Google access token for a connection, refreshed and stored when needed.
 async function googleAccess(env, store, conn) {
@@ -27,8 +29,9 @@ async function readSource(env, store, sub, conn, window) {
 function newRow(env, sub, d, now) {
   return {
     id: crypto.randomUUID(), user_id: sub.user_id, title: d.title, notes: '', date: d.date, end_date: null, start_time: d.start_time, end_time: d.end_time,
-    time_zone: env.TIME_ZONE, team_id: null, project_id: null, status: d.done ? 'done' : 'todo', sort_order: null, important: false, channel: null,
-    completed_at: d.done ? now : null, created_at: now, updated_at: now, deleted_at: null, extra: { kind: 'todo' },
+    // Always unchecked when brought in: the check box is the person's (planner.js FIELDS).
+    time_zone: env.TIME_ZONE, team_id: null, project_id: null, status: 'todo', sort_order: null, important: false, channel: null,
+    completed_at: null, created_at: now, updated_at: now, deleted_at: null, extra: { kind: 'todo' },
     origin: { type: 'external', provider: sub.provider, subscription: sub.id, id: d.external_id, url: d.url || null, remote: remoteOf(d) },
   };
 }
@@ -84,13 +87,12 @@ export async function syncSubscription(env, subId, { quiet = false, onlyIfPendin
     for (const { todo, patch, remote } of update) {
       const row = { updated_at: stamp, origin: { ...todo.origin, remote, url: urls.get(todo.origin.id) || todo.origin.url } };
       for (const f of ['title', 'date', 'start_time', 'end_time']) if (f in patch) row[f] = patch[f];
-      if ('done' in patch) { row.status = patch.done ? 'done' : 'todo'; row.completed_at = patch.done ? stamp : null; }
       await store.update('todos', 'id=' + eq(todo.id), row);
     }
     for (const t of remove) await store.update('todos', 'id=' + eq(t.id), { deleted_at: stamp, updated_at: stamp, origin: { ...t.origin, remote: { ...(t.origin.remote || {}), deleted: true } } });
     // The same work the person already wrote down: it gets the source attached and follows the source's schedule.
     for (const { todo, d } of adopt) {
-      const row = { updated_at: stamp, origin: { type: 'external', provider: sub.provider, subscription: sub.id, id: d.external_id, url: d.url || null, remote: remoteOf(d) } };
+      const row = { updated_at: stamp, origin: { type: 'external', provider: sub.provider, subscription: sub.id, id: d.external_id, url: d.url || null, remote: remoteOf(d, todo.status === 'done') } };
       if (sub.resource_type !== 'page') Object.assign(row, { date: d.date, start_time: d.start_time, end_time: d.end_time });
       await store.update('todos', 'id=' + eq(todo.id), row);
     }
