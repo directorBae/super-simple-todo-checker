@@ -5,6 +5,8 @@
 // Each ghost uses its arcade targeting: Blinky chases, Pinky aims 4 tiles ahead, Inky flanks off Blinky,
 // Clyde chases from afar and retreats up close; scatter/chase phases alternate. Every stage is capped by points so
 // the run moves on: it ends when this stage has earned its target (or every dot is eaten, as the arcade clears).
+import { absorbs } from './runner.mjs';
+
 export const ENTRY = 'right';
 export const MAZE = [
   '############################',
@@ -316,8 +318,8 @@ export function step(st, dt, keys, game, random = Math.random) {
     }
   }
   if (finished(st, game)) return 'done';
-  // Either way the hit costs a heart (in the engine); a big pet shrinks and blinks on, a small one is caught.
-  if (result === 'hurt' && !game.runner?.big) st.dying = 1.4;
+  // A shield or a power-up takes the hit (the pet shrinks and blinks on); otherwise it costs a heart and the pet is caught.
+  if (result === 'hurt' && !absorbs(game.runner)) st.dying = 1.4;
   return result;
 }
 // The stage's point target reached, or the maze cleared.

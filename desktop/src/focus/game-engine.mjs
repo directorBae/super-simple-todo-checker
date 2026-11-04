@@ -41,13 +41,14 @@ export function createGame() {
   return g;
 }
 
-function nextStage(g) {
+// `to`: a warp pipe (Mario 1-2's Warp Zone) goes straight into that game, on the same lap; the run goes on from there.
+function nextStage(g, to) {
   const from = { stage: g.stage, state: g.state, pose: MODULES[g.stage].pose(g.state, g) };
   if (g.stage === 'dino') g.dinoSpeed = g.state.speed;
-  g.index++;
+  g.index = to && GAMES.includes(to) ? 2 * (g.lap * GAMES.length + GAMES.indexOf(to)) + 1 : g.index + 1;
   const stop = stopAt(g.index);
   // Into a game the camera goes the game's way; back to the road it goes on the same way (right) or comes down.
-  const way = g.stage === 'dino' ? MODULES[stop.name].ENTRY || 'right' : (MODULES[g.stage].ENTRY || 'right') === 'up' ? 'down' : 'right';
+  const way = g.stage === 'dino' || to ? MODULES[stop.name].ENTRY || 'right' : (MODULES[g.stage].ENTRY || 'right') === 'up' ? 'down' : 'right';
   Object.assign(g, { stage: stop.name, level: stop.stage, lap: stop.lap, stageStart: g.score });
   g.state = MODULES[g.stage].create(g, { stage: stop.stage, lap: stop.lap, speed: g.dinoSpeed });
   g.transition = { ...from, time: 0, way, to: MODULES[g.stage].pose(g.state, g) };
@@ -74,7 +75,7 @@ export function stepGame(g, dt, keys, random = Math.random) {
   // A dino leg stops sending obstacles at its goal and hands over once the road is clear.
   if (g.stage === 'dino' && g.score - g.stageStart >= DINO_GOAL) g.state.ending = true;
   const clear = g.stage === 'dino' && g.state.ending && !g.state.obstacles.length && g.state.player.onGround;
-  if (result === 'done' || clear) nextStage(g);
+  if (result === 'done' || clear) nextStage(g, g.state.warpTo);
 }
 
 // How far along the crossing is (0 → 1), eased.
@@ -99,6 +100,8 @@ export function crossingPose(g) {
   };
 }
 
+// Where the pet is right now (for the sounds: on the ground or not, how high).
+export const petPose = (g) => (g.transition ? crossingPose(g) : MODULES[g.stage].pose(g.state, g));
 // Paints one stage. `drawRunner(x, bottom, options)` draws the pet with its feet at (x, bottom).
 export const paintStage = (ctx, stage, state, g, drawRunner) => MODULES[stage].paint(ctx, state, g, drawRunner);
 // For the HUD: "MARIO 1-2" and the like.

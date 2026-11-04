@@ -723,3 +723,5 @@ button.tool-sub-title:hover { text-decoration: underline; }
 .pet-studio-design { flex-direction: row; justify-content: center; gap: 8px; font-size: 13px; }
 .pet-studio-design .pixel-pet-sprite { width: 48px; height: 48px; }
 @media (prefers-reduced-motion: reduce) { .pet-studio-scrim, .pet-studio-bar { animation-duration: 1ms !important; } .pet-studio-model { transition: none; } }
+.arcade-score .arcade-sound { margin-right: 12px; padding: 0 4px; border: 0; background: none; font-size: 13px; line-height: 1; cursor: pointer; opacity: 0.75; }
+.arcade-score .arcade-sound:hover { opacity: 1; }

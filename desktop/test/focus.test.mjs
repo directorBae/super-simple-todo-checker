@@ -6,7 +6,7 @@ import * as dino from '../src/focus/dino.mjs';
 import * as mario from '../src/focus/mario.mjs';
 import * as galaga from '../src/focus/galaga.mjs';
 import * as pacman from '../src/focus/pacman.mjs';
-import { createRunner, hurt, powerUp } from '../src/focus/runner.mjs';
+import { createRunner, hurt, powerUp, fireUp } from '../src/focus/runner.mjs';
 import titlePolicy from '../electron/todo-title.cjs';
 import wallpaper from '../electron/wallpaper.cjs';
 import { isClockShortcut, isHorizontalSwipe } from '../src/focus/clock-gestures.mjs';
@@ -205,14 +205,18 @@ test('galaga: the pet fires by itself (two shots at a time), enemies shoot back,
   assert.equal(galaga.step(s3, 1 / 1000, new Set(), game, () => 0.99), 'done', 'the last enemy down ends the stage');
   assert.equal(game.score - before, 100, 'a kill is 100 points'); assert.ok(others.length === 39);
 });
-test('the pet is one object across games: a mushroom makes it big and adds a heart up to four; a hit costs a heart and shrinks it', () => {
+test('the pet is one object across games: a mushroom makes it big and adds a heart up to four; a hit takes the power-up first, then a heart', () => {
   const r = createRunner(); powerUp(r);
   assert.deepEqual([r.lives, r.big], [4, true]);
   powerUp(r); assert.equal(r.lives, 4, 'no more hearts from mushrooms at four');
-  assert.equal(hurt(r), false); assert.deepEqual([r.lives, r.big], [3, false], 'a hit after a mushroom costs a heart and shrinks');
-  hurt(r); assert.equal(r.lives, 3, 'no second hit while blinking');
+  assert.equal(hurt(r), false); assert.deepEqual([r.lives, r.big], [4, false], 'a big pet only shrinks, keeping its hearts');
+  hurt(r); assert.equal(r.lives, 4, 'no second hit while blinking');
+  r.invincible = 0; hurt(r); assert.equal(r.lives, 3, 'a small pet loses a heart');
   r.invincible = 0; powerUp(r); assert.equal(r.lives, 4, 'below four a mushroom counts again');
-  r.invincible = 0; hurt(r, { fall: true }); assert.deepEqual([r.lives, r.big], [3, false]);
+  r.invincible = 0; hurt(r, { fall: true }); assert.deepEqual([r.lives, r.big], [3, false], 'a fall costs a heart and the power-up');
+  // Fire goes back to small at once (as in the original); a shield is used up before any power-up.
+  r.invincible = 0; fireUp(r); r.shield = true; hurt(r); assert.deepEqual([r.lives, r.shield, r.fire, r.big], [3, false, true, true]);
+  r.invincible = 0; hurt(r); assert.deepEqual([r.lives, r.fire, r.big], [3, false, false]);
   // Big carries into the next game: a big pet in Mario is a tall pet back in the dino run.
   const g = createGame(); g.runner.big = true; g.state.obstacles = []; g.score = DINO_GOAL; stepGame(g, 1 / 60, new Set());
   assert.equal(g.stage, 'mario'); assert.ok(g.state.player.h > 30);
@@ -220,7 +224,7 @@ test('the pet is one object across games: a mushroom makes it big and adds a hea
   g.state.player.x = 4083; g.state.level.cam = 3740; g.state.outro = { phase: 'inside', t: 1 }; stepGame(g, 1 / 60, new Set());
   assert.equal(g.stage, 'dino'); assert.ok(g.state.player.h > 30, 'still big in the dino run');
   g.transition = null; g.state.player.x = RUNNER_X; g.runner.invincible = 0; g.state.obstacles = [{ kind: 'small', x: RUNNER_X, y: dino.FLOOR - 26, w: 16, h: 26 }];
-  stepGame(g, 1 / 60, new Set()); assert.equal(g.runner.big, false); assert.equal(g.runner.lives, 2, 'a hit costs a heart and shrinks the pet');
+  stepGame(g, 1 / 60, new Set()); assert.equal(g.runner.big, false); assert.equal(g.runner.lives, 3, 'a hit in the dino run shrinks the big pet, the hearts stay');
   for (let i = 0; i < 5; i++) stepGame(g, 1 / 60, new Set()); assert.equal(g.state.player.h, 28);
 });
 test('mario: a mushroom block grows the pet and adds a heart; a big pet breaks bricks', () => {
@@ -281,4 +285,24 @@ test('every to-do keeps a date: undated ones get the day they were made, bucket 
   assert.equal(ensureDates(db), true);
   assert.equal(db.todos[0].date, '2026-10-20'); assert.equal(db.todos[1].date, null); assert.equal(db.todos[2].date, '2026-10-01');
   assert.equal(ensureDates(db), false);
+});
+
+test('mario 1-2: over the ceiling into the Warp Zone, and a warp pipe goes straight to its game on the same lap', () => {
+  const g = createGame();
+  // Into Mario on the second lap (1-2), then put the pet on top of the ceiling past the lifts.
+  g.index = 14; g.lap = 1; g.state.obstacles = []; g.score = DINO_GOAL; g.state.ending = true;
+  for (let i = 0; i < 85; i++) stepGame(g, 1 / 60, new Set());
+  assert.equal(g.stage, 'mario'); assert.equal(g.state.world, '1-2');
+  const p = g.state.player, level = g.state.level;
+  p.x = 150 * mario.TILE; p.y = mario.TILE - p.h; level.cam = p.x - 200;
+  for (let i = 0; i < 300; i++) stepGame(g, 1 / 60, new Set(['ArrowRight']));
+  assert.ok(p.x > 180 * mario.TILE && p.y + p.h > 5 * mario.TILE, 'the way along the top is open and drops into the Warp Zone');
+  for (let i = 0; i < 200; i++) stepGame(g, 1 / 60, new Set(['ArrowRight']));
+  assert.equal(g.state.warp, null, 'running into the room\'s wall is not the exit pipe');
+  // On the PAC-MAN pipe, ↓ goes down it and the run carries on in Pac-Man's second maze.
+  p.x = 186 * mario.TILE + mario.TILE - p.w / 2; p.y = (mario.GROUND - 3) * mario.TILE - p.h; p.vy = 0;
+  for (let i = 0; i < 5; i++) stepGame(g, 1 / 60, new Set());
+  for (let i = 0; i < 70; i++) stepGame(g, 1 / 60, new Set(['ArrowDown']));
+  assert.equal(g.stage, 'pacman'); assert.equal(g.level, 1);
+  assert.deepEqual(stopAt(g.index + 2), { name: 'donkeykong', stage: 1, lap: 1 }, 'after it, the order goes on from Pac-Man');
 });

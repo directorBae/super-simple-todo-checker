@@ -16,17 +16,25 @@ export function tick(runner, dt) {
   runner.invincible = Math.max(0, runner.invincible - dt);
 }
 
-// A hit (or a fall) costs a heart, and the pet drops back to small (fire goes with the size, as in Super Mario Bros.).
-// A shield takes one hit instead. Hits during the blink after a hit don't count. Returns true when the last heart is gone.
+// What a hit costs, the same in every game: a shield takes it first, then a power-up — a big (or fire) pet drops back
+// to small and carries on, as in Super Mario Bros. — and only a small pet without a shield loses a heart. A fall (a pit,
+// the lava) always costs a heart and the power-up. Hits during the blink after a hit don't count.
+// Returns true when the last heart is gone.
 export function hurt(runner, { fall = false } = {}) {
   if (!fall && runner.invincible > 0) return false;
   runner.invincible = GRACE;
-  if (!fall && runner.shield) { runner.shield = false; return false; }
+  if (!fall && absorbs(runner)) {
+    if (runner.shield) runner.shield = false;
+    else { runner.big = false; runner.fire = false; }
+    return false;
+  }
   runner.big = false;
   runner.fire = false;
   runner.lives--;
   return runner.lives <= 0;
 }
+// Whether the next hit is taken by the shield or a power-up rather than a heart (stages skip their knock-out for it).
+export const absorbs = (runner) => !!(runner && (runner.shield || runner.big || runner.fire));
 
 // A mushroom: a bigger body, and one more heart while there are fewer than four.
 export function powerUp(runner) {

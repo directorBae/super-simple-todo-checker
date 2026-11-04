@@ -29,11 +29,15 @@ const MUSHROOMS = new Set([`21,${LOW}`, `78,${LOW}`, `109,${HIGH}`]);
 // 1-1's one Koopa Troopa walks under the ? blocks at 106-112.
 const W11 = { theme: 'over', width: WIDTH, pits: PITS, questions: QUESTIONS, bricks: BRICKS, pipes: PIPES, stairs: STAIRS, goombas: GOOMBAS, koopas: [107], mushrooms: MUSHROOMS, flag: FLAG_X };
 
-// ---------- World 1-2: underground, the original's run compressed (no warp zone above the ceiling) ----------
+// ---------- World 1-2: underground, the original's run compressed ----------
 // Brick wall at the start, brick ceiling, five ? blocks (the first a mushroom), stepping pillars, brick ledges with
-// coins, three pipes, two columns of lifts over a pit (one going up, one down) and the side pipe out.
+// coins, three pipes, two columns of lifts over a pit (one going up, one down) and the side pipe out. As in the original,
+// a lift can carry the pet up onto the ceiling; running along the top past the exit pipe drops it into the Warp Zone,
+// where each pipe (↓ on top of it) goes straight to the game written over it.
+const WARP_GAMES = [['galaga', 'GALAGA'], ['pacman', 'PAC-MAN'], ['donkeykong', 'DONKEY'], ['flappy', 'FLAPPY'], ['breakout', 'BREAKOUT'], ['tetris', 'TETRIS']];
+const WARP_PIPES = WARP_GAMES.map(([to, label], i) => ({ x: 183 + i * 3, to, label })), WARP_H = 3;
 const W12 = {
-  theme: 'under', width: 180,
+  theme: 'under', width: 206,
   pits: [[86, 87], [138, 148]],
   fills: [[0, 0, 1, 11, BRICK], [6, 137, 1, 1, BRICK], [149, 166, 1, 1, BRICK], [169, 179, 1, 11, BRICK],
     [39, 44, LOW, LOW, BRICK], [52, 53, 8, 11, BRICK], [54, 59, 8, 8, BRICK], [64, 65, 2, 6, BRICK], [66, 72, 6, 6, BRICK],
@@ -41,8 +45,10 @@ const W12 = {
   questions: [...span(10, 14, LOW), [98, LOW]],
   bricks: [[29, LOW]],
   coins: [...span(40, 43, LOW - 1), ...span(55, 58, LOW - 1), ...span(67, 71, 5), ...span(122, 123, LOW - 1)],
-  // [x, height, no lip]: the last one is the tall pipe that the side pipe joins, running up out of sight.
-  pipes: [[103, 3], [109, 4], [115, 2], [167, 12, true]],
+  // [x, height, no lip]: the tall pipe that the side pipe joins runs up to the ceiling (the way over the top stays open),
+  // then the Warp Zone's pipes.
+  pipes: [[103, 3], [109, 4], [115, 2], [167, 11, true], ...WARP_PIPES.map((w) => [w.x, WARP_H])],
+  warpZone: WARP_PIPES,
   stairs: [[17, [1]], [19, [2]], [21, [3]], [23, [4]], [25, [4]], [27, [3]], [31, [3]], [33, [2]], [130, [1, 2, 3, 4, 4, 4, 4, 4]]],
   goombas: [16, 18, 29, 36, 48, 50, 70, 72, 74, 92, 94, 118, 120],
   koopas: [44, 46, 58, 100, 126],
@@ -210,11 +216,15 @@ function stepAxeOutro(st, dt) {
   return null;
 }
 
-// 1-2's exit: the pet walks into the side pipe and comes up out of a pipe outside.
+// 1-2's exit: the pet walks into the side pipe and comes up out of a pipe outside — or, in the Warp Zone, sinks into a
+// pipe and the run goes on in that pipe's game.
 function stepWarp(st, dt, game) {
   const w = st.warp, p = st.player;
   w.t += dt;
-  if (w.phase === 'in') {
+  if (w.phase === 'down') {
+    p.y += 40 * dt;
+    if (w.t > 1) { st.warpTo = w.to; return 'done'; }
+  } else if (w.phase === 'in') {
     p.x += 40 * dt; p.vx = 0;
     if (w.t > 0.8) {
       st.level = createLevel(WORLDS[st.stage].exit, st.hard);
@@ -406,9 +416,16 @@ function stepMario(s, dt, keys, game, random) {
     popup(level, level.flagX * TILE + 14, p.y, bonus);
     s.outro = { phase: 'slide', t: 0 }; p.vy = 0; level.fireballs = [];
   }
+  // The Warp Zone: ↓ while standing on a pipe goes down it.
+  const onPipe = keys.has('ArrowDown') && p.onGround && level.area.warpZone?.find((w) => Math.abs(p.x + p.w / 2 - (w.x * TILE + TILE)) < 14 && Math.abs(p.y + p.h - (GROUND - WARP_H) * TILE) < 2);
+  if (onPipe && result !== 'fell') {
+    s.warp = { phase: 'down', t: 0, to: onPipe.to }; level.fireballs = [];
+    Object.assign(p, { x: onPipe.x * TILE + TILE - p.w / 2, vx: 0, vy: 0 });
+    return null;
+  }
   // 1-2: standing at the side pipe's mouth and pushing right goes in.
   const side = level.sidePipe;
-  if (side && right && p.onGround && hit.right && p.x + p.w >= side.x * TILE - 1 && p.y + p.h >= (side.y + 2) * TILE - 1) {
+  if (side && right && p.onGround && hit.right && p.x + p.w >= side.x * TILE - 1 && p.x + p.w <= side.x * TILE + 4 && p.y + p.h >= (side.y + 2) * TILE - 1) {
     s.warp = { phase: 'in', t: 0 }; level.fireballs = []; p.vx = 0;
   }
   // The castle: touching the axe (at any height) drops the bridge.
@@ -688,6 +705,14 @@ export function paint(ctx, s, game, drawRunner) {
   const q = pose(s, game), pet = () => { if (!q.hidden) drawRunner(q.x, q.bottom, { hat: q.hat, onGround: q.onGround, flip: q.flip }); };
   if (s.warp) pet();
   for (const [x, h, noLip] of level.area.pipes ?? []) if (x * TILE + 44 > cam && x * TILE < cam + VIEW) pipe(ctx, x * TILE - cam, (GROUND - h) * TILE, h, noLip);
+  if (level.area.warpZone) {
+    ctx.save(); ctx.fillStyle = '#fcfcfc'; ctx.textAlign = 'center'; ctx.font = 'bold 11px ui-monospace, Consolas, monospace';
+    const zone = level.area.warpZone, mid = (zone[0].x + zone[zone.length - 1].x + 2) / 2 * TILE - cam;
+    if (mid > -200 && mid < VIEW + 200) ctx.fillText('WELCOME TO WARP ZONE!', mid, 4 * TILE);
+    ctx.font = 'bold 8px ui-monospace, Consolas, monospace';
+    for (const w of zone) ctx.fillText(w.label, w.x * TILE + TILE - cam, (GROUND - WARP_H) * TILE - 8);
+    ctx.restore();
+  }
   if (level.sidePipe) sidePipe(ctx, level.sidePipe.x * TILE - cam, level.sidePipe.y * TILE, level.sidePipe.len);
   if (level.flagX != null) flagAndCastle(ctx, level, cam);
   for (const L of level.lifts) if (L.x + L.w > cam && L.x < cam + VIEW) lift(ctx, L, L.x - cam);

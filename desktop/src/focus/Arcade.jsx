@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createGame, stepGame, skipStage, paintStage, worldOffsets, crossingPose, stageTitle } from './game-engine.mjs';
+import { createGame, stepGame, skipStage, petPose, paintStage, worldOffsets, crossingPose, stageTitle } from './game-engine.mjs';
 import { DEFAULT_PET } from './Pet.jsx';
 import { drawPet, drawGear } from './pet-sprite.mjs';
+import { setSoundOn, unlockSound, playSound, soundState, hearSounds } from './arcade-sound.mjs';
 
 // One scene: each world is painted into its own buffer (without the pet), and the pet is drawn last on top, so
 // while the camera crosses from one game into the next the pet stays a single figure moving between them.
@@ -42,6 +43,8 @@ export default function Arcade({ db, active = true }) {
   const canvas = useRef(null), game = useRef(createGame()), keys = useRef(new Set());
   const [running, setRunning] = useState(false), [stats, setStats] = useState({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }), [best, setBest] = useState(db.settings.arcadeBest || 0);
   const bestRef = useRef(best); bestRef.current = best;
+  const sound = db.settings.arcadeSound !== false;
+  useEffect(() => { setSoundOn(sound); }, [sound]);
   const pet = { ...DEFAULT_PET, ...db.settings.focusPet };
   const buffers = useRef(null);
   if (!buffers.current && typeof document !== 'undefined') buffers.current = [0, 1].map(() => Object.assign(document.createElement('canvas'), { width: 500, height: 280 }));
@@ -51,7 +54,9 @@ export default function Arcade({ db, active = true }) {
     if (!running || !active) { paint(ctx, game.current, pet, buffers.current); keys.current.clear(); return; }
     const draw = time => {
       if (running && last) {
+        const before = soundState(game.current, petPose(game.current));
         stepGame(game.current, (time - last) / 1000, keys.current);
+        hearSounds(before, soundState(game.current, petPose(game.current)));
         if (time - report > 80 || game.current.gameOver) { report = time; setStats({ score: Math.floor(game.current.score), lives: game.current.runner.lives, over: game.current.gameOver, title: stageTitle(game.current), gear: gearOf(game.current.runner) }); }
         if (game.current.gameOver) { setRunning(false); const value = Math.floor(game.current.score); if (value > bestRef.current) { setBest(value); window.api.updateSettings({ arcadeBest: value }); } }
       }
@@ -65,18 +70,28 @@ export default function Arcade({ db, active = true }) {
     window.addEventListener('blur', pause); document.addEventListener('visibilitychange', pause);
     return () => { window.removeEventListener('blur', pause); document.removeEventListener('visibilitychange', pause); };
   }, []);
-  const start = () => { if (game.current.gameOver) { game.current = createGame(); setStats({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }); } setRunning(true); canvas.current.focus(); };
+  const start = () => { unlockSound(); playSound('start'); if (game.current.gameOver) { game.current = createGame(); setStats({ score: 0, lives: 3, over: false, title: 'RUN', gear: '' }); } setRunning(true); canvas.current.focus(); };
   // Like Chrome's dino: Space / ↑ (or a tap) starts and restarts the run.
   useEffect(() => { canvas.current?.focus(); }, []);
   const key = (e, down) => {
     if (down && !running && (e.code === 'Space' || e.code === 'ArrowUp') && !e.repeat) { e.preventDefault(); start(); return; }
+    if (down && running && !e.repeat) {
+      // Sounds that come straight from a key: a fireball, a flap, a Tetris piece moving or turning.
+      const g = game.current;
+      if (e.code === 'Space' && g.runner.fire && (g.stage === 'mario' || g.stage === 'dino')) playSound('fire');
+      else if (e.code === 'Space' && g.runner.hammer > 0 && g.stage === 'donkeykong') playSound('swing');
+      else if (e.code === 'ArrowUp' && g.stage === 'flappy') playSound('flap');
+      else if (g.stage === 'tetris' && e.code.startsWith('Arrow')) playSound('tick');
+    }
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) { e.preventDefault(); if (down) keys.current.add(e.code); else keys.current.delete(e.code); }
     if (down && e.code === 'KeyP') setRunning(v => !v);
+    if (down && e.code === 'KeyM') toggleSound();
     if (down && e.code === 'KeyZ' && running && window.checkerDebug) { e.preventDefault(); skipStage(game.current); }
   };
+  const toggleSound = () => { unlockSound(); window.api.updateSettings({ arcadeSound: !sound }); };
   // Just the game: the HUD sits on the score strip, controls are keyboard (touch buttons only on touch screens).
   return <section className="arcade-card" aria-label="오프라인 게임">
-    <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}{stats.gear && <i className="arcade-gear">{stats.gear}</i>}</span><span className="arcade-stage">{stats.title}</span><span><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
+    <div className="arcade-score"><span>{'♥'.repeat(stats.lives)}{stats.gear && <i className="arcade-gear">{stats.gear}</i>}</span><span className="arcade-stage">{stats.title}</span><span><button className="arcade-sound" aria-label={sound ? '소리 끄기 (M)' : '소리 켜기 (M)'} title={sound ? '소리 끄기 (M)' : '소리 켜기 (M)'} aria-pressed={!sound} onClick={toggleSound}>{sound ? '🔊' : '🔇'}</button><em>HI {String(best).padStart(5, '0')}</em><b>{String(stats.score).padStart(5, '0')}</b></span></div>
     <div className="arcade-screen"><canvas ref={canvas} width="500" height="280" tabIndex="0" aria-label="게임" onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onBlur={() => { keys.current.clear(); }}
       onPointerDown={e => { if (!running) { start(); return; } keys.current.add('ArrowUp'); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={() => keys.current.delete('ArrowUp')} onPointerCancel={() => keys.current.delete('ArrowUp')} />
       {!running && <button className="arcade-start" aria-label={stats.over || stats.score ? '다시 시작' : '게임 시작'} onClick={start}>{stats.over ? '↻' : '▶'}</button>}

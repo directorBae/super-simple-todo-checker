@@ -8,6 +8,8 @@
 // the fighter comes back down and docks beside the pet: the dual fighter, two ships firing side by side.
 // Stage 3: the challenging stage — 40 enemies in 5 groups of 8 loop across the screen and leave without firing;
 // 100 a hit, a bonus for a whole group, "PERFECT!" and 10000 for all 40, then the number of hits.
+import { absorbs } from './runner.mjs';
+
 export const ENTRY = 'up';
 const W = 500, H = 280, FLOOR = 270, SHIP_SPEED = 190, SHOT_SPEED = 430, ENEMY_SHOT = 190, KILL = 100, GAP = 2;
 const SMALL = { w: 26, h: 30 }, BIG = { w: 34, h: 42 };
@@ -267,8 +269,9 @@ export function step(st, dt, keys, game, random = Math.random) {
     if (k >= 0 && b.y > top + 4) { b.y = H + 50; hit(k); }
   }
   st.bullets = st.bullets.filter((b) => b.y < H + 10);
-  // Either way the hit costs a heart (in the engine); a big pet shrinks and keeps flying, a small one is knocked out for a moment.
-  if (result === 'hurt' && !captured && !game.runner?.big) {
+  // A shield or a power-up takes the hit (the pet shrinks and keeps flying); otherwise it costs a heart and the ship is
+  // knocked out for a moment.
+  if (result === 'hurt' && !captured && !absorbs(game.runner)) {
     st.booms.push({ x: ship.x + ship.w / 2, y: top + ship.h / 2, t: 0, big: true });
     ship.alive = false; ship.respawn = 1.2; st.bullets = [];
   }
