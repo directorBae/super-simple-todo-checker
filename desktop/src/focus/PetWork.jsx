@@ -1,5 +1,5 @@
 import React from 'react';
-import { PET_PALETTE } from '../../../shared/pixel-pet.js';
+import { petEyes } from '../../../shared/pixel-pet.js';
 import { PROVIDER_LOGOS } from '../SourceIcons.jsx';
 
 /*
@@ -13,14 +13,14 @@ import { PROVIDER_LOGOS } from '../SourceIcons.jsx';
 const INK = '#263f3c', PAPER = '#fbfaf4', LINE = '#9aa6b8', GOLD = '#f3d982';
 const r = (x, y, w, h, fill, key) => <rect key={key} x={x} y={y} width={w} height={h} fill={fill} />;
 
-// Eyes redrawn over the sprite's (cat and bunny share a face; the dino has one eye at the side).
+// Eyes redrawn over the sprite's: first the fur (or patches) under them, then eyes that move (the dino has one at the side).
 function Eyes({ pet, look }) {
-  const body = (PET_PALETTE[pet.color] || PET_PALETTE.mint)[0];
-  if (pet.species === 'dino') return <g>{r(15, 7, 4, 1, body)}<g className={'pet-eyes ' + look}>{r(16, 7, 2, 1, INK)}</g></g>;
-  const y = look === 'up' ? 11 : 12;
-  return <g>{r(6, 11, 12, 2, body)}
-    <g className={'pet-eyes ' + look}>{r(7, y, 2, 1, INK)}{r(15, y, 2, 1, INK)}</g>
-    {look === 'sad' && <g>{r(7, 10, 1, 1, INK)}{r(8, 9, 1, 1, INK)}{r(16, 10, 1, 1, INK)}{r(15, 9, 1, 1, INK)}</g>}
+  const { x, y: top, under } = petEyes(pet), fur = under.map((p) => r(p.x, p.y, 1, 1, p.color, p.x + ':' + p.y));
+  if (pet.species === 'dino') return <g>{fur}<g className={'pet-eyes ' + look}>{r(16, 7, 2, 1, INK)}</g></g>;
+  const y = look === 'up' ? top : top + 1;
+  return <g>{fur}
+    <g className={'pet-eyes ' + look}>{x.map((ex) => r(ex, y, 2, 1, INK, ex))}</g>
+    {look === 'sad' && <g>{r(7, top - 1, 1, 1, INK)}{r(8, top - 2, 1, 1, INK)}{r(16, top - 1, 1, 1, INK)}{r(15, top - 2, 1, 1, INK)}</g>}
   </g>;
 }
 

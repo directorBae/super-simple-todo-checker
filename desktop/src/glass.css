@@ -432,6 +432,13 @@ button.primary,
 .offline-game { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; max-width: none; background: #0b1220; }
 .offline-game .arcade-card { width: min(100%, calc((100vh - 120px) * 500 / 280)); margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .offline-game .arcade-card::after { display: none; }
+/* Opening: the screen fades to black while the pet runs into the game, then the game fades in around it (OfflineEgg). */
+.offline-game.enter { animation: game-curtain 0.6s ease both; }
+.offline-game.leave { animation: game-curtain 0.4s ease reverse both; }
+@keyframes game-curtain { from { background-color: rgba(11, 18, 32, 0); } to { background-color: #0b1220; } }
+.offline-game .arcade-card, .offline-game .offline-close { transition: opacity 0.35s ease; }
+.offline-game.enter .arcade-card, .offline-game.enter .offline-close, .offline-game.leave .arcade-card, .offline-game.leave .offline-close { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .offline-game.enter, .offline-game.leave { animation-duration: 1ms; } .offline-game .arcade-card, .offline-game .offline-close { transition: none; } }
 .offline-game .arcade-score { border-radius: 14px 14px 0 0; font-size: 13px; }
 .offline-game .arcade-score { display: flex; justify-content: space-between; align-items: center; color: #ff9e9e; }
 .offline-game .arcade-score em { font-style: normal; margin-right: 14px; color: #6f7c94; font: 13px ui-monospace, Consolas, monospace; }
@@ -688,3 +695,14 @@ button.tool-sub-title:hover { text-decoration: underline; }
 .music-card .music-list button.music-remove:hover { background: rgba(10, 14, 30, 0.06); }
 @media (hover: none) { .music-card .music-list button.music-remove { opacity: 0.7; } }
 .music-card .music-list button.music-row:hover { background: none; }
+
+/* Settings → 펫: one row per animal, its three designs as tiles. */
+.pet-name-input { width: 180px; }
+.pet-picker { display: grid; gap: 8px; }
+.pet-picker-row { display: grid; grid-template-columns: 56px repeat(3, minmax(0, 1fr)); gap: 8px; align-items: center; }
+.pet-picker-animal { font-size: 13px; font-weight: 600; color: var(--text-dim, inherit); }
+.pet-tile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px 5px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.06); cursor: pointer; transition: transform 0.2s var(--ease-spring), border-color 0.2s, background 0.2s; }
+.pet-tile:hover { transform: translateY(-2px); background: rgba(255, 255, 255, 0.12); }
+.pet-tile.active { border-color: var(--accent); background: rgba(99, 102, 241, 0.16); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25); }
+.pet-tile .pixel-pet-sprite { width: 48px; height: 48px; }
+.pet-tile span { font-size: 11px; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }

@@ -10,7 +10,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
   const model=useRef(createPet(innerWidth,innerHeight)),element=useRef(null),drag=useRef(null),moved=useRef(false),reduced=useRef(false);
   const busy=useRef(false);busy.current=!!(working||bubble||typing);
   const writing=useRef(null);writing.current=typing;const face=useRef(0);
-  const instance=useRef('pet-'+Math.random().toString(36).slice(2)),view=useRef(room);view.current=room;
+  const game=useRef(null),grow=useRef(1);const instance=useRef('pet-'+Math.random().toString(36).slice(2)),view=useRef(room);view.current=room;
   const [sprite,setSprite]=useState({pose:'enter',frame:0,direction:-1,hidden:false});
   const completed=useRef(db.todos.filter(t=>t.status==='done').length);
   const call=()=>summonPet(model.current,innerWidth,innerHeight,view.current);
@@ -33,16 +33,36 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
       face.current=e.detail.face||0;s.hidden=false;s.targetX=x;s.targetY=y;s.age=0;
       if(reduced.current){s.x=x;s.y=y;s.mode='idle';}else if(far){s.mode='jump';s.afterJump='summon';}else s.mode='summon';
     };
-    window.addEventListener('checker:pet-call',call);window.addEventListener('checker:pet-hide',leave);window.addEventListener('checker:pet-goto',goto);
+    // Into the game and back (OfflineEgg): 'enter' runs it to where the game draws its pet (window coordinates, grown to
+    // the game's size), 'hide' hands over to that pet, 'show' takes it back as the game fades, 'leave' sends it home.
+    const playGame=e=>{
+      const s=model.current,d=e.detail;
+      if(d.step==='enter'){
+        drag.current=null;game.current={scale:d.size/72,arrived:false};
+        // Out of sight (resting, or in another room): it comes in from the right edge.
+        if(s.hidden||petRoom(s,innerWidth)!==view.current){s.x=view.current*innerWidth+innerWidth-40;s.y=d.y;}
+        s.hidden=false;s.targetX=view.current*innerWidth+d.x;s.targetY=d.y;s.age=0;
+        if(reduced.current){s.x=s.targetX;s.y=s.targetY;s.mode='idle';}else s.mode='summon';
+      }else if(!game.current)return;
+      else if(d.step==='hide'){s.mode='hidden';s.hidden=true;s.wait=Infinity;s.age=0;}
+      else if(d.step==='show'){s.mode='idle';s.hidden=false;s.age=0;}
+      else if(d.step==='leave'){game.current=null;summonPet(s,innerWidth,innerHeight,view.current);}
+    };
+    window.addEventListener('checker:pet-call',call);window.addEventListener('checker:pet-hide',leave);window.addEventListener('checker:pet-goto',goto);window.addEventListener('checker:pet-game',playGame);
     const tick=time=>{
       const s=model.current;
       if(busy.current&&s.mode==='idle'){s.wait=s.age+1;if(face.current)s.direction=face.current;} // stays put while it works or talks
+      const g=game.current;
+      if(g&&s.mode==='idle'){s.wait=s.age+1;s.direction=1; // standing in the game, facing the way the game runs
+        if(!g.arrived){g.arrived=true;window.dispatchEvent(new CustomEvent('checker:pet-game-arrived'));}}
       if(!document.hidden)stepPet(s,last?(time-last)/1000:0,innerWidth,innerHeight,Math.random,reduced.current,view.current);
+      // It grows to (and back from) the game's pet size on the way.
+      grow.current=reduced.current?(g?g.scale:1):grow.current+((g?g.scale:1)-grow.current)*Math.min(1,(last?(time-last)/1000:0)*6);
       last=time;
       if(element.current){
         const spot=place(s),style=element.current.style;
         style.visibility=s.hidden||!spot?'hidden':'visible';
-        if(spot){style.transform=`translate3d(${Math.round(spot.x)}px,${Math.round(spot.y-petHop(s,reduced.current))}px,0)`;style.zIndex=spot.under?'70':'120';
+        if(spot){style.transform=`translate3d(${Math.round(spot.x)}px,${Math.round(spot.y-petHop(s,reduced.current))}px,0)`+(grow.current===1?'':` scale(${grow.current.toFixed(3)})`);style.zIndex=g?'310':spot.under?'70':'120';style.pointerEvents=g?'none':'';
           // The bubble stays inside the window and goes under the pet near the top.
           style.setProperty('--say-shift',Math.round(Math.max(0,92-spot.x)-Math.max(0,spot.x+164-innerWidth))+'px');element.current.dataset.below=spot.y<110?'1':'';}
         element.current.dataset.x=String(Math.round(s.x));element.current.dataset.y=String(Math.round(s.y));element.current.dataset.phase=s.mode;element.current.dataset.room=['manage','main','clock'][petRoom(s,innerWidth)+1];
@@ -51,7 +71,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
       frame=requestAnimationFrame(tick);
     };
     frame=requestAnimationFrame(tick);
-    return()=>{cancelAnimationFrame(frame);media.removeEventListener('change',preference);window.removeEventListener('checker:pet-call',call);window.removeEventListener('checker:pet-hide',leave);window.removeEventListener('checker:pet-goto',goto);};
+    return()=>{cancelAnimationFrame(frame);media.removeEventListener('change',preference);window.removeEventListener('checker:pet-call',call);window.removeEventListener('checker:pet-hide',leave);window.removeEventListener('checker:pet-goto',goto);window.removeEventListener('checker:pet-game',playGame);};
   },[]);
   // Rooms: teams/buckets (-1), main (0), clock (1). The room being viewed shows its pet on top; a
   // main-room pet stays visible but under the frosted side sheet; a pet in another side room is out of sight.

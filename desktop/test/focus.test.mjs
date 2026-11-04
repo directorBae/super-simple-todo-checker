@@ -10,7 +10,7 @@ import { createRunner, hurt, powerUp } from '../src/focus/runner.mjs';
 import titlePolicy from '../electron/todo-title.cjs';
 import wallpaper from '../electron/wallpaper.cjs';
 import { isClockShortcut, isHorizontalSwipe } from '../src/focus/clock-gestures.mjs';
-import { petPixels,createPet,stepPet,summonPet,hidePet,movePetTo,releasePet,petRoom } from '../../shared/pixel-pet.js';
+import { petPixels,petEyes,petLabel,PET_SPECIES,createPet,stepPet,summonPet,hidePet,movePetTo,releasePet,petRoom } from '../../shared/pixel-pet.js';
 
 test('pixel pets have integer grid cells and distinct walking/blinking/species frames',()=>{
  for(const species of ['cat','bunny','dino']){
@@ -20,6 +20,24 @@ test('pixel pets have integer grid cells and distinct walking/blinking/species f
  }
  assert.notDeepEqual(petPixels({species:'cat'},'idle',0),petPixels({species:'cat'},'idle',9));
  assert.notDeepEqual(petPixels({species:'cat'}),petPixels({species:'bunny'}));
+});
+test('every animal has three designs that each look different, and the eyes can be lifted off for the working pet',()=>{
+ const seen=new Set();
+ for(const {id,designs} of PET_SPECIES){
+  assert.equal(designs.length,3);
+  designs.forEach(([name],design)=>{
+   const pet={species:id,design},pixels=petPixels(pet,'walk',0),key=JSON.stringify(pixels);
+   assert.ok(pixels.length>100&&!seen.has(key),id+design);seen.add(key);
+   assert.ok(pixels.every(p=>Number.isInteger(p.x)&&Number.isInteger(p.y)&&p.x>=0&&p.x<24&&p.y>=0&&p.y<24));
+   assert.equal(petLabel(pet),name);
+   const {x,y,under}=petEyes(pet),eye=petPixels(pet).find(p=>p.x===x[0]&&p.y===y);
+   assert.equal(eye.color,'#263f3c',id+design+' eye');
+   assert.notEqual(under.find(p=>p.x===x[0]&&p.y===y)?.color,'#263f3c',id+design+' under the eye');
+  });
+ }
+ // A pet chosen before the designs (pastel colour, no design) is drawn as it always was.
+ assert.equal(petLabel({species:'cat',color:'mint'}),'고양이');
+ assert.ok(petPixels({species:'cat',color:'peach'}).some(p=>p.color==='#ffc2a7'));
 });
 test('pet enters/exits at screen edge and summons without teleporting from its real location',()=>{
  const s=createPet(1000,700);assert.ok(s.x>1000);

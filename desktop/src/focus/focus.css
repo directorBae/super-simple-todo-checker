@@ -94,7 +94,7 @@
 @media (prefers-reduced-motion:reduce) { .clock-dock,.clock-dock.is-open,.clock-popup { transition:none; } }
 .pixel-pet-sprite { width:100%; height:100%; display:block; image-rendering:pixelated; shape-rendering:crispEdges; }
 .pet-world { display:contents; }
-.roaming-pet { position:fixed; z-index:120; left:0; top:0; width:72px; height:72px; padding:0; background:transparent; border:0; cursor:grab; pointer-events:auto; touch-action:none; will-change:transform; }
+.roaming-pet { position:fixed; z-index:120; left:0; top:0; width:72px; height:72px; padding:0; background:transparent; border:0; cursor:grab; pointer-events:auto; touch-action:none; will-change:transform; transform-origin:0 0; }
 .roaming-pet:active { cursor:grabbing; }
 .pet-call-button { position:fixed; z-index:120; left:22px; bottom:24px; width:27px; height:27px; padding:5px; background:transparent; border:0; color:var(--muted); opacity:.6; cursor:pointer; pointer-events:auto; }
 .pet-call-button:hover { opacity:1; }
