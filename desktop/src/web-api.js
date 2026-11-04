@@ -1,5 +1,8 @@
 // The Electron preload remains the desktop entry point; browsers use same-origin HTTP.
 if (!window.api) {
+  // The local web server (this PC or the LAN) is the debug build: Z skips to the next game stage there (Arcade.jsx).
+  // Never in the desktop app (it has its own window.api) or on a public host.
+  window.checkerDebug = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(location.hostname);
   const listeners = new Set();
   const request = async (method, payload) => {
     const response = await fetch('/api/' + method, payload === undefined ? { cache: 'no-store' } : {

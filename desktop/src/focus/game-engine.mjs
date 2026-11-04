@@ -52,6 +52,8 @@ function nextStage(g) {
   g.state = MODULES[g.stage].create(g, { stage: stop.stage, lap: stop.lap, speed: g.dinoSpeed });
   g.transition = { ...from, time: 0, way, to: MODULES[g.stage].pose(g.state, g) };
 }
+// Debugging only (Z on the local web version, see Arcade): straight on to the next stop, as if this one was cleared.
+export function skipStage(g) { if (!g.gameOver && !g.transition) nextStage(g); }
 const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
 
 export function stepGame(g, dt, keys, random = Math.random) {

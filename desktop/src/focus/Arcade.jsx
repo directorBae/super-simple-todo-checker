@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createGame, stepGame, paintStage, worldOffsets, crossingPose, stageTitle } from './game-engine.mjs';
+import { createGame, stepGame, skipStage, paintStage, worldOffsets, crossingPose, stageTitle } from './game-engine.mjs';
 import { DEFAULT_PET } from './Pet.jsx';
 import { drawPet, drawGear } from './pet-sprite.mjs';
 
@@ -72,6 +72,7 @@ export default function Arcade({ db, active = true }) {
     if (down && !running && (e.code === 'Space' || e.code === 'ArrowUp') && !e.repeat) { e.preventDefault(); start(); return; }
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) { e.preventDefault(); if (down) keys.current.add(e.code); else keys.current.delete(e.code); }
     if (down && e.code === 'KeyP') setRunning(v => !v);
+    if (down && e.code === 'KeyZ' && running && window.checkerDebug) { e.preventDefault(); skipStage(game.current); }
   };
   // Just the game: the HUD sits on the score strip, controls are keyboard (touch buttons only on touch screens).
   return <section className="arcade-card" aria-label="오프라인 게임">
