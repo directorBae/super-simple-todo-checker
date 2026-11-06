@@ -6,6 +6,10 @@ import { BlurView } from 'expo-blur';
 import { useDesign } from '../design.js';
 import { todayStr, effectiveTeamId } from '../util.js';
 import { LENS, PILL, aimAngle, at, compactTitle, estimatePill, halfOf, lensGlass, lensScene, timeAngle } from '../clock-lens.js';
+import * as Haptics from 'expo-haptics';
+import { todosOn, spanPatch } from '../../../shared/multi-day.js';
+import { toRange, fromRange } from '../../../shared/schedule-span.js';
+import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, DAY_MIN } from '../../../shared/clock-span.js';
 
 const pad=n=>String(n).padStart(2,'0');
 const ACCENT_2='#8b5cf6';
@@ -20,12 +24,17 @@ const pillKey=(t,max)=>`${t.id}|${t.startTime}|${t.title}|${t.status}|${max}`;
 
 // The dial face (ticks, numbers, the day's dots, the hands). Memoised so a finger sliding the lens around
 // only redraws the lens, not two full dials, on every move.
-const DialFace=memo(function DialFace({size,half,own,hands,d}) {
+const DialFace=memo(function DialFace({size,half,own,arcs=[],hands,d}) {
  return <Svg pointerEvents="none" width={size} height={size} viewBox="0 0 280 280">
   {Array.from({length:60},(_,i)=>{const a=i*Math.PI/30,r=i%5?122:116;return <Line key={i} x1={140+Math.sin(a)*r} y1={140-Math.cos(a)*r} x2={140+Math.sin(a)*126} y2={140-Math.cos(a)*126} stroke={i%5?d.muted:d.text} strokeOpacity={i%5?.35:.55} strokeWidth={i%5?1:2} strokeLinecap="round"/>;})}
   {[12,3,6,9].map(n=><SvgText key={n} x={140+Math.sin(n*Math.PI/6)*102} y={145-Math.cos(n*Math.PI/6)*102} textAnchor="middle" fill={d.muted} fontFamily="Pretendard" fontSize="13" fontWeight="500">{half?n%12+12+(n===12?12:0):n}</SvgText>)}
-  {/* The day's to-dos in this half as dots just inside the numbers. */}
-  {own.map(t=>{const a=rad(timeAngle(t.startTime));return <Circle key={t.id} cx={140+Math.sin(a)*86} cy={140-Math.cos(a)*86} r={4.6} fill={t.color} stroke="#fff" strokeWidth={1.4} opacity={t.status==='done'?0.45:1}/>;})}
+  {/* The day's to-dos: a torus arc over the time each takes (a dot when it only has a start), a knob at its end. */}
+  {arcs.map(x=>x.b==null?<Circle key={x.id} cx={pointAt(140,140,x.r,x.a)[0]} cy={pointAt(140,140,x.r,x.a)[1]} r={4.6} fill={x.color} stroke="#fff" strokeWidth={1.4} opacity={x.done?0.45:1}/>
+   :<G key={x.id} opacity={x.done?0.4:1}>
+    <Path d={arcD(140,140,x.r,x.a,x.b)} fill="none" stroke={x.color} strokeWidth={x.active?9:7.5} strokeLinecap="round" strokeOpacity={0.85}/>
+    <Path d={arcD(140,140,x.r+1.8,x.a,x.b)} fill="none" stroke="#fff" strokeWidth={1.5} strokeLinecap="round" strokeOpacity={0.5}/>
+    {x.knob&&<Circle cx={pointAt(140,140,x.r,x.b)[0]} cy={pointAt(140,140,x.r,x.b)[1]} r={x.active?7.5:6} fill="#fff" stroke={x.color} strokeWidth={2.6}/>}
+   </G>)}
   {/* Brushed-metal hands, only on the dial of the half we are in. */}
   {hands&&<>
    <Defs>
@@ -39,7 +48,7 @@ const DialFace=memo(function DialFace({size,half,own,hands,d}) {
    <Circle cx="140" cy="140" r="6.5" fill="url(#cap)" stroke="#20263a" strokeOpacity={0.25} strokeWidth={0.6}/><Circle cx="140" cy="140" r="2" fill={ACCENT_2}/>
   </>}
  </Svg>;
-},(a,b)=>a.size===b.size&&a.half===b.half&&a.ownKey===b.ownKey&&a.hands?.h===b.hands?.h&&a.hands?.m===b.hands?.m&&a.hands?.s===b.hands?.s);
+},(a,b)=>a.size===b.size&&a.half===b.half&&a.ownKey===b.ownKey&&a.arcKey===b.arcKey&&a.hands?.h===b.hands?.h&&a.hands?.m===b.hands?.m&&a.hands?.s===b.hands?.s);
 
 // Glass shapes from clock-lens.js (gradients, clips and layered paths) drawn with react-native-svg.
 function GlassShapes({glass}) {
@@ -122,7 +131,25 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
  // (locationX/Y can be relative to whichever child is under the finger, which made the lens jump).
  const aim=(pageX,pageY,half)=>{const x=pageX-touch.current.x,y=pageY-touch.current.y,R=size/2,prev=lensNext.current?.half===half?lensNext.current.angle:null;showLens({half,angle:aimAngle(x-R,y-R,R,prev),x,y});};
  const teamColor=t=>db.teams.find(x=>x.id===effectiveTeamId(t,db))?.color||d.accent;
- const timed=db.todos.filter(t=>t.date===day&&t.startTime&&t.status!=='bucket').sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(t=>({id:t.id,startTime:t.startTime,title:t.title,status:t.status,color:teamColor(t)}));
+ // Stretching a to-do's end round the dial: { id, todo, startMs, cx, cy, st, place, flash } (page coordinates).
+ const [stretch,setStretch]=useState(null),flashAnim=useRef(new Animated.Value(0)).current;
+ const live=stretch?db.todos.map(t=>t.id===stretch.id?{...t,...fromRange({start:stretch.startMs,end:stretch.st.end??stretch.st.endMs,timed:true})}:t):db.todos;
+ const parts=todosOn(live.filter(t=>t.status!=='bucket'),day).filter(t=>t.startTime||t.span?.allDay).sort((a,b)=>(a.startTime||'00:00').localeCompare(b.startTime||'00:00'));
+ const timed=parts.filter(t=>t.startTime).map(t=>({id:t.id,startTime:t.startTime,title:t.title,status:t.status,color:teamColor(t)}));
+ const arcsOn=half=>parts.map((t,i)=>{const sl=t.span?.allDay?{s:0,e:DAY_MIN}:slice(t),p=sl&&onHalf(sl,half);if(!p)return null;
+  return {id:t.id,a:p.a,b:p.b,r:88-i%3*8,color:teamColor(t),done:t.status==='done',active:stretch?.id===t.id,knob:sl.e!=null&&(!t.span||t.span.last)&&sl.e>half*720&&sl.e<=(half+1)*720,end:sl.e};}).filter(Boolean);
+ // A touch that starts on an end knob stretches that to-do instead of opening the lens.
+ const knobAt=(pageX,pageY,half)=>{const f=frames.current[half];if(!f)return null;const k=f.w/280;
+  for(const x of arcsOn(half)){if(!x.knob)continue;const [kx,ky]=pointAt(140,140,x.r,x.b);if(Math.hypot(pageX-(f.left+kx*k),pageY-(f.top+ky*k))<22)return x;}return null;};
+ const grabEnd=(x,half,pageX,pageY)=>{const todo=db.todos.find(t=>t.id===x.id);if(!todo)return false;const f=frames.current[half],cx=f.left+f.w/2,cy=f.top+f.h/2,range=toRange(todo);
+  clearLens();Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{});
+  setStretch({id:todo.id,todo,startMs:range.start,cx,cy,st:stretchStart(range.end,angleAt(pageX,pageY,cx,cy)),place:placeOf(range.end,day),flash:null});return true;};
+ const moveEnd=(pageX,pageY)=>setStretch(s=>{if(!s)return s;const st=stretchMove(s.st,angleAt(pageX,pageY,s.cx,s.cy),s.startMs),place=placeOf(st.end,day);
+  const crossed=place.days!==s.place.days?{kind:'day',at:Date.now(),days:place.days}:place.half!==s.place.half?{kind:'half',half:place.half,at:Date.now()}:null;
+  if(crossed){Haptics.notificationAsync(crossed.kind==='day'?Haptics.NotificationFeedbackType.Success:Haptics.NotificationFeedbackType.Warning).catch(()=>{});flashAnim.setValue(1);Animated.timing(flashAnim,{toValue:0,duration:1000,useNativeDriver:true}).start();}
+  else if(st.end!==s.st.end)Haptics.selectionAsync().catch(()=>{});
+  return {...s,st,place,flash:crossed||s.flash};});
+ const releaseEnd=()=>setStretch(s=>{if(s?.st.end!=null){const f=fromRange({start:s.startMs,end:s.st.end,timed:true});api.updateTodo(s.id,spanPatch(s.todo,f));setNotice(`${f.endDate?f.endDate.slice(5).replace('-','/')+' ':''}${f.endTime}까지 · ${s.todo.title}`);}return null;});
  const glass={borderWidth:1,borderColor:d.edge,overflow:'hidden'};
  const toast=pending?pending.title:notice;
  const sizes=t=>measured[pillKey(t,pillMax)]||estimatePill(t.startTime,t.title,pillMax);
@@ -132,7 +159,7 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
   return {minX:-side+8,maxX:size+side-8,minY:top==null?-size*0.4:-top+52,maxY:top==null?size*1.4:box.height-top-10};};
 
  const dialView=half=>{
-  const own=timed.filter(t=>halfOf(t.startTime)===half),ownKey=own.map(t=>`${t.id}${t.startTime}${t.status}${t.color}`).join('|');
+  const own=timed.filter(t=>halfOf(t.startTime)===half),ownKey=own.map(t=>`${t.id}${t.startTime}${t.status}${t.color}`).join('|'),arcs=arcsOn(half),arcKey=arcs.map(x=>`${x.id}${x.a}${x.b}${x.done}${x.active}${x.knob}`).join('|');
   return <View key={half} style={{alignItems:'center',gap:4,zIndex:lens?.half===half?5:1}}>
    <View style={{flexDirection:'row',alignItems:'center',gap:6}}>
     <Text style={{fontSize:13,fontWeight:'700',color:half===current?d.text:d.muted}}>{half?'오후':'오전'}</Text>
@@ -140,13 +167,15 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
    </View>
    <View style={{width:size,height:size}}>
     <View ref={el=>{dials.current[half]=el;}} collapsable={false} onLayout={()=>setTimeout(measureDials,50)} style={[glass,{width:size,height:size,borderRadius:size/2,backgroundColor:aiming?.half===half?'#ffffff8c':'#ffffff59',borderColor:aiming?.half===half?d.accent:d.edge,borderWidth:aiming?.half===half?2:1}]} onStartShouldSetResponder={()=>true}
-     onResponderGrant={e=>{const {pageX,pageY,locationX,locationY}=e.nativeEvent;touch.current={x:pageX-locationX,y:pageY-locationY,at:Date.now()};if(!pending)aim(pageX,pageY,half);}}
-     onResponderMove={e=>{if(!pending)aim(e.nativeEvent.pageX,e.nativeEvent.pageY,half);}}
+     onResponderGrant={e=>{const {pageX,pageY,locationX,locationY}=e.nativeEvent;touch.current={x:pageX-locationX,y:pageY-locationY,at:Date.now()};const k=!pending&&knobAt(pageX,pageY,half);if(k&&grabEnd(k,half,pageX,pageY))return;if(!pending)aim(pageX,pageY,half);}}
+     onResponderMove={e=>{if(stretch){moveEnd(e.nativeEvent.pageX,e.nativeEvent.pageY);return;}if(!pending)aim(e.nativeEvent.pageX,e.nativeEvent.pageY,half);}}
      // A quick sideways flick still swipes the room shut; once the finger has rested on the dial the lens keeps the touch.
-     onResponderTerminationRequest={()=>!!pending||Date.now()-touch.current.at<180}
-     onResponderTerminate={clearLens}
-     onResponderRelease={e=>{clearLens();const {pageX,pageY}=e.nativeEvent;if(pending)dials.current[half]?.measureInWindow((left,top,w)=>assign(pending,timeAt(pageX-left,pageY-top,w,half)));}}>
-     <DialFace size={size} half={half} own={own} ownKey={ownKey} d={d} hands={half===current?{h:hours,m:minutes,s:seconds}:null}/>
+     onResponderTerminationRequest={()=>!stretch&&(!!pending||Date.now()-touch.current.at<180)}
+     onResponderTerminate={()=>{clearLens();if(stretch)releaseEnd();}}
+     onResponderRelease={e=>{if(stretch){releaseEnd();return;}clearLens();const {pageX,pageY}=e.nativeEvent;if(pending)dials.current[half]?.measureInWindow((left,top,w)=>assign(pending,timeAt(pageX-left,pageY-top,w,half)));}}>
+     <DialFace size={size} half={half} own={own} ownKey={ownKey} arcs={arcs} arcKey={arcKey} d={d} hands={half===current?{h:hours,m:minutes,s:seconds}:null}/>
+     {/* Crossing 12 o'clock while stretching: a ring of light over the dial the end moved onto. */}
+     {stretch?.flash?.kind==='half'&&stretch.flash.half===half&&<Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill,{borderRadius:size/2,borderWidth:4,borderColor:'#a5b4fc',opacity:flashAnim,transform:[{scale:flashAnim.interpolate({inputRange:[0,1],outputRange:[1.08,1]})}]}]}/>}
     </View>
     {aiming?.half===half&&<View pointerEvents="none" style={{position:'absolute',top:size/2-20,left:size/2-44,width:88,height:40,borderRadius:20,alignItems:'center',justifyContent:'center',backgroundColor:'#ffffffe6',borderWidth:1,borderColor:d.edge}}><Text style={{fontSize:18,fontWeight:'800',color:d.accent,fontVariant:['tabular-nums']}}>{aiming.time}</Text></View>}
     {lens?.half===half&&size>0&&<Lens lens={lens} half={half} size={size} todos={own} d={d} sizes={sizes} bounds={boundsOf(half)}/>}
@@ -165,6 +194,11 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
    </View>}
    <View style={{alignItems:'center',gap:16,marginTop:24}}>{HALVES.map(dialView)}</View>
    <Text style={{position:'absolute',top:18,left:24,fontSize:11,color:d.muted}}>시계</Text>
+   {stretch&&stretch.st.end!=null&&(()=>{const f=fromRange({start:stretch.startMs,end:stretch.st.end,timed:true}),nd=stretch.flash?.kind==='day';
+    return <Animated.View pointerEvents="none" style={[glass,{position:'absolute',top:12,alignSelf:'center',paddingHorizontal:18,paddingVertical:7,borderRadius:16,backgroundColor:'#ffffffe6',alignItems:'center',borderColor:nd?d.accent:d.edge,transform:[{scale:nd?flashAnim.interpolate({inputRange:[0,1],outputRange:[1,1.16]}):1}]}]}>
+     <Text style={{fontSize:16,fontWeight:'800',color:d.text,fontVariant:['tabular-nums']}}>{f.endDate?`${Number(f.endDate.slice(5,7))}월 ${Number(f.endDate.slice(8))}일 `:''}{f.endTime}</Text>
+     <Text style={{fontSize:11,color:stretch.place.days>0?d.accent:d.muted,fontWeight:stretch.place.days>0?'700':'400'}}>{stretch.place.days>0?`+${stretch.place.days}일 · 다음 날로 넘어갔어요`:stretch.place.half?'오후':'오전'}</Text>
+    </Animated.View>;})()}
    {/* The day the clock is working on: a to-do brought in from another day keeps its own date (only the time is set). */}
    {!!pending&&(()=>{const [y,mo,dd]=day.split('-').map(Number),w='일월화수목금토'[new Date(y,mo-1,dd).getDay()];return <View pointerEvents="none" style={[glass,{position:'absolute',top:12,alignSelf:'center',paddingHorizontal:18,paddingVertical:7,borderRadius:99,backgroundColor:'#ffffffe0',alignItems:'center'}]}><Text style={{fontSize:15,fontWeight:'700',color:d.text}}>{day===todayStr()?'오늘 · ':''}{mo}월 {dd}일 ({w})</Text></View>;})()}
    <Pressable accessibilityLabel="시계 닫기" onPress={onClose} hitSlop={12} style={[glass,{position:'absolute',top:12,right:12,width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#ffffff59'}]}><Text style={{fontSize:16,color:d.muted}}>×</Text></Pressable>
