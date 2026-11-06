@@ -23,7 +23,7 @@ const teamPatch = (todo, teamId, db) => { const p = db.projects.find((x) => x.id
 //   · tap — edit this line (while some lines are selected, a tap adds or removes this one instead)
 //   · hold the text, then slide up/down — select the lines the finger passes over
 //   · hold the empty part, then move — carry the line (or all the selected ones) to another place, a team, the bin or the clock
-const HOLD_MS = 350;
+const HOLD_MS = 280;
 const native = Platform.OS !== 'web';
 // A line the AI is writing (Notion / Google Calendar): first erased backwards, one character at a time behind a caret,
 // down to what the old and the new title start with alike, then the rest typed in (one character every 40 ms) — a new

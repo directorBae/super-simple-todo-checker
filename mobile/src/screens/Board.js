@@ -135,25 +135,27 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  // A tap on a line then adds or removes it; a tap anywhere else lets go.
  const selAnchor=useRef(null),screenOrder=()=>[...geometry.current.rows].sort((a,b)=>a.y-b.y||a.x-b.x).map(r=>r.id);
 
- // Near the top or bottom of the list while dragging or selecting, the list scrolls by itself (faster closer to the edge);
+ // Near the top or bottom of the list while dragging or selecting, the list scrolls by itself — faster the closer to the
+ // edge (or past it), and faster still the longer the finger stays there, so a line can travel many days quickly;
  // the drag or selection keeps following the finger while it does.
- const auto=useRef({dir:0,speed:0,raf:0,frame:0,x:0,y:0,kind:null}),contentH=useRef(0),frameBox=useRef(null),[ghost,setGhost]=useState(null);
+ const EDGE_ZONE=120,auto=useRef({dir:0,depth:0,since:0,raf:0,frame:0,x:0,y:0,kind:null}),contentH=useRef(0),frameBox=useRef(null),[ghost,setGhost]=useState(null);
  const measureViewport=()=>viewport.current?.measureInWindow((x,y,w,h)=>{frameBox.current={x,y,w,h};});
  const stopAuto=()=>{cancelAnimationFrame(auto.current.raf);auto.current.dir=0;};
  const autoStep=()=>{
   const a=auto.current,f=frameBox.current;if(!a.dir||!f){a.raf=0;return;}
-  const max=Math.max(0,contentH.current-f.h),next=Math.max(0,Math.min(max,scrollY.current+a.dir*a.speed));
+  const held=Math.min(2.6,1+(Date.now()-a.since)/1000*0.9),speed=Math.min(96,(6+34*a.depth**1.6)*held);
+  const max=Math.max(0,contentH.current-f.h),next=Math.max(0,Math.min(max,scrollY.current+a.dir*speed));
   if(next!==scrollY.current){scroll.current?.scrollTo({y:next,animated:false});scrollY.current=next;}
-  if(++a.frame%6===0)measure();
+  if(++a.frame%4===0)measure();
   if(a.kind==='select')selectMove(a.x,a.y);
   a.raf=requestAnimationFrame(autoStep);
  };
  const edgeScroll=(x,y,kind)=>{
   const a=auto.current,f=frameBox.current;a.x=x;a.y=y;a.kind=kind;if(!f)return;
-  const zone=80,top=y-f.y,bottom=f.y+f.h-y,dir=top<zone?-1:bottom<zone?1:0;
-  a.speed=dir?Math.round(4+14*(1-Math.max(0,Math.min(zone,dir<0?top:bottom))/zone)):0;
+  const top=y-f.y,bottom=f.y+f.h-y,dir=top<EDGE_ZONE?-1:bottom<EDGE_ZONE?1:0;
+  a.depth=dir?Math.min(1.15,1-(dir<0?top:bottom)/EDGE_ZONE):0; // past the edge counts a little more
   if(dir===a.dir)return;
-  cancelAnimationFrame(a.raf);a.dir=dir;if(dir)a.raf=requestAnimationFrame(autoStep);
+  cancelAnimationFrame(a.raf);a.dir=dir;a.since=Date.now();if(dir)a.raf=requestAnimationFrame(autoStep);
  };
  const selectStart=todo=>{setFocus(null);measure();measureViewport();selAnchor.current=todo.id;setSelection(new Set([todo.id]));};
  const selectMoveFinger=(x,y)=>{edgeScroll(x,y,'select');selectMove(x,y);};
