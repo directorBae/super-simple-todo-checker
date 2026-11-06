@@ -42,5 +42,8 @@
     "build:demo:android": "npx eas-cli@latest build --platform android --profile demo",
     "web": "expo start --web"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@types/dom-mediacapture-record": "^1.0.22"
+  }
 }
