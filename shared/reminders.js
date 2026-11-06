@@ -1,6 +1,10 @@
 // When to remind, shared by the web page and the phone app (the Electron app keeps its own scheduler,
 // desktop/electron/scheduler.cjs, with the same rules): a to-do's start and end time, a morning count of
 // today's to-dos and an evening wrap-up. Pure, so it can be unit-tested.
+// Whether a to-do is on `day` and still open there: multi-day to-dos (n일차) are on every day they cover, each day
+// checked on its own (doneDays).
+const coversDay = (t, day) => t.date === day || (!!t.endDate && t.date <= day && day <= t.endDate);
+const doneOn = (t, day) => t.status === 'done' || (t.doneDays || []).includes(day);
 const pad = (n) => String(n).padStart(2, '0');
 export const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const at = (date, time) => {
@@ -31,7 +35,7 @@ export function reminders(db, from, to) {
     const day = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i);
     if (day.getTime() > to) break;
     const date = localDate(day);
-    const open = todos.filter((t) => t.status === 'todo' && t.date === date), done = todos.filter((t) => t.status === 'done' && t.date === date);
+    const open = todos.filter((t) => t.status !== 'bucket' && coversDay(t, date) && !doneOn(t, date)), done = todos.filter((t) => t.status !== 'bucket' && coversDay(t, date) && doneOn(t, date));
     // Morning: today's count, plus what was left undone yesterday, 2 and 3 days ago (older days are left out).
     const recent = new Set([1, 2, 3].map((k) => localDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() - k))));
     const overdue = todos.filter((t) => t.status === 'todo' && recent.has(t.date));

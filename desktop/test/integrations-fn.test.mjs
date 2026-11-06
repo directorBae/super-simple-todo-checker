@@ -87,7 +87,7 @@ test('helpers: the window is this week and next, offsets and states are signed, 
   await assert.rejects(readState('other', state, NOW), /확인하지 못했어요/);
   await assert.rejects(readState('s', state, NOW + 16 * 60_000), /만료/);
   assert.equal(Array.from(truncate('가'.repeat(80))).length, 50);
-  assert.deepEqual(when({ start: '2026-10-29T10:00:00+09:00', end: '2026-10-29T11:30:00+09:00' }, 'Asia/Seoul'), { date: '2026-10-29', start_time: '10:00', end_time: '11:30' });
+  assert.deepEqual(when({ start: '2026-10-29T10:00:00+09:00', end: '2026-10-29T11:30:00+09:00' }, 'Asia/Seoul'), { date: '2026-10-29', end_date: null, start_time: '10:00', end_time: '11:30' });
   assert.deepEqual(schemaOf({ properties: { T: { type: 'title' }, D: { type: 'date' }, S: { type: 'status' } } }), { titleProp: 'T', dateProp: 'D', doneProp: 'S' });
 });
 
@@ -304,4 +304,40 @@ test('the check box is the person\'s: imports come in unchecked, and a re-import
   await w.request('/sync', { body: { id: sub.id }, headers: app });
   await w.settle();
   assert.equal(w.rest.tables.todos.find((t) => t.origin?.id === 'p1').status, 'todo');
+});
+
+test('multi-day (n일차) imports: Google all-day ends are exclusive, Notion ranges inclusive, midnight ends are 24:00', () => {
+  // Google: an all-day event Tue–Thu comes as start Tue, end Fri.
+  assert.deepEqual(when({ start: '2026-11-03', end: '2026-11-06', allDay: true }, 'Asia/Seoul'), { date: '2026-11-03', end_date: '2026-11-05', start_time: null, end_time: null });
+  assert.deepEqual(when({ start: '2026-11-03', end: '2026-11-04', allDay: true }, 'Asia/Seoul').end_date, null, 'one all-day event: one day');
+  // Notion: a range Tue–Thu is start Tue, end Thu.
+  assert.deepEqual(when({ start: '2026-11-03', end: '2026-11-05' }, 'Asia/Seoul').end_date, '2026-11-05');
+  // Timed, over midnight; and one ending exactly at midnight.
+  assert.deepEqual(when({ start: '2026-11-03T22:00:00+09:00', end: '2026-11-05T02:00:00+09:00' }, 'Asia/Seoul'), { date: '2026-11-03', end_date: '2026-11-05', start_time: '22:00', end_time: '02:00' });
+  assert.deepEqual(when({ start: '2026-11-03T22:00:00+09:00', end: '2026-11-04T00:00:00+09:00' }, 'Asia/Seoul'), { date: '2026-11-03', end_date: null, start_time: '22:00', end_time: '24:00' });
+  // GPT output: a span keeps an end time before the start (it is days later); a span too long or backwards is dropped.
+  const window = windowFor(NOW, 'Asia/Seoul'), ids = new Set(['a', 'b', 'c']);
+  const [a, b, c] = clean([
+    { external_id: 'a', title: '학회', date: window.today, end_date: window.end, start_time: '22:00', end_time: '02:00', done: false },
+    { external_id: 'b', title: '거꾸로', date: window.end, end_date: window.today, start_time: null, end_time: null, done: false },
+    { external_id: 'c', title: '하루', date: window.today, end_date: null, start_time: '10:00', end_time: '09:00', done: false },
+  ], ids, window);
+  assert.deepEqual([a.end_date, a.end_time], [window.end, '02:00']);
+  assert.equal(b.end_date, null);
+  assert.equal(c.end_time, null, 'one day: the end must be after the start');
+});
+
+test('multi-day push-back: Google gets the whole span (all-day end the day after), Notion a date range', async () => {
+  const google = await import('../../supabase/functions/_shared/google.js'), notion = await import('../../supabase/functions/_shared/notion.js');
+  const sent = [], env = { fetch: async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true, status: 200, text: async () => '{}', json: async () => ({}) }; } };
+  await google.moveEvent(env, 'tok', 'cal', 'ev', { date: '2026-11-03', end_date: '2026-11-05', start_time: null, end_time: null }, 'Asia/Seoul');
+  assert.deepEqual(sent.at(-1), { start: { date: '2026-11-03' }, end: { date: '2026-11-06' } });
+  await google.moveEvent(env, 'tok', 'cal', 'ev', { date: '2026-11-03', end_date: '2026-11-05', start_time: '22:00', end_time: '02:00' }, 'Asia/Seoul');
+  assert.deepEqual(sent.at(-1), { start: { dateTime: '2026-11-03T22:00:00', timeZone: 'Asia/Seoul' }, end: { dateTime: '2026-11-05T02:00:00', timeZone: 'Asia/Seoul' } });
+  await google.moveEvent(env, 'tok', 'cal', 'ev', { date: '2026-11-03', end_date: null, start_time: '22:00', end_time: '24:00' }, 'Asia/Seoul');
+  assert.equal(sent.at(-1).end.dateTime, '2026-11-04T00:00:00');
+  await notion.writeDate(env, 'tok', 'page', 'D', { date: '2026-11-03', end_date: '2026-11-05', start_time: null, end_time: null }, '+09:00');
+  assert.deepEqual(sent.at(-1).properties.D.date, { start: '2026-11-03', end: '2026-11-05' });
+  await notion.writeDate(env, 'tok', 'page', 'D', { date: '2026-11-03', end_date: '2026-11-05', start_time: '22:00', end_time: '02:00' }, '+09:00');
+  assert.deepEqual(sent.at(-1).properties.D.date, { start: '2026-11-03T22:00:00+09:00', end: '2026-11-05T02:00:00+09:00' });
 });

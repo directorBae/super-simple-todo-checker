@@ -87,9 +87,13 @@ export async function readPage(env, token, pageId, depth = 0) {
 }
 
 // Back to Notion: a database row's date, or a to-do block's check box.
-export async function writeDate(env, token, pageId, dateProp, { date, start_time, end_time }, offset) {
+// A span over several days writes Notion's date range (its end is the last day itself; 24:00 = the next day's 00:00).
+export async function writeDate(env, token, pageId, dateProp, { date, end_date, start_time, end_time }, offset) {
   if (!dateProp) throw new HttpError('이 DB에는 날짜 속성이 없어요.', 400);
-  const value = !date ? null : { start: start_time ? `${date}T${start_time}:00${offset}` : date, end: start_time && end_time ? `${date}T${end_time}:00${offset}` : null };
+  const next = (d) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+  const last = end_date && end_date > date ? end_date : date;
+  const timedEnd = start_time && end_time ? (end_time === '24:00' ? `${next(last)}T00:00:00${offset}` : `${last}T${end_time}:00${offset}`) : null;
+  const value = !date ? null : { start: start_time ? `${date}T${start_time}:00${offset}` : date, end: start_time ? timedEnd : last > date ? last : null };
   await call(env, token, `/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify({ properties: { [dateProp]: { date: value } } }) });
 }
 // Deleted in the app: a database row's page goes to Notion's trash; a to-do line is removed from its page.

@@ -59,13 +59,17 @@ export async function deleteEvent(env, access, calendarId, eventId) {
     .catch((e) => { if (![404, 410].includes(e.status)) throw e; });
 }
 // Moves an event to the to-do's date/time (a to-do without a time becomes an all-day event).
-export async function moveEvent(env, access, calendarId, eventId, { date, start_time, end_time }, timeZone) {
+// A span over several days (end_date) keeps its length: all-day ends are the day after the last (Google's way),
+// a timed end lands on the last day (24:00 = the next day's 00:00).
+export async function moveEvent(env, access, calendarId, eventId, { date, end_date, start_time, end_time }, timeZone) {
   if (!date) return;
   const next = (d) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+  const last = end_date && end_date > date ? end_date : date;
+  const endAt = end_time === '24:00' ? `${next(last)}T00:00:00` : `${last}T${end_time || start_time}:00`;
   const body = start_time
-    ? { start: { dateTime: `${date}T${start_time}:00`, timeZone }, end: { dateTime: `${date}T${end_time || start_time}:00`, timeZone } }
-    : { start: { date }, end: { date: next(date) } };
-  if (start_time && (!end_time || end_time <= start_time)) {
+    ? { start: { dateTime: `${date}T${start_time}:00`, timeZone }, end: { dateTime: endAt, timeZone } }
+    : { start: { date }, end: { date: next(last) } };
+  if (start_time && last === date && end_time !== '24:00' && (!end_time || end_time <= start_time)) {
     const [h, m] = start_time.split(':').map(Number), t = h * 60 + m + 60;
     body.end.dateTime = `${date}T${String(Math.min(23, Math.floor(t / 60))).padStart(2, '0')}:${String(t >= 24 * 60 ? 59 : t % 60).padStart(2, '0')}:00`;
   }

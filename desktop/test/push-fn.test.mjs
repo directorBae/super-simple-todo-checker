@@ -13,6 +13,8 @@ const at = (iso) => Date.parse(iso);
 function world(now) {
   const tables = { push_devices: [], push_sent: [], user_prefs: [], todos: [] }, pushes = [];
   const match = (row, [key, cond]) => {
+    // or=(a.gte.x,b.gte.y): any of them
+    if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     const v = row[key], [op, ...rest] = cond.split('.'), arg = decodeURIComponent(rest.join('.'));
     if (op === 'eq') return String(v) === arg;

@@ -8,6 +8,11 @@ const TICK_MS = 30 * 1000;
 const BEFORE_MS = 30 * 60 * 1000;          // 시작 30분 전 알림
 const KEEP_MS = 12 * 60 * 60 * 1000;      // 이보다 오래 지난 할 일 알림은 다시 보지 않음
 
+// Whether a to-do is on `day` and still open there: multi-day to-dos (n일차) are on every day they cover, each day
+// checked on its own (doneDays).
+const coversDay = (t, day) => t.date === day || (!!t.endDate && t.date <= day && day <= t.endDate);
+const doneOn = (t, day) => t.status === 'done' || (t.doneDays || []).includes(day);
+
 function localDateStr(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -56,7 +61,7 @@ function collectDue(db, now) {
     if (!fired.has(key)) {
       const due = dueMs(today, db.settings.dailySummaryTime || '09:00');
       if (due <= now) {
-        const count = db.todos.filter((t) => t.status === 'todo' && t.date === today).length;
+        const count = db.todos.filter((t) => t.status !== 'bucket' && coversDay(t, today) && !doneOn(t, today)).length;
         const days = new Set(recentDays(today)), overdue = db.todos.filter((t) => t.status === 'todo' && days.has(t.date));
         out.push({ key, todoId: null, type: 'daily', due, count, overdue });
       }
@@ -68,8 +73,8 @@ function collectDue(db, now) {
     if (!fired.has(key)) {
       const due = dueMs(today, db.settings.dailyWrapupTime || '21:00');
       if (due <= now) {
-        const doneList = db.todos.filter((t) => t.status === 'done' && t.date === today);
-        const remainList = db.todos.filter((t) => t.status === 'todo' && t.date === today);
+        const doneList = db.todos.filter((t) => t.status !== 'bucket' && coversDay(t, today) && doneOn(t, today));
+        const remainList = db.todos.filter((t) => t.status !== 'bucket' && coversDay(t, today) && !doneOn(t, today));
         out.push({ key, todoId: null, type: 'wrapup', due, doneList, remainList });
       }
     }

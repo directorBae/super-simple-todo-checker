@@ -10,10 +10,10 @@ const SCHEMA = {
     items: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['external_id', 'same_as', 'title', 'date', 'start_time', 'end_time', 'done'],
+        type: 'object', additionalProperties: false, required: ['external_id', 'same_as', 'title', 'date', 'end_date', 'start_time', 'end_time', 'done'],
         properties: {
           external_id: { type: 'string' }, same_as: { type: ['string', 'null'] }, title: { type: 'string' },
-          date: { type: ['string', 'null'] }, start_time: { type: ['string', 'null'] }, end_time: { type: ['string', 'null'] }, done: { type: 'boolean' },
+          date: { type: ['string', 'null'] }, end_date: { type: ['string', 'null'] }, start_time: { type: ['string', 'null'] }, end_time: { type: ['string', 'null'] }, done: { type: 'boolean' },
         },
       },
     },
@@ -26,6 +26,7 @@ const RULES = `너는 할 일 앱의 펫 비서야. 연결된 원본(노션 페�
 - title은 50자 이내로, 원문의 언어 그대로 핵심만. 이미 짧으면 그대로 둬.
 - date는 YYYY-MM-DD. 원본에 날짜가 있으면 그 날짜(시간대 기준 현지 날짜). 없으면 요일 표현·마감·순서와 이번 주 할 일이 몰린 날을 보고 이번 주나 다음 주의 하루를 골라. 범위 밖이면 그 항목은 빼.
 - start_time/end_time은 HH:MM(24시간). 원본에 시간이 없으면 null.
+- 여러 날에 걸친 일정(n일차)은 date에 첫날, end_date에 마지막 날(YYYY-MM-DD)을 넣어요. 하루짜리면 end_date는 null. 원본의 기간을 그대로 따르고, 날마다 따로 나누지 마세요.
 - done은 원본에서 완료(체크)된 경우 true.
 - 이 원본에서 이미 가져온 할 일과 같은 일이면 그 할 일의 external_id를 그대로 써.
 - 앱에 이미 있는 다른 할 일(직접 적었거나 다른 도구에서 온 것)과 같은 일이면 same_as에 그 할 일의 id를 적어. 아니면 null.
@@ -41,23 +42,33 @@ export function describeSource(sub, raw, timeZone) {
   const kind = sub.provider === 'google' ? `구글 캘린더 "${sub.title}"의 일정` : `노션 DB "${sub.title}"의 행`;
   return { text: `${kind}:\n` + JSON.stringify(rows).slice(0, 30000), ids: new Set(raw.map((x) => x.external_id)) };
 }
-// A source date (date or date-time) as the person's local day and time.
+// A source date (date or date-time) as the person's local day and time — and, for a span over several days, its
+// last day (end_date: the to-do then shows on every day, n일차). Google's all-day end is the day AFTER the last
+// (exclusive); Notion's range end is the last day itself. A timed end at exactly midnight is the day before's 24:00.
+const prevDay = (d) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); };
 export function when(x, timeZone) {
-  if (!x.start) return { date: null, start_time: null, end_time: null };
-  if (x.start.length <= 10) return { date: x.start, start_time: null, end_time: null };
-  const s = Date.parse(x.start), e = x.end && x.end.length > 10 ? Date.parse(x.end) : null;
-  return { date: localDate(s, timeZone), start_time: localTime(s, timeZone), end_time: e ? localTime(e, timeZone) : null };
+  if (!x.start) return { date: null, end_date: null, start_time: null, end_time: null };
+  if (x.start.length <= 10) {
+    const last = x.end && x.end.length <= 10 ? (x.allDay ? prevDay(x.end) : x.end) : null;
+    return { date: x.start, end_date: last && last > x.start ? last : null, start_time: null, end_time: null };
+  }
+  const s = Date.parse(x.start), e = x.end && x.end.length > 10 ? Date.parse(x.end) : null, date = localDate(s, timeZone);
+  let endDay = e ? localDate(e, timeZone) : null, endTime = e ? localTime(e, timeZone) : null;
+  if (endTime === '00:00' && endDay > date) { endDay = prevDay(endDay); endTime = '24:00'; }
+  return { date, end_date: endDay && endDay > date ? endDay : null, start_time: localTime(s, timeZone), end_time: endTime };
 }
 
 // Without GPT (no key, or it failed): DB rows and events map one to one; page to-do lines become to-dos for today.
 export function fallbackPlan(sub, raw, window, timeZone) {
   if (sub.provider === 'notion' && sub.resource_type === 'page') {
-    return raw.filter((b) => b.type === 'to_do').map((b) => ({ external_id: b.id, same_as: null, title: truncate(b.text), date: window.today, start_time: null, end_time: null, done: !!b.checked }));
+    return raw.filter((b) => b.type === 'to_do').map((b) => ({ external_id: b.id, same_as: null, title: truncate(b.text), date: window.today, end_date: null, start_time: null, end_time: null, done: !!b.checked }));
   }
   return raw.map((x) => ({ external_id: x.external_id, same_as: null, title: truncate(x.title), ...when(x, timeZone), done: !!x.done })).filter((x) => !x.date || (x.date >= window.start && x.date <= window.end));
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/, TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/, TIME = /^([01]\d|2[0-3]):[0-5]\d$/, END_TIME = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
+const MAX_SPAN_DAYS = 62;
+const spanDays = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86_400_000);
 // Keeps only well-formed items that point at something in the source and fall inside the window; `same_as` must
 // name one of the app's to-dos that were shown (`appIds`), and each of those is claimed at most once.
 export function clean(items, ids, window, appIds = new Set()) {
@@ -66,7 +77,10 @@ export function clean(items, ids, window, appIds = new Set()) {
     const same = x.same_as && appIds.has(x.same_as) && !claimed.has(x.same_as) ? (claimed.add(x.same_as), x.same_as) : null;
     const date = DATE.test(x.date || '') && x.date >= window.start && x.date <= window.end ? x.date : null;
     const start = date && TIME.test(x.start_time || '') ? x.start_time : null;
-    return { external_id: x.external_id, same_as: same, title: truncate(x.title || ''), date, start_time: start, end_time: start && TIME.test(x.end_time || '') && x.end_time > start ? x.end_time : null, done: !!x.done };
+    // A span: a later last day, at most ~2 months on; then the end time may be earlier than the start (it is days later).
+    const endDate = date && DATE.test(x.end_date || '') && x.end_date > date && spanDays(date, x.end_date) < MAX_SPAN_DAYS ? x.end_date : null;
+    const endTime = start && END_TIME.test(x.end_time || '') && (endDate || x.end_time > start) ? x.end_time : null;
+    return { external_id: x.external_id, same_as: same, title: truncate(x.title || ''), date, end_date: endDate, start_time: start, end_time: endTime, done: !!x.done };
   }).filter((x) => x.title && x.date);
 }
 
@@ -94,7 +108,7 @@ export async function plan(env, { sub, raw, existing, week, window }) {
 
 // The check box is the person's alone: imports never tick or untick it (a calendar has no 'done', and a source's
 // state would undo what was checked in the app). Only the title and the schedule follow the source.
-const FIELDS = ['title', 'date', 'start_time', 'end_time'];
+const FIELDS = ['title', 'date', 'end_date', 'start_time', 'end_time'];
 // What to write: new to-dos, changes the SOURCE made since the last import (edits made in the app stay), and
 // to-dos whose source item is gone. `ids` = everything that exists in the source now; `week` = the app's to-dos in
 // the window. A source item GPT matched to one of the app's to-dos (same_as) is not created again: a to-do the

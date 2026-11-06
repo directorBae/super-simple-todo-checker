@@ -107,8 +107,8 @@ declare base text; hook text;
 begin
   if new.origin is null or new.origin->>'provider' is null then return new; end if;
   if new.deleted_at is not null and old.deleted_at is not null then return new; end if;
-  if (new.date, new.start_time, new.end_time, new.title, new.status, new.deleted_at)
-     is not distinct from (old.date, old.start_time, old.end_time, old.title, old.status, old.deleted_at) then return new; end if;
+  if (new.date, new.end_date, new.start_time, new.end_time, new.title, new.status, new.deleted_at)
+     is not distinct from (old.date, old.end_date, old.start_time, old.end_time, old.title, old.status, old.deleted_at) then return new; end if;
   select value into base from function_settings where key = 'functions_url';
   select value into hook from function_settings where key = 'hook_secret';
   if base is null or hook is null then return new; end if;

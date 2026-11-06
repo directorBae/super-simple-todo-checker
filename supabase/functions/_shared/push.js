@@ -32,7 +32,7 @@ export function dueReminders(todos, prefs, zone, from, to) {
     if (s.notify_end && t.endTime) out.push({ key: keyOf(t.id, 'end', t.endDate || t.date, t.endTime), at: at(t.endDate || t.date, t.endTime), title: '✔ 마무리할 시간', body: `${t.title} (${t.endTime})` });
   }
   for (let day = localDate(from, zone); at(day, '00:00') <= to; day = addDays(day, 1)) {
-    const open = todos.filter((t) => t.status === 'todo' && t.date === day), done = todos.filter((t) => t.status === 'done' && t.date === day);
+    const open = todos.filter((t) => t.status !== 'bucket' && coversDay(t, day) && !doneOn(t, day)), done = todos.filter((t) => t.status !== 'bucket' && coversDay(t, day) && doneOn(t, day));
     const recent = new Set([1, 2, 3].map((k) => addDays(day, -k)));
     const overdue = todos.filter((t) => t.status === 'todo' && recent.has(t.date));
     if (s.morning_on && (open.length || overdue.length)) {
@@ -47,7 +47,11 @@ export function dueReminders(todos, prefs, zone, from, to) {
   return out.filter((r) => r.at > from && r.at <= to).sort((a, b) => a.at - b.at);
 }
 
-const fromRow = (r) => ({ id: r.id, title: r.title, date: r.date, endDate: r.end_date, startTime: r.start_time, endTime: r.end_time, status: r.status });
+// Whether a to-do is on `day` and still open there: multi-day to-dos (n일차) are on every day they cover, each day
+// checked on its own (doneDays).
+const coversDay = (t, day) => t.date === day || (!!t.endDate && t.date <= day && day <= t.endDate);
+const doneOn = (t, day) => t.status === 'done' || (t.doneDays || []).includes(day);
+const fromRow = (r) => ({ id: r.id, title: r.title, date: r.date, endDate: r.end_date, startTime: r.start_time, endTime: r.end_time, status: r.status, doneDays: r.extra?.doneDays || [] });
 
 export async function sendDue(env) {
   const store = db(env), now = env.now();
@@ -59,7 +63,7 @@ export async function sendDue(env) {
   for (const user of users) {
     const p = prefs.get(user), zone = p?.time_zone || env.TIME_ZONE || 'Asia/Seoul', today = localDate(now, zone);
     // Yesterday's late reminders, today's, and the 3 days before for the morning's "못 한 일".
-    const rows = await store.select('todos', `user_id=${eq(user)}&deleted_at=is.null&date=gte.${addDays(today, -4)}&date=lte.${addDays(today, 1)}&select=id,title,date,end_date,start_time,end_time,status`);
+    const rows = await store.select('todos', `user_id=${eq(user)}&deleted_at=is.null&or=(date.gte.${addDays(today, -4)},end_date.gte.${addDays(today, -1)})&date=lte.${addDays(today, 1)}&select=id,title,date,end_date,start_time,end_time,status,extra`);
     const due = dueReminders(rows.map(fromRow), p, zone, now - LOOKBACK_MS, now);
     for (const r of due) {
       // Claim it first: only the run that wrote the row sends it.
