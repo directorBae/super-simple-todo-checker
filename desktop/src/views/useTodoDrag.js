@@ -155,12 +155,12 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       if (t?.kind === 'line') { mark(null); showLine(t.rect, t.after); } else { hideLine(); mark(t?.el || null); }
     };
     const finish = async (x, y) => {
-      const t = p.drop, ids = p.ids;
+      const t = p.drop, ids = p.ids, fromDays = p.fromDays || {};
       cleanup();
       if (!t) return;
       if (t.kind === 'trash') { trash(live.current.db.todos.filter((x) => ids.includes(x.id))); if (ids.length > 1) set([]); return; }
       if (t.kind === 'clock') { window.dispatchEvent(new CustomEvent('checker:clock-pointer-drop', { detail: { ids, id: ids[0], x, y } })); return; }
-      const patches = dropPatches(live.current.db, ids, t, undefined, p.fromDays || {});
+      const patches = dropPatches(live.current.db, ids, t, undefined, fromDays);
       await Promise.all(patches.map(({ id, patch }) => window.api.updateTodo(id, patch)));
     };
     const cleanup = () => {

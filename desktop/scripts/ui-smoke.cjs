@@ -146,20 +146,20 @@ app.whenReady().then(async()=>{
   if(await js(`document.querySelectorAll('#day-${today} .team-add-row').length`)!==0)throw Error('Once every team has lines, no empty rows remain between them');
   await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))');await pause(100);
   await js('document.querySelector(".memo-actions button").click()');await pause(150);
-  const editor=await js('document.querySelector(".todo-editor").innerText');
-  if(editor.includes('AI')||editor.includes('종료')||editor.includes('목적지'))throw Error('Task editor contains complexity');
+  const editor=await js('document.querySelector(".sched-card").innerText');
+  if(editor.includes('AI')||editor.includes('목적지'))throw Error('Task editor contains complexity');
   if(editor.includes('날짜 없음'))throw Error('A to-do can no longer be left without a date');
-  // The date is picked on a calendar only; nothing moves until 확정. Ctrl+Z then puts it back.
+  // The schedule card (ScheduleCard.jsx): a calendar (no typed date) under the time bar; nothing moves until 확정. Ctrl+Z then puts it back.
   {
-    const id=await js(`document.querySelector('.todo-editor').closest('[data-todo-id]').dataset.todoId`),was=db.todos.find(t=>t.id===id).date;
-    if(!await js(`!!document.querySelector('.todo-editor .date-cal')&&!document.querySelector('.todo-editor input[type="date"]')`))throw Error('The date editor must be a calendar with no typed date');
-    const day=await js(`[...document.querySelectorAll('.todo-editor .date-cal-day')].map(b=>b.dataset.date).find(d=>d!==${JSON.stringify(was)})`);
-    await js(`document.querySelector('.todo-editor .date-cal-day[data-date="${day}"]').click()`);await pause(150);
+    const id=await js(`document.querySelector('.sched-card').closest('[data-todo-id]').dataset.todoId`),was=db.todos.find(t=>t.id===id).date;
+    if(!await js(`!!document.querySelector('.sched-card .date-cal')&&!document.querySelector('.sched-card input[type="date"]')`))throw Error('The date editor must be a calendar with no typed date');
+    const day=await js(`[...document.querySelectorAll('.sched-card .date-cal-day')].map(b=>b.dataset.date).find(d=>d!==${JSON.stringify(was)})`);
+    await js(`document.querySelector('.sched-card .date-cal-day[data-date="${day}"]').click()`);await pause(150);
     if(db.todos.find(t=>t.id===id).date!==was)throw Error('Picking a day must not move the to-do before 확정');
-    if(!await js(`document.querySelector('.todo-editor .date-cal-day[data-date="${day}"]').classList.contains('is-picked')`))throw Error('The picked day must be marked');
-    await js(`[...document.querySelectorAll('.todo-editor button')].find(b=>b.textContent==='확정').click()`);await pause(200);
+    if(!await js(`document.querySelector('.sched-card .date-cal-day[data-date="${day}"]').classList.contains('is-picked')`))throw Error('The picked day must be marked');
+    await js(`[...document.querySelectorAll('.sched-card button')].find(b=>b.textContent==='확정').click()`);await pause(200);
     if(db.todos.find(t=>t.id===id).date!==day)throw Error('확정 must move the to-do to the picked day');
-    if(await js(`!!document.querySelector('.todo-editor')`))throw Error('확정 closes the editor');
+    if(await js(`!!document.querySelector('.sched-card')`))throw Error('확정 closes the editor');
     await js(`document.activeElement?.blur?.();window.dispatchEvent(new KeyboardEvent('keydown',{key:'z',code:'KeyZ',ctrlKey:true,bubbles:true,cancelable:true}))`);await pause(200);
     if(db.todos.find(t=>t.id===id).date!==was)throw Error('Ctrl+Z must undo the date change');
     await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'z',code:'KeyZ',ctrlKey:true,shiftKey:true,bubbles:true,cancelable:true}))`);await pause(200);
@@ -284,9 +284,9 @@ app.whenReady().then(async()=>{
   // The date editor closes with Esc; bucket activation picks its day on the calendar (no typed date).
   {
     await js(`document.querySelector('#day-${today} .memo-line .memo-actions button').click()`);await pause(200);
-    if(!await js(`!!document.querySelector('.todo-editor')`))throw Error('Date editor must open');
+    if(!await js(`!!document.querySelector('.sched-card')`))throw Error('Date editor must open');
     await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);await pause(150);
-    if(await js(`!!document.querySelector('.todo-editor')`))throw Error('Esc must close the date editor');
+    if(await js(`!!document.querySelector('.sched-card')`))throw Error('Esc must close the date editor');
   }
   // Dragging a line to the bottom edge of the notebook scrolls it by itself.
   {
