@@ -123,3 +123,8 @@ input.work-my-name { width: 140px; }
 .dive-call-actions .on { border-color: #e5484d; }
 .dive-audio { display: none; }
 @media (prefers-reduced-motion: reduce) { .dive-icon .dive-ring, .dive-icon .dive-arrow, .dive-incoming { animation: none; } }
+
+/* The optional 체커 team tag, at the top of the dive card. */
+.work-link { justify-self: stretch; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.work-link select { flex: 1; min-width: 0; font-size: 12px; padding: 5px 8px; border-radius: 10px; }
+.work-link-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }

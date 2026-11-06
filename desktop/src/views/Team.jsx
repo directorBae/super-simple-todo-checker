@@ -127,6 +127,22 @@ function Dives({ team }) {
   </section>;
 }
 
+// Optional tag: one of the person's own 체커 teams (to-do groups) for this Work team. Only a link — nothing is shared.
+function CheckerLink({ team, checkerTeams = [] }) {
+  const w = useWork(), [error, setError] = useState('');
+  const linked = checkerTeams.find((t) => t.id === team.link);
+  return <div className="work-link">
+    <span>체커 팀</span>
+    {linked && <i className="work-link-dot" style={{ background: linked.color || 'var(--accent)' }} />}
+    <select value={linked ? linked.id : ''} aria-label="연결할 체커 팀" onChange={(e) => { setError(''); w.setLink(team.id, e.target.value || null).catch((x) => setError(x.message)); }}>
+      <option value="">연결 안 함</option>
+      {checkerTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      {team.link && !linked && <option value={team.link}>(지워진 팀)</option>}
+    </select>
+    {error && <small className="work-error">{error}</small>}
+  </div>;
+}
+
 function MyName() {
   const w = useWork(), [name, setName] = useState(w.state.me.name), [edit, setEdit] = useState(false);
   useEffect(() => { if (!edit) setName(w.state.me.name); }, [w.state.me.name, edit]);
@@ -135,7 +151,7 @@ function MyName() {
     : <button className="work-my-name ghost" title="팀에 보이는 이름 바꾸기" onClick={() => setEdit(true)}>나: {w.state.me.name} ✎</button>;
 }
 
-export default function Team() {
+export default function Team({ checkerTeams = [] }) {
   const w = useWork(), s = w.state;
   const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false);
   if (!s) return <main className="content team-view"><p className="team-empty">{w.error || '팀을 불러오는 중…'}</p></main>;
@@ -153,6 +169,7 @@ export default function Team() {
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <div className="team-grid">
       <Members team={team} />
       <section className="work-card dive-hub" aria-label="다이브">
+        <CheckerLink team={team} checkerTeams={checkerTeams} />
         <button className="dive-button" disabled={!others.length || !!w.call} onClick={() => setComposer(true)} aria-label="다이브 시작">
           <DiveIcon size={96} /><span>Dive</span>
         </button>

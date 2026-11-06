@@ -4,6 +4,7 @@ import Svg, { Circle, Path, Defs, RadialGradient, Stop } from 'react-native-svg'
 import { Text } from '../text.js';
 import { useDesign, Surface, Button, Sheet } from '../design.js';
 import { useWork } from '../work.js';
+import { useDb } from '../store.js';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
 
 /*
@@ -123,6 +124,27 @@ function Dives({ team }) {
   </Card>;
 }
 
+// Optional tag: one of the person's own 체커 teams (to-do groups) for this Work team. Only a link — nothing is shared.
+function CheckerLink({ team }) {
+  const w = useWork(), d = useDesign(), { db } = useDb(), [open, setOpen] = useState(false), [error, setError] = useState('');
+  const linked = db.teams.find((t) => t.id === team.link);
+  const pick = (id) => { setOpen(false); setError(''); w.setLink(team.id, id).catch((e) => setError(e.message)); };
+  return <View style={{ gap: 4 }}>
+    <Pressable accessibilityRole="button" accessibilityLabel="연결할 체커 팀 고르기" onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'center' }}>
+      <Text style={{ color: d.muted, fontSize: 13 }}>체커 팀</Text>
+      {linked && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: linked.color || d.accent }} />}
+      <Text style={{ color: d.text, fontSize: 13, fontWeight: '600' }}>{linked ? linked.name : team.link ? '(지워진 팀)' : '연결 안 함'} ▾</Text>
+    </Pressable>
+    <ErrorText>{error}</ErrorText>
+    {open && <Sheet title="체커 팀 연결" onClose={() => setOpen(false)}>
+      <Text style={{ color: d.muted, fontSize: 13 }}>이 팀을 내 체커의 팀과 태그로 이어 둬요. 할 일이 공유되지는 않아요.</Text>
+      <Button title="연결 안 함" primary={!team.link} onPress={() => pick(null)} />
+      {db.teams.map((t) => <Button key={t.id} title={t.name} primary={t.id === team.link} onPress={() => pick(t.id)} />)}
+      {!db.teams.length && <Text style={{ color: d.muted }}>체커에 팀이 아직 없어요.</Text>}
+    </Sheet>}
+  </View>;
+}
+
 function MyName() {
   const w = useWork(), d = useDesign(), [edit, setEdit] = useState(false), [name, setName] = useState(w.state.me.name);
   useEffect(() => { if (!edit) setName(w.state.me.name); }, [w.state.me.name, edit]);
@@ -148,6 +170,7 @@ export default function TeamScreen() {
     <Invites />
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <>
       <Card style={{ alignItems: 'stretch' }}>
+        <CheckerLink team={team} />
         <Pressable accessibilityRole="button" accessibilityLabel="다이브 시작" disabled={!others.length || !!w.call} onPress={() => setComposer(true)} style={({ pressed }) => ({ alignItems: 'center', gap: 6, paddingVertical: 14, opacity: !others.length || w.call ? 0.45 : pressed ? 0.7 : 1 })}>
           <PulsingDive size={104} /><Text style={{ fontSize: 20, fontWeight: '800', color: d.accent, letterSpacing: 1 }}>Dive</Text>
         </Pressable>

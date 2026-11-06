@@ -64,7 +64,7 @@ export default function App() {
    </div>
   </header>
   {onboarding ? <main className="onboarding"><div className="welcome-mark">✓</div><p className="eyebrow">WELCOME TO CHECKER</p><h1>흩어진 일들을 한곳으로.</h1><p className="welcome-desc">쓰고 있는 도구를 연결해 시작하세요.<br />이제 할 일만 적으면 됩니다.</p><Integrations db={db} /><div className="welcome-actions"><button className="primary" onClick={finish}>시작하기 →</button><button className="ghost" onClick={finish}>지금은 건너뛰기</button></div></main> :
-   (mode === 'team' ? <Team /> : <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>)}
+   (mode === 'team' ? <Team checkerTeams={db.teams} /> : <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>)}
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} open={popup === 'music'} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />

@@ -158,3 +158,17 @@ test('work alerts: a new dive (important when picked), answers to my dive, invit
   assert.equal(incomingDive(state([{ id: 'x', team: 't', by: 'b', targets: ['me'], replies: [{ id: 'me', answer: 'kakao' }] }])), null, 'answered: no incoming card');
   assert.deepEqual(workAlerts({ ok: true }, new Set()), [], 'an empty answer is no news');
 });
+
+test('work: each member can tag the team with one of their own 체커 teams (or none) — only a link', async () => {
+  const w = world();
+  const { team } = await w.a('/team', { name: 'UO BioLabs' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  assert.equal((await w.a('/state')).teams[0].link, null, 'untagged by default');
+  await w.a('/link', { team: team.id, checkerTeam: 'checker-team-uo' });
+  await w.b('/link', { team: team.id, checkerTeam: '울트원' });
+  assert.equal((await w.a('/state')).teams[0].link, 'checker-team-uo');
+  assert.equal((await w.b('/state')).teams[0].link, '울트원', 'per person');
+  await w.a('/link', { team: team.id, checkerTeam: null });
+  assert.equal((await w.a('/state')).teams[0].link, null);
+  await assert.rejects(w.c('/link', { team: team.id, checkerTeam: 'x' }), /팀원이 아니에요/);
+});

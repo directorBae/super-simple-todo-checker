@@ -196,6 +196,7 @@ async function workRoute(env, user, route, b) {
     case '/work/name': return work.setName(env, user, b.name);
     case '/work/team': return work.createTeam(env, user, b.name);
     case '/work/team/delete': return work.deleteTeam(env, user, b.team);
+    case '/work/link': return work.setLink(env, user, b.team, b.checkerTeam);
     case '/work/invite': return work.invite(env, user, b.team, b.emails);
     case '/work/invite/accept': return work.answerInvite(env, user, b.team, true);
     case '/work/invite/decline': return work.answerInvite(env, user, b.team, false);

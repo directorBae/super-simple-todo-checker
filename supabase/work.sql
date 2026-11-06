@@ -22,6 +22,9 @@ create table if not exists public.work_members (
   joined_at timestamptz,
   primary key (team_id, email)
 );
+-- Optional: which of this member's own 체커 teams (to-do groups) they tagged the Work team with. Only a link — nothing
+-- is shared or created; each member picks their own (or none).
+alter table public.work_members add column if not exists checker_team text check (checker_team is null or char_length(checker_team) <= 64);
 create index if not exists work_members_user on public.work_members (user_id);
 create index if not exists work_members_email on public.work_members (email);
 

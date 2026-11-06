@@ -81,6 +81,8 @@ export async function workState(env, user) {
     me: { id: user.id, email: user.email, name: nameOf(mine, user.email) },
     teams: teams.filter((t) => activeIds.includes(t.id)).map((t) => ({
       id: t.id, name: t.name, owner: t.owner, mine: t.owner === user.id,
+      // The 체커 team (one of this person's own to-do groups) they tagged this team with, if any.
+      link: active.find((r) => r.team_id === t.id)?.checker_team || null,
       members: members.filter((m) => m.team_id === t.id).map((m) => ({
         id: m.user_id, email: m.email, role: m.role, status: m.status, name: m.user_id ? nameOf(presence.get(m.user_id), m.email) : m.email,
         online: m.user_id ? online(m.user_id) : false, inDive: m.user_id && online(m.user_id) ? presence.get(m.user_id)?.in_dive || null : null,
@@ -100,6 +102,14 @@ export async function setName(env, user, name) {
   if (!n) throw new HttpError('이름을 적어 주세요.');
   await db(env).insert('work_presence', [{ user_id: user.id, name: n, last_seen: iso(env.now()) }], { upsert: true, onConflict: 'user_id' });
   return { name: n };
+}
+
+// Tags the Work team with one of the person's own 체커 teams (or clears it). Just a link, kept per member.
+export async function setLink(env, user, teamId, checkerTeam) {
+  const store = db(env), me = await activeMember(store, user, teamId);
+  const link = checkerTeam == null || checkerTeam === '' ? null : String(checkerTeam).slice(0, 64);
+  await store.update('work_members', `team_id=${eq(me.team_id)}&user_id=${eq(user.id)}`, { checker_team: link });
+  return { link };
 }
 
 export async function createTeam(env, user, name) {
