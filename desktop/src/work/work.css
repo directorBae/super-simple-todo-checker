@@ -125,6 +125,11 @@ input.work-my-name { width: 140px; }
 @media (prefers-reduced-motion: reduce) { .dive-icon .dive-ring, .dive-icon .dive-arrow, .dive-incoming { animation: none; } }
 
 /* The optional 체커 team tag, at the top of the dive card. */
-.work-link { justify-self: stretch; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-.work-link select { flex: 1; min-width: 0; font-size: 12px; padding: 5px 8px; border-radius: 10px; }
-.work-link-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.work-link { justify-self: stretch; display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--muted); text-align: left; }
+.work-link > span { padding-top: 5px; white-space: nowrap; }
+.work-link-chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+.work-link-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.05); color: var(--muted); font-size: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.work-link-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--team); opacity: 0.45; }
+.work-link-chip.on { color: var(--text); border-color: var(--team); background: color-mix(in srgb, var(--team) 16%, transparent); font-weight: 600; }
+.work-link-chip.on i { opacity: 1; }
+.work-link-chip.gone { --team: #8a93a6; font-style: italic; }

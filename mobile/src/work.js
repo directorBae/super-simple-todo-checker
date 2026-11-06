@@ -73,7 +73,7 @@ export function WorkProvider({ onOpen, children }) {
     setName: (name) => act('/name', { name }),
     createTeam: (name) => act('/team', { name }),
     deleteTeam: (team) => act('/team/delete', { team }),
-    setLink: (team, checkerTeam) => act('/link', { team, checkerTeam }),
+    setLink: (team, checkerTeams) => act('/link', { team, checkerTeams }),
     invite: (team, emails) => act('/invite', { team, emails }),
     acceptInvite: (team) => act('/invite/accept', { team }),
     declineInvite: (team) => act('/invite/decline', { team }),

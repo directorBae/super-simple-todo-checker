@@ -163,12 +163,14 @@ test('work: each member can tag the team with one of their own 체커 teams (or 
   const w = world();
   const { team } = await w.a('/team', { name: 'UO BioLabs' });
   await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
-  assert.equal((await w.a('/state')).teams[0].link, null, 'untagged by default');
-  await w.a('/link', { team: team.id, checkerTeam: 'checker-team-uo' });
-  await w.b('/link', { team: team.id, checkerTeam: '울트원' });
-  assert.equal((await w.a('/state')).teams[0].link, 'checker-team-uo');
-  assert.equal((await w.b('/state')).teams[0].link, '울트원', 'per person');
-  await w.a('/link', { team: team.id, checkerTeam: null });
-  assert.equal((await w.a('/state')).teams[0].link, null);
+  assert.deepEqual((await w.a('/state')).teams[0].links, [], 'untagged by default');
+  await w.a('/link', { team: team.id, checkerTeams: ['k-uo', 'k-studio', 'k-uo', 7, ''] });
+  await w.b('/link', { team: team.id, checkerTeam: '울트원' }); // an older app: one tag
+  let s = (await w.a('/state')).teams[0];
+  assert.deepEqual([s.links, s.link], [['k-uo', 'k-studio'], 'k-uo'], 'several, without repeats; the first one for older apps');
+  assert.deepEqual((await w.b('/state')).teams[0].links, ['울트원'], 'per person');
+  await w.a('/link', { team: team.id, checkerTeams: [] });
+  s = (await w.a('/state')).teams[0];
+  assert.deepEqual([s.links, s.link], [[], null]);
   await assert.rejects(w.c('/link', { team: team.id, checkerTeam: 'x' }), /팀원이 아니에요/);
 });

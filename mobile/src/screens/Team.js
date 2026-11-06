@@ -124,24 +124,28 @@ function Dives({ team }) {
   </Card>;
 }
 
-// Optional tag: one of the person's own 체커 teams (to-do groups) for this Work team. Only a link — nothing is shared.
+// Optional tags: any of the person's own 체커 teams (to-do groups) for this Work team, tapped on and off.
+// Only links — nothing is shared.
 function CheckerLink({ team }) {
-  const w = useWork(), d = useDesign(), { db } = useDb(), [open, setOpen] = useState(false), [error, setError] = useState('');
-  const linked = db.teams.find((t) => t.id === team.link);
-  const pick = (id) => { setOpen(false); setError(''); w.setLink(team.id, id).catch((e) => setError(e.message)); };
-  return <View style={{ gap: 4 }}>
-    <Pressable accessibilityRole="button" accessibilityLabel="연결할 체커 팀 고르기" onPress={() => setOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'center' }}>
-      <Text style={{ color: d.muted, fontSize: 13 }}>체커 팀</Text>
-      {linked && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: linked.color || d.accent }} />}
-      <Text style={{ color: d.text, fontSize: 13, fontWeight: '600' }}>{linked ? linked.name : team.link ? '(지워진 팀)' : '연결 안 함'} ▾</Text>
-    </Pressable>
+  const w = useWork(), d = useDesign(), { db } = useDb(), [error, setError] = useState(''), [links, setLinks] = useState(team.links || []);
+  useEffect(() => setLinks(team.links || []), [team.id, (team.links || []).join()]);
+  const toggle = (id) => {
+    const next = links.includes(id) ? links.filter((x) => x !== id) : [...links, id];
+    setLinks(next); setError('');
+    w.setLink(team.id, next).catch((e) => { setError(e.message); setLinks(team.links || []); });
+  };
+  const gone = links.filter((id) => !db.teams.some((t) => t.id === id));
+  const chip = (key, label, color, on, onPress) => <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 99, borderWidth: 1, borderColor: on ? color : d.edge, backgroundColor: on ? color + '29' : 'transparent' }}>
+    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, opacity: on ? 1 : 0.45 }} /><Text style={{ fontSize: 13, color: on ? d.text : d.muted, fontWeight: on ? '600' : '400' }}>{label}</Text>
+  </Pressable>;
+  return <View style={{ gap: 6 }}>
+    <Text style={{ color: d.muted, fontSize: 12 }}>체커 팀 (여러 개 고를 수 있어요)</Text>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+      {db.teams.map((t) => chip(t.id, t.name, /^#[0-9a-f]{6}$/i.test(t.color || '') ? t.color : d.accent, links.includes(t.id), () => toggle(t.id)))}
+      {gone.map((id) => chip(id, '(지워진 팀)', '#8a93a6', true, () => toggle(id)))}
+      {!db.teams.length && !gone.length && <Text style={{ color: d.muted, fontSize: 13 }}>체커에 팀이 아직 없어요.</Text>}
+    </View>
     <ErrorText>{error}</ErrorText>
-    {open && <Sheet title="체커 팀 연결" onClose={() => setOpen(false)}>
-      <Text style={{ color: d.muted, fontSize: 13 }}>이 팀을 내 체커의 팀과 태그로 이어 둬요. 할 일이 공유되지는 않아요.</Text>
-      <Button title="연결 안 함" primary={!team.link} onPress={() => pick(null)} />
-      {db.teams.map((t) => <Button key={t.id} title={t.name} primary={t.id === team.link} onPress={() => pick(t.id)} />)}
-      {!db.teams.length && <Text style={{ color: d.muted }}>체커에 팀이 아직 없어요.</Text>}
-    </Sheet>}
   </View>;
 }
 

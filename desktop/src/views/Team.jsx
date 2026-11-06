@@ -127,18 +127,24 @@ function Dives({ team }) {
   </section>;
 }
 
-// Optional tag: one of the person's own 체커 teams (to-do groups) for this Work team. Only a link — nothing is shared.
+// Optional tags: any of the person's own 체커 teams (to-do groups) for this Work team, tapped on and off.
+// Only links — nothing is shared. A tag whose 체커 team was deleted shows until it is tapped off.
 function CheckerLink({ team, checkerTeams = [] }) {
-  const w = useWork(), [error, setError] = useState('');
-  const linked = checkerTeams.find((t) => t.id === team.link);
-  return <div className="work-link">
+  const w = useWork(), [error, setError] = useState(''), [links, setLinks] = useState(team.links || []);
+  useEffect(() => setLinks(team.links || []), [team.id, (team.links || []).join()]);
+  const toggle = (id) => {
+    const next = links.includes(id) ? links.filter((x) => x !== id) : [...links, id];
+    setLinks(next); setError('');
+    w.setLink(team.id, next).catch((x) => { setError(x.message); setLinks(team.links || []); });
+  };
+  const gone = links.filter((id) => !checkerTeams.some((t) => t.id === id));
+  return <div className="work-link" role="group" aria-label="연결할 체커 팀">
     <span>체커 팀</span>
-    {linked && <i className="work-link-dot" style={{ background: linked.color || 'var(--accent)' }} />}
-    <select value={linked ? linked.id : ''} aria-label="연결할 체커 팀" onChange={(e) => { setError(''); w.setLink(team.id, e.target.value || null).catch((x) => setError(x.message)); }}>
-      <option value="">연결 안 함</option>
-      {checkerTeams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      {team.link && !linked && <option value={team.link}>(지워진 팀)</option>}
-    </select>
+    <div className="work-link-chips">
+      {checkerTeams.map((t) => { const on = links.includes(t.id); return <button key={t.id} type="button" className={'work-link-chip' + (on ? ' on' : '')} aria-pressed={on} style={{ '--team': t.color || 'var(--accent)' }} onClick={() => toggle(t.id)}><i />{t.name}</button>; })}
+      {gone.map((id) => <button key={id} type="button" className="work-link-chip on gone" aria-pressed="true" title="지워진 체커 팀 — 눌러서 빼기" onClick={() => toggle(id)}><i />(지워진 팀)</button>)}
+      {!checkerTeams.length && !gone.length && <small>체커에 팀이 아직 없어요</small>}
+    </div>
     {error && <small className="work-error">{error}</small>}
   </div>;
 }
