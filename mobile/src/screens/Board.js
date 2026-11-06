@@ -10,6 +10,7 @@ import { dropPatches } from '../../../shared/todo-drop.js';
 import { TaskLine, LeavingLine, DateSheet, RepeatSheet } from './NotebookLine.js';
 import { dayGroups } from '../../../shared/notepad-diff.js';
 import { SpanTrails } from './SpanTrails.js';
+import ScheduleCard from './ScheduleCard.js';
 import { isMultiDay } from '../../../shared/multi-day.js';
 import MonthView from './NotebookMonth.js';
 import WeekView from './NotebookWeek.js';
@@ -57,7 +58,7 @@ function LineBelow({ anchor, next, date, api, setFocus, reveal }) {
 }
 
 // One day: its lines grouped by team, each edited where it is; the faint checkbox at the end starts a new line.
-function DaySection({ date, db, api, focus, setFocus, onDate, onRepeat, onGrab, onStart, onDrop, onMove, rows, reveal, selection, onSelectStart, onSelectMove, onSelectEnd, onToggle, typing }) {
+function DaySection({ date, db, api, focus, setFocus, onDate, onRepeat, schedule, onScheduleClose, onGrab, onStart, onDrop, onMove, rows, reveal, selection, onSelectStart, onSelectMove, onSelectEnd, onToggle, typing }) {
  const d=useDesign(), [draft,setDraft]=useState(''), [team,setTeam]=useState(null), [active,setActive]=useState(false), input=useRef(null), [typingTeam,setTypingTeam]=useState(null);
  // Tap the date for "내 팀 전부 넣기": every team then shows as a heading (an input row only while it has no lines).
  const [pill,setPill]=useState(false),[allTeams,setAllTeams]=useState(false),teamInputs=useRef({}),pendingTeam=useRef(null),pillAt=useRef(0);
@@ -90,7 +91,7 @@ function DaySection({ date, db, api, focus, setFocus, onDate, onRepeat, onGrab, 
   </View>
   {groups.map(g=><View key={g.team?.id||'none'}>
    {g.team&&<View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:8,marginBottom:2}}><View style={{width:7,height:7,borderRadius:4,backgroundColor:g.team.color}}/><Text style={{fontSize:12,fontWeight:'700',color:g.team.important?g.team.color:d.muted}}>{g.team.name}{g.team.important?' ★':''}</Text></View>}
-   {g.todos.map((todo,k)=>{if(todo.ghost)return <View key={todo.id} style={{marginLeft:g.team?16:0}}><LeavingLine todo={todo} show={typing.ghostShow(todo.ghost)} rowRef={ref=>typing.ghostRef(todo.ghost,ref)} onDone={typing.done}/></View>;const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} collapsable={false} ref={todo.span?(r=>{const k='span:'+todo.id+'@'+todo.span.day;if(r)rows.current[k]=r;else delete rows.current[k];}):undefined} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} db={db} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onRepeat={onRepeat} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} typing={typing.of(todo.id)} onTyped={typing.done} />{focus?.id==='after:'+todo.id&&<LineBelow key={'below'+focus.nonce} anchor={todo} next={g.todos[k+1]} date={date} api={api} setFocus={setFocus} reveal={reveal}/>}</View>;})}
+   {g.todos.map((todo,k)=>{if(todo.ghost)return <View key={todo.id} style={{marginLeft:g.team?16:0}}><LeavingLine todo={todo} show={typing.ghostShow(todo.ghost)} rowRef={ref=>typing.ghostRef(todo.ghost,ref)} onDone={typing.done}/></View>;const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} collapsable={false} ref={todo.span?(r=>{const k='span:'+todo.id+'@'+todo.span.day;if(r)rows.current[k]=r;else delete rows.current[k];}):undefined} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} db={db} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onRepeat={onRepeat} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} typing={typing.of(todo.id)} onTyped={typing.done} />{schedule&&schedule.id===todo.id&&(schedule.span?.day??schedule.date)===(todo.span?.day??date)&&<ScheduleCard todo={db.todos.find(t=>t.id===todo.id)||todo} api={api} onRepeat={onRepeat} onClose={onScheduleClose}/>}{focus?.id==='after:'+todo.id&&<LineBelow key={'below'+focus.nonce} anchor={todo} next={g.todos[k+1]} date={date} api={api} setFocus={setFocus} reveal={reveal}/>}</View>;})}
    {/* Only a team with no lines yet (or the one being typed in) keeps an input row: no empty rows between teams. */}
    {allTeams&&g.team&&(!g.todos.length||typingTeam===g.team.id)&&<TeamAddLine onTyping={on=>setTypingTeam(cur=>on?g.team.id:cur===g.team.id?null:cur)} team={g.team} date={date} api={api} items={items} reveal={reveal} inputRef={el=>{if(el)teamInputs.current[g.team.id]=el;else delete teamInputs.current[g.team.id];}} onNext={()=>nextTeam(g.team.id)}/>}
   </View>)}
@@ -174,7 +175,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  // Dragging to the right edge slides the clock in; back to the left edge slides it away again.
  // Over the clock the dragged line is hidden under the sheet, so the clock draws it (title + the time it would get).
  const moving=(x,y)=>{if(!clockOpen){edgeScroll(x,y,'drag');const f=frameBox.current;if(f&&dragging)setGhost({x:x-f.x,y:y-f.y,title:dragging.title,count:selection.has(dragging.id)?selection.size:1});}else setGhost(null);if(dragging&&x>width-64)onClockReveal(dragging);else if(clockOpen&&x<40)onClockClose();if(clockOpen)onClockHover(x,y,dragging);setHover(clockOpen?null:hit(geometry.current.teams,x,y)?.id||null);};
- const section=date=><DaySection date={date} db={db} api={api} focus={focus} setFocus={setFocus} rows={rows} selection={selection} onSelectStart={selectStart} onSelectMove={selectMoveFinger} onSelectEnd={selectEnd} onToggle={toggleLine} onDate={setDateTodo} onRepeat={setRepeatTodo} onGrab={on=>{setGrabbing(on);if(on)measureViewport();}} onStart={setDragging} onDrop={drop} onMove={moving} reveal={reveal} typing={typingRows}/>;
+ const section=date=><DaySection date={date} db={db} api={api} focus={focus} setFocus={setFocus} rows={rows} schedule={dateTodo} onScheduleClose={()=>setDateTodo(null)} selection={selection} onSelectStart={selectStart} onSelectMove={selectMoveFinger} onSelectEnd={selectEnd} onToggle={toggleLine} onDate={t=>setDateTodo(cur=>cur&&cur.id===t.id&&(cur.span?.day??cur.date)===(t.span?.day??t.date)?null:t)} onRepeat={setRepeatTodo} onGrab={on=>{setGrabbing(on);if(on)measureViewport();}} onStart={setDragging} onDrop={drop} onMove={moving} reveal={reveal} typing={typingRows}/>;
  // What a Notion / Google Calendar job does to the lines is played here, one change at a time (ImportTyping.js,
  // import-typing.js): the list scrolls to the line, then a new line is typed out, a changed one erased back and
  // retyped (its checkbox ticking if that changed too), a moved one erased and folded away at its old day and typed into
@@ -258,7 +259,6 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
     <Icon name="trash" size={18} color={hover==='trash'?'#fff':'#b4233c'}/><Text style={{fontSize:13,fontWeight:'600',color:hover==='trash'?'#fff':'#b4233c'}}>{dragging&&selection.has(dragging.id)&&selection.size>1?`${selection.size}개 삭제`:'삭제'}</Text>
    </View>
   </View>}
-  {dateTodo&&<DateSheet todo={db.todos.find(t=>t.id===dateTodo.id)||dateTodo} api={api} onClose={()=>setDateTodo(null)}/>}
   {repeatTodo&&<RepeatSheet todo={db.todos.find(t=>t.id===repeatTodo.id)||repeatTodo} api={api} onClose={()=>setRepeatTodo(null)}/>}
  </KeyboardAvoidingView>;
 }

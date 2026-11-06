@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { TodoEditor, TeamControl, RepeatEditor, repeatLabel } from '../components.jsx';
+import { TeamControl, RepeatEditor, repeatLabel } from '../components.jsx';
+import ScheduleCard from '../ScheduleCard.jsx';
 import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
 import { lineSort, teamSort, teamGroups, cycleTeam } from '../../../shared/todo-drop.js';
@@ -253,10 +254,10 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
         <span className="memo-grab" aria-hidden="true" />
         <span className="memo-right">
           {(todo.startTime || todo.endTime || todo.span?.allDay) && (
-            <span className="meta">
+            <button type="button" className="meta meta-time" title="날짜·시간 정하기" aria-expanded={detail} onClick={() => setDetail(!detail)}>
               {todo.span?.allDay ? '종일' : todo.startTime || ''}
               {todo.endTime ? `~${todo.endTime}` : ''}
-            </span>
+            </button>
           )}
           {todo.repeat && <button type="button" className="repeat-mark" title="반복 설정" onClick={() => setRepeatOpen(!repeatOpen)}>↻ {repeatLabel(todo.repeat)}</button>}
           <TeamControl todo={todo} db={db} />
@@ -275,7 +276,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
         </span>
         <SourceMark todo={todo} />
       </div>
-      {detail && <TodoEditor todo={todo} db={db} onClose={() => setDetail(false)} />}
+      {detail && <ScheduleCard todo={whole} onClose={() => setDetail(false)} />}
       {repeatOpen && <RepeatEditor todo={todo} onClose={() => setRepeatOpen(false)} />}
     </div>
   );

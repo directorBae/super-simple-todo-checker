@@ -65,3 +65,43 @@
 .span-trail.on .span-trail-pulse { stroke-width: 2.2; opacity: 1; }
 @keyframes span-meteor { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
 @media (prefers-reduced-motion: reduce) { .span-trail-pulse { animation: none; opacity: 0; } }
+
+/* The schedule card (ScheduleCard.jsx): a glass card that unfolds downward under the line. */
+.meta-time { border: 0; background: none; padding: 2px 6px; border-radius: 8px; font: inherit; color: inherit; cursor: pointer; }
+.meta-time:hover, .meta-time[aria-expanded='true'] { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+.sched-card { display: grid; grid-template-rows: 0fr; animation: sched-unfold 0.55s cubic-bezier(0.2, 0.85, 0.25, 1) forwards; margin: 6px 0 10px 26px; }
+@keyframes sched-unfold { to { grid-template-rows: 1fr; } }
+.sched-card-inner { overflow: hidden; min-height: 0; position: relative; border-radius: 22px; background: var(--glass-tint-strong); backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel); box-shadow: var(--glass-light), var(--glass-drop); padding: 0 14px; opacity: 0; transform: translateY(-8px) scaleY(0.96); transform-origin: top; animation: sched-settle 0.5s 0.06s cubic-bezier(0.2, 0.85, 0.25, 1) forwards; }
+.sched-card-inner::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--glass-rim); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+@keyframes sched-settle { to { opacity: 1; transform: none; padding-top: 14px; padding-bottom: 12px; } }
+@media (prefers-reduced-motion: reduce) { .sched-card, .sched-card-inner { animation-duration: 1ms; animation-delay: 0s; } }
+
+/* The timeline banner: days on top, fine ticks, the to-do as a bar with two handles. */
+.sched-banner { position: relative; height: 76px; border-radius: 16px; overflow: hidden; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.16); cursor: grab; touch-action: none; user-select: none; }
+.sched-banner:active { cursor: grabbing; }
+.sched-days span { position: absolute; top: 6px; padding-left: 6px; font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; border-left: 1px solid rgba(255, 255, 255, 0.35); }
+.sched-days span.today { color: var(--accent); }
+.sched-ticks i { position: absolute; top: 30px; bottom: 0; width: 1px; background: rgba(255, 255, 255, 0.14); }
+.sched-ticks i.labeled { background: rgba(255, 255, 255, 0.28); }
+.sched-ticks i.major { background: rgba(255, 255, 255, 0.55); top: 0; }
+.sched-ticks i b { position: absolute; top: -2px; left: 3px; font: 500 10px/1 ui-monospace, Consolas, monospace; color: var(--muted); white-space: nowrap; }
+.sched-bar { position: absolute; top: 44px; height: 22px; border-radius: 11px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, transparent), color-mix(in srgb, var(--accent-2) 70%, transparent)); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4); cursor: move; display: flex; align-items: center; justify-content: center; min-width: 4px; }
+.sched-bar-label { font: 600 11px/1 ui-monospace, Consolas, monospace; color: #fff; white-space: nowrap; pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); padding: 0 12px; overflow: hidden; }
+.sched-handle { position: absolute; top: -5px; bottom: -5px; width: 12px; border-radius: 6px; background: #fff; box-shadow: 0 2px 8px rgba(8, 14, 40, 0.3); cursor: ew-resize; }
+.sched-handle.start { left: -6px; }
+.sched-handle.end { right: -6px; }
+.sched-handle::after { content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: var(--accent); opacity: 0.6; }
+
+.sched-body { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.8fr); gap: 14px; margin-top: 12px; }
+@media (max-width: 700px) { .sched-body { grid-template-columns: 1fr; } .sched-card { margin-left: 0; } }
+.sched-cal { margin: 0; }
+.sched-cal .date-cal-day.in-range { background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 0; }
+.sched-cal .date-cal-day.is-first:not(.is-last) { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.sched-cal .date-cal-day.is-last:not(.is-first) { border-top-left-radius: 4px; border-bottom-left-radius: 4px; }
+.sched-hint { margin: 6px 0 0; font-size: 11px; color: var(--muted); text-align: center; }
+.sched-side { display: flex; flex-direction: column; gap: 8px; }
+.sched-time { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.sched-time > span { width: 32px; color: var(--muted); }
+.sched-allday.on, .sched-repeat.on { border-color: var(--accent); color: var(--accent); }
+.sched-summary { margin: 4px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.sched-card .repeat-editor { margin-top: 10px; }
