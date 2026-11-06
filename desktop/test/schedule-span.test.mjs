@@ -17,7 +17,7 @@ test('spans round-trip through instants; an end at midnight belongs to the day b
 
 test('the banner: coarser ticks and snapping as it zooms out; quick back-and-forth asks to zoom in', () => {
   assert.deepEqual(tickStep(MIN / 4), { tick: 5 * MIN, label: 30 * MIN });
-  assert.equal(tickStep(10 * MIN).label, DAY);
+  assert.equal(tickStep(10 * MIN).label, 12 * HOUR); // 72px apart
   assert.equal(snapStep(MIN / 2), 5 * MIN);
   assert.equal(snapStep(20 * MIN), 3 * HOUR);
   assert.equal(snapStep(MIN, false), DAY);
