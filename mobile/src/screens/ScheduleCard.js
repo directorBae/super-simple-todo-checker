@@ -7,7 +7,7 @@ import { Text } from '../text.js';
 import { useDesign, Button } from '../design.js';
 import { todayStr, localDateStr } from '../util.js';
 import { spanPatch } from '../../../shared/multi-day.js';
-import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, wobble, dayOf, DAY, HOUR } from '../../../shared/schedule-span.js';
+import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, swing, dayOf, DAY, HOUR } from '../../../shared/schedule-span.js';
 
 /*
  * The schedule card on the phone (as on PC: desktop/src/ScheduleCard.jsx): tapping a line's time or calendar
@@ -21,70 +21,111 @@ import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickL
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 const EDGE = 0.86, H = 84;
 
+// Same behaviour as the PC banner (desktop/src/ScheduleCard.jsx): handles follow the finger to the minute (sticking to
+// round times only right next to them, settling on one when let go), holding a handle near an edge slides and zooms
+// out every frame, three quick swings zoom in (eased), the bar moves the span, the empty strip pans (gliding a little
+// after), pinching zooms. An end scrolled out of view stays at the edge so it can always be grabbed.
 function Banner({ range, setRange }) {
   const d = useDesign(), [width, setWidth] = useState(320);
   const [view, setView] = useState(() => ({ zoom: clampZoom(fitZoom(range, 320)), center: (range.start + range.end) / 2 }));
-  const live = useRef({}); live.current = { range, view, width };
-  const fitted = useRef(false), drag = useRef(null);
-  const viewStart = view.center - (width / 2) * view.zoom, toX = (ms) => (ms - viewStart) / view.zoom;
+  const v = useRef(view), r = useRef(range), w = useRef(width), drag = useRef(null), raf = useRef(0), glide = useRef(0), fitted = useRef(false), box = useRef(null), origin = useRef(0);
+  v.current = view; r.current = range; w.current = width;
+  useEffect(() => () => { cancelAnimationFrame(raf.current); cancelAnimationFrame(glide.current); }, []);
+  const vs = view.center - (width / 2) * view.zoom, toX = (ms) => (ms - vs) / view.zoom;
   const { tick, label } = tickStep(view.zoom);
   const ticks = [];
-  for (let t = snap(viewStart, tick) - tick; t <= viewStart + width * view.zoom + tick; t += tick) {
+  for (let t = snap(vs, tick) - tick; t <= vs + width * view.zoom + tick; t += tick) {
     const dt = new Date(t), midnight = dt.getHours() === 0 && dt.getMinutes() === 0;
     ticks.push({ t, x: toX(t), major: midnight, label: t - snap(t, label) === 0 && !midnight });
   }
   const days = [];
-  for (let t = snap(viewStart, DAY) - DAY; t <= viewStart + width * view.zoom; t += DAY) days.push({ t, x: Math.max(0, toX(t)), day: dayOf(t) });
+  for (let t = snap(vs, DAY) - DAY; t <= vs + width * view.zoom; t += DAY) days.push({ t, x: Math.max(0, toX(t)), day: dayOf(t) });
+  const dayNames = days.filter((x, i) => (days[i + 1]?.x ?? Infinity) - x.x > 58);
 
-  const begin = (part) => (e) => { const L = live.current; drag.current = { part, x0: e.absoluteX, r0: L.range, c0: L.view.center, w: { x: e.absoluteX }, step: null }; };
+  const frame = (now) => {
+    const g = drag.current; if (!g || (g.part !== 'start' && g.part !== 'end')) return;
+    const dt = Math.min(0.05, (now - (g.t || now)) / 1000); g.t = now;
+    let { zoom, center } = v.current; const W = w.current, x = g.x;
+    const depth = g.part === 'end' ? (x - W * EDGE) / (W * (1 - EDGE)) : (W * (1 - EDGE) - x) / (W * (1 - EDGE));
+    if (depth > 0) {
+      const k = Math.min(1.4, depth), fixed = g.part === 'end' ? r.current.start : r.current.end, prev = zoom;
+      zoom = clampZoom(zoom * (1 + 0.9 * k * dt));
+      center = fixed + (center - fixed) * (zoom / prev) + (g.part === 'end' ? 1 : -1) * k * 90 * dt * zoom;
+    }
+    if (g.zoomTo) {
+      const at = center - (W / 2) * zoom + x * zoom, next = zoom + (g.zoomTo - zoom) * Math.min(1, dt * 14);
+      zoom = Math.abs(next - g.zoomTo) < g.zoomTo * 0.01 ? g.zoomTo : next; center = at - (x - W / 2) * zoom;
+      if (zoom === g.zoomTo) g.zoomTo = null;
+    }
+    if (zoom !== v.current.zoom || center !== v.current.center) { v.current = { zoom, center }; setView(v.current); }
+    const ms = magnet(center - (W / 2) * zoom + x * zoom, zoom, r.current.timed), min = 5 * 60_000;
+    const next = g.part === 'start' ? { ...r.current, start: Math.min(ms, r.current.end - min) } : { ...r.current, end: Math.max(ms, r.current.start + min) };
+    if (next.start !== r.current.start || next.end !== r.current.end) {
+      if (snapStep(zoom, next.timed) <= HOUR && snap(next[g.part], snapStep(zoom, next.timed)) === next[g.part]) Haptics.selectionAsync().catch(() => {});
+      r.current = next; setRange(next);
+    }
+    raf.current = requestAnimationFrame(frame);
+  };
+  const begin = (part) => (e) => {
+    cancelAnimationFrame(glide.current);
+    drag.current = { part, x: e.absoluteX - origin.current, x0: e.absoluteX, r0: r.current, c0: v.current.center, swing: {}, last: [{ x: e.absoluteX, t: Date.now() }] };
+    if (part === 'start' || part === 'end') { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); raf.current = requestAnimationFrame(frame); }
+  };
   const update = (e) => {
     const g = drag.current; if (!g) return;
-    const { range: r, view: v, width: w } = live.current, x = e.x;
-    if (g.part === 'pan') { setView({ ...v, center: g.c0 - (e.absoluteX - g.x0) * v.zoom }); return; }
-    g.w = wobble(g.w, e.absoluteX, Date.now());
-    let zoom = v.zoom, center = v.center;
-    const toMs = (px) => center - (w / 2) * zoom + px * zoom;
-    if (g.w.zoomIn) { const at = toMs(x); zoom = clampZoom(zoom / 1.6); center = at - (x - w / 2) * zoom; Haptics.selectionAsync().catch(() => {}); }
-    if ((g.part === 'end' && x > w * EDGE) || (g.part === 'start' && x < w * (1 - EDGE))) {
-      const fixed = g.part === 'end' ? r.start : r.end; zoom = clampZoom(zoom * 1.05); center = fixed + (center - fixed) * 1.05;
-    }
-    if (zoom !== v.zoom || center !== v.center) setView({ zoom, center });
-    const step = snapStep(zoom, r.timed), ms = center - (w / 2) * zoom + x * zoom;
-    let next = r;
-    if (g.part === 'body') { const shift = snap(g.r0.start + (e.absoluteX - g.x0) * zoom, step) - g.r0.start; next = { ...r, start: g.r0.start + shift, end: g.r0.end + shift }; }
-    else if (g.part === 'start') next = { ...r, start: Math.min(snap(ms, step), r.end - step) };
-    else next = { ...r, end: Math.max(snap(ms, step), r.start + step) };
-    if (next.start !== r.start || next.end !== r.end) { if (step <= HOUR) Haptics.selectionAsync().catch(() => {}); setRange(next); }
+    g.x = e.absoluteX - origin.current;
+    const { zoom } = v.current;
+    if (g.part === 'pan') { g.last = [...g.last.slice(-4), { x: e.absoluteX, t: Date.now() }]; v.current = { ...v.current, center: g.c0 - (e.absoluteX - g.x0) * zoom }; setView(v.current); return; }
+    if (g.part === 'body') { const shift = magnet(g.r0.start + (e.absoluteX - g.x0) * zoom, zoom, g.r0.timed) - g.r0.start; r.current = { ...g.r0, start: g.r0.start + shift, end: g.r0.end + shift }; setRange(r.current); return; }
+    const s = swing(g.swing, e.absoluteX, Date.now()); g.swing = s.state;
+    if (s.zoomIn) { g.zoomTo = clampZoom(zoom / 1.8); Haptics.selectionAsync().catch(() => {}); }
   };
-  const end = () => { drag.current = null; };
-  // x in the banner's own coordinates: the handles report their own, so they convert through the banner's left edge.
-  const origin = useRef(0);
-  const pan = (part) => Gesture.Pan().minDistance(0).runOnJS(true)
-    .onBegin(begin(part)).onUpdate((e) => update({ ...e, x: e.absoluteX - origin.current })).onFinalize(end);
-  const pinch = Gesture.Pinch().runOnJS(true).onUpdate((e) => {
-    const { view: v } = live.current; setView({ ...v, zoom: clampZoom(v.zoom / Math.max(0.85, Math.min(1.18, e.scaleChange || 1))) });
-  });
+  const end = () => {
+    const g = drag.current; drag.current = null; cancelAnimationFrame(raf.current);
+    if (!g) return;
+    if (g.part !== 'pan') {
+      const step = snapStep(v.current.zoom, r.current.timed), cur = r.current;
+      const settled = g.part === 'start' ? { ...cur, start: Math.min(snap(cur.start, step), cur.end - step) } : g.part === 'end' ? { ...cur, end: Math.max(snap(cur.end, step), cur.start + step) } : { ...cur, start: snap(cur.start, step), end: snap(cur.start, step) + (cur.end - cur.start) };
+      r.current = settled; setRange(settled); return;
+    }
+    const [a, b] = [g.last[0], g.last.at(-1)], vel = b && a && b.t > a.t ? (b.x - a.x) / (b.t - a.t) : 0;
+    let speed = vel * 16, prev = Date.now();
+    const coast = () => {
+      const now = Date.now(), dt = (now - prev) / 16; prev = now; speed *= Math.pow(0.9, dt);
+      if (Math.abs(speed) < 0.3) return;
+      v.current = { ...v.current, center: v.current.center - speed * dt * v.current.zoom }; setView(v.current);
+      glide.current = requestAnimationFrame(coast);
+    };
+    if (Math.abs(speed) > 1) glide.current = requestAnimationFrame(coast);
+  };
+  const pan = (part) => Gesture.Pan().minDistance(0).runOnJS(true).onBegin(begin(part)).onUpdate(update).onFinalize(end);
+  const pinch = Gesture.Pinch().runOnJS(true).onUpdate((e) => { const cur = v.current; v.current = { ...cur, zoom: clampZoom(cur.zoom / Math.max(0.85, Math.min(1.18, e.scaleChange || 1))) }; setView(v.current); });
   const strip = Gesture.Simultaneous(pan('pan'), pinch);
-  const box = useRef(null);
-  const left = toX(range.start), right = toX(range.end);
+  const left = toX(range.start), right = toX(range.end), pin = (x) => Math.max(8, Math.min(width - 8, x));
+  const barL = Math.max(-20, left), barR = Math.min(width + 20, right);
   const f = fromRange(range), barText = range.timed ? `${f.startTime} – ${f.endTime}` : '종일';
+  const handle = (part, x, pinned) => <GestureDetector key={part} gesture={pan(part)}>
+    <View hitSlop={16} style={{ position: 'absolute', top: 42, height: 38, width: 16, left: 0, transform: [{ translateX: pin(x) - 8 }], borderRadius: 8, backgroundColor: pinned ? d.accent : '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 }}>
+      {pinned ? <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>{part === 'start' ? '‹' : '›'}</Text> : <View style={{ width: 2, height: 14, borderRadius: 1, backgroundColor: d.accent, opacity: 0.6 }} />}
+    </View>
+  </GestureDetector>;
   return <GestureDetector gesture={strip}>
     <View ref={box} collapsable={false} onLayout={(e) => {
-      const w = e.nativeEvent.layout.width; setWidth(w);
+      const nw = e.nativeEvent.layout.width; setWidth(nw);
       box.current?.measureInWindow?.((x) => { origin.current = x; });
-      if (!fitted.current) { fitted.current = true; setView((v) => ({ ...v, zoom: clampZoom(fitZoom(range, w)) })); }
+      if (!fitted.current) { fitted.current = true; v.current = { zoom: clampZoom(fitZoom(r.current, nw)), center: (r.current.start + r.current.end) / 2 }; setView(v.current); }
     }} style={{ height: H, borderRadius: 16, overflow: 'hidden', backgroundColor: '#ffffff12', borderWidth: 1, borderColor: d.edge }}>
-      {days.map((x) => <Text key={x.t} style={{ position: 'absolute', top: 6, left: x.x, paddingLeft: 5, borderLeftWidth: 1, borderLeftColor: '#ffffff73', fontSize: 11, fontWeight: '700', color: x.day === todayStr() ? d.accent : d.text }}>{Number(x.day.slice(5, 7))}/{Number(x.day.slice(8))} {DOW[new Date(x.t).getDay()]}</Text>)}
-      {ticks.map((k) => <View key={k.t} pointerEvents="none" style={{ position: 'absolute', left: k.x, top: k.major ? 0 : 30, bottom: 0, width: 1, backgroundColor: k.major ? '#ffffff8c' : k.label ? '#ffffff4d' : '#ffffff24' }}>
+      {dayNames.map((x) => <Text key={x.t} style={{ position: 'absolute', top: 6, left: x.x, paddingLeft: 5, borderLeftWidth: 1, borderLeftColor: '#ffffff73', fontSize: 11, fontWeight: '700', color: x.day === todayStr() ? d.accent : d.text }}>{Number(x.day.slice(5, 7))}/{Number(x.day.slice(8))} {DOW[new Date(x.t).getDay()]}</Text>)}
+      {ticks.map((k) => <View key={k.t} pointerEvents="none" style={{ position: 'absolute', left: 0, transform: [{ translateX: k.x }], top: k.major ? 0 : 30, bottom: 0, width: 1, backgroundColor: k.major ? '#ffffff8c' : k.label ? '#ffffff4d' : '#ffffff24' }}>
         {k.label && <Text style={{ position: 'absolute', top: -2, left: 3, width: 44, fontSize: 9, color: d.muted }}>{tickLabel(k.t)}</Text>}
       </View>)}
       <GestureDetector gesture={pan('body')}>
-        <View style={{ position: 'absolute', top: 48, height: 26, left, width: Math.max(6, right - left), borderRadius: 13, backgroundColor: d.accent + 'c8', alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ position: 'absolute', top: 48, height: 26, left: 0, transform: [{ translateX: barL }], width: Math.max(6, barR - barL), borderRadius: 13, backgroundColor: d.accent + 'c8', alignItems: 'center', justifyContent: 'center' }}>
           <Text numberOfLines={1} style={{ color: '#fff', fontSize: 11, fontWeight: '700', paddingHorizontal: 14 }}>{barText}</Text>
-          <GestureDetector gesture={pan('start')}><View hitSlop={14} style={{ position: 'absolute', left: -8, top: -6, bottom: -6, width: 16, borderRadius: 8, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 }} /></GestureDetector>
-          <GestureDetector gesture={pan('end')}><View hitSlop={14} style={{ position: 'absolute', right: -8, top: -6, bottom: -6, width: 16, borderRadius: 8, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 }} /></GestureDetector>
         </View>
       </GestureDetector>
+      {handle('start', left, left < 8)}
+      {handle('end', right, right > width - 8)}
     </View>
   </GestureDetector>;
 }

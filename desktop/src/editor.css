@@ -81,16 +81,19 @@
 .sched-banner:active { cursor: grabbing; }
 .sched-days span { position: absolute; top: 6px; padding-left: 6px; font-size: 11px; font-weight: 700; color: var(--text); white-space: nowrap; border-left: 1px solid rgba(255, 255, 255, 0.35); }
 .sched-days span.today { color: var(--accent); }
-.sched-ticks i { position: absolute; top: 30px; bottom: 0; width: 1px; background: rgba(255, 255, 255, 0.14); }
+.sched-ticks i { position: absolute; left: 0; will-change: transform; top: 30px; bottom: 0; width: 1px; background: rgba(255, 255, 255, 0.14); }
 .sched-ticks i.labeled { background: rgba(255, 255, 255, 0.28); }
 .sched-ticks i.major { background: rgba(255, 255, 255, 0.55); top: 0; }
 .sched-ticks i b { position: absolute; top: -2px; left: 3px; font: 500 10px/1 ui-monospace, Consolas, monospace; color: var(--muted); white-space: nowrap; }
-.sched-bar { position: absolute; top: 44px; height: 22px; border-radius: 11px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, transparent), color-mix(in srgb, var(--accent-2) 70%, transparent)); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4); cursor: move; display: flex; align-items: center; justify-content: center; min-width: 4px; }
+.sched-bar { position: absolute; left: 0; will-change: transform, width; top: 44px; height: 22px; border-radius: 11px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, transparent), color-mix(in srgb, var(--accent-2) 70%, transparent)); box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4); cursor: move; display: flex; align-items: center; justify-content: center; min-width: 4px; }
 .sched-bar-label { font: 600 11px/1 ui-monospace, Consolas, monospace; color: #fff; white-space: nowrap; pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); padding: 0 12px; overflow: hidden; }
-.sched-handle { position: absolute; top: -5px; bottom: -5px; width: 12px; border-radius: 6px; background: #fff; box-shadow: 0 2px 8px rgba(8, 14, 40, 0.3); cursor: ew-resize; }
-.sched-handle.start { left: -6px; }
-.sched-handle.end { right: -6px; }
-.sched-handle::after { content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: var(--accent); opacity: 0.6; }
+.sched-handle { position: absolute; left: 0; top: 39px; height: 32px; width: 14px; border-radius: 7px; background: #fff; box-shadow: 0 2px 8px rgba(8, 14, 40, 0.3); cursor: ew-resize; will-change: transform; z-index: 2; touch-action: none; }
+.sched-handle.pinned { background: var(--accent); }
+.sched-handle.pinned::after { background: #fff; }
+.sched-handle.start.pinned::before, .sched-handle.end.pinned::before { position: absolute; top: 7px; font-size: 11px; color: #fff; }
+.sched-handle.start.pinned::before { content: '‹'; left: 4px; }
+.sched-handle.end.pinned::before { content: '›'; left: 5px; }
+.sched-handle::after { content: ''; position: absolute; left: 6px; top: 10px; bottom: 10px; width: 2px; border-radius: 1px; background: var(--accent); opacity: 0.6; }
 
 .sched-body { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.8fr); gap: 14px; margin-top: 12px; }
 @media (max-width: 700px) { .sched-body { grid-template-columns: 1fr; } .sched-card { margin-left: 0; } }

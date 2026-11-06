@@ -29,3 +29,20 @@ test('the banner: coarser ticks and snapping as it zooms out; quick back-and-for
   w = wobble(w, 25, 300); assert.equal(w.zoomIn, true, 'a second quick turn zooms in');
   w = wobble(w, 30, 350); w = wobble(w, 20, 2000); assert.equal(w.zoomIn, false, 'slow turns do not');
 });
+
+test('smooth dragging: a handle moves by the minute and only sticks right next to a round time; swings zoom in', async () => {
+  const { magnet, swing, MIN } = await import('../../shared/schedule-span.js');
+  const base = new Date(2026, 10, 7, 14, 0).getTime(), zoom = 3 * MIN; // 3 minutes a pixel: round times every 30 min
+  assert.equal(magnet(base + 13 * MIN, zoom), base + 13 * MIN, 'between round times: to the minute');
+  assert.equal(magnet(base + 30 * MIN + 4 * MIN, zoom), base + 30 * MIN, 'a pixel or so from 14:30: sticks to it');
+  assert.equal(magnet(base + 30 * MIN + 20 * 1000, zoom), base + 30 * MIN);
+  let s = {}, z = false;
+  for (const [x, t] of [[0, 0], [20, 50], [0, 120], [20, 200], [0, 280]]) { const r = swing(s, x, t); s = r.state; z = z || r.zoomIn; }
+  assert.equal(z, true, 'three quick turns zoom in');
+  s = {}; z = false;
+  for (const [x, t] of [[0, 0], [20, 50], [0, 900], [20, 1900]]) { const r = swing(s, x, t); s = r.state; z = z || r.zoomIn; }
+  assert.equal(z, false, 'slow back-and-forth does not');
+  s = {}; z = false;
+  for (const [x, t] of [[0, 0], [3, 30], [0, 60], [3, 90], [0, 120]]) { const r = swing(s, x, t); s = r.state; z = z || r.zoomIn; }
+  assert.equal(z, false, 'a trembling hand does not');
+});

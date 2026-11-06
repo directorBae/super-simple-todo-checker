@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { TimeField, RepeatEditor, repeatLabel } from './components.jsx';
 import { todayStr, localDateStr } from './util.js';
 import { spanPatch } from '../../shared/multi-day.js';
-import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, wobble, dayOf, DAY, HOUR } from '../../shared/schedule-span.js';
+import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, swing, dayOf, DAY, HOUR } from '../../shared/schedule-span.js';
 
 /*
  * The schedule card: clicking a to-do's time or 📅 unfolds this glass card under the line.
@@ -15,72 +15,130 @@ import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickL
  * Nothing changes until 확정; a multi-day to-do is saved as one span (shared/multi-day.js shows it on every day).
  */
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
-const EDGE = 0.88;
+const EDGE = 0.86;
 
+/*
+ * The banner keeps its own view (zoom = ms per pixel, center = the instant in the middle) and, while something is
+ * dragged, works from refs every animation frame — so the bar glides with the pointer instead of stepping:
+ *   - a handle follows the pointer to the minute and only sticks to a round time within a few pixels of one; letting
+ *     go settles it on the nearest round time.
+ *   - holding a handle near either edge slides the view that way and zooms out, smoothly, faster the closer to the
+ *     edge — so pulling an end out keeps stretching the span and the whole span stays in view.
+ *   - three quick back-and-forth swings of a handle zoom in (eased), to find a time exactly.
+ *   - dragging the bar moves the whole span; dragging the empty strip pans (with a little glide after letting go);
+ *     the wheel zooms around the pointer, shift/sideways wheel pans.
+ */
 function Banner({ range, setRange }) {
   const box = useRef(null), [width, setWidth] = useState(560);
   const [view, setView] = useState(() => ({ zoom: clampZoom(fitZoom(range, 560)), center: (range.start + range.end) / 2 }));
-  const drag = useRef(null);
+  const v = useRef(view), r = useRef(range), w = useRef(width), drag = useRef(null), raf = useRef(0), glide = useRef(0);
+  v.current = view; r.current = range; w.current = width;
+  const fitted = useRef(false);
   useLayoutEffect(() => {
     const el = box.current; if (!el) return undefined;
-    const ro = new ResizeObserver(() => { const w = el.clientWidth; setWidth(w); setView((v) => ({ ...v, zoom: v.fitted ? v.zoom : clampZoom(fitZoom(range, w)), fitted: true })); });
-    ro.observe(el); return () => ro.disconnect();
+    const ro = new ResizeObserver(() => {
+      const nw = el.clientWidth; setWidth(nw);
+      if (!fitted.current) { fitted.current = true; setView({ zoom: clampZoom(fitZoom(r.current, nw)), center: (r.current.start + r.current.end) / 2 }); }
+    });
+    ro.observe(el); return () => { ro.disconnect(); cancelAnimationFrame(raf.current); cancelAnimationFrame(glide.current); };
   }, []);
-  const viewStart = view.center - (width / 2) * view.zoom, toX = (ms) => (ms - viewStart) / view.zoom, toMs = (x) => viewStart + x * view.zoom;
+  const vs = view.center - (width / 2) * view.zoom, toX = (ms) => (ms - vs) / view.zoom;
   const { tick, label } = tickStep(view.zoom);
   const ticks = [];
-  for (let t = snap(viewStart, tick) - tick; t <= viewStart + width * view.zoom + tick; t += tick) {
+  for (let t = snap(vs, tick) - tick; t <= vs + width * view.zoom + tick; t += tick) {
     const d = new Date(t), midnight = d.getHours() === 0 && d.getMinutes() === 0;
-    ticks.push({ t, x: toX(t), major: midnight, label: (t - snap(t, label)) === 0 || midnight });
+    ticks.push({ t, x: toX(t), major: midnight, label: t - snap(t, label) === 0 || midnight });
   }
-  // Days along the top: their names where they start (or at the left edge for the day already under way).
   const days = [];
-  for (let t = snap(viewStart, DAY) - DAY; t <= viewStart + width * view.zoom; t += DAY) days.push({ t, x: Math.max(0, toX(t)), day: dayOf(t) });
+  for (let t = snap(vs, DAY) - DAY; t <= vs + width * view.zoom; t += DAY) days.push({ t, x: Math.max(0, toX(t)), day: dayOf(t) });
+  // The day already under way is named at the left edge, unless the next day's name is right there.
+  const dayNames = days.filter((d, i) => (days[i + 1]?.x ?? Infinity) - d.x > 58);
 
+  // One frame of a handle drag: edge slide/zoom, then the handle under the pointer.
+  const frame = (now) => {
+    const d = drag.current; if (!d || (d.part !== 'start' && d.part !== 'end')) return;
+    const dt = Math.min(0.05, (now - (d.t || now)) / 1000); d.t = now;
+    let { zoom, center } = v.current; const W = w.current, x = d.x;
+    const depth = d.part === 'end' ? (x - W * EDGE) / (W * (1 - EDGE)) : (W * (1 - EDGE) - x) / (W * (1 - EDGE));
+    if (depth > 0) {
+      const k = Math.min(1.4, depth), fixed = d.part === 'end' ? r.current.start : r.current.end;
+      const grow = 1 + 0.9 * k * dt;
+      zoom = clampZoom(zoom * grow);
+      // Zoom around the end that stays put, and slide toward the edge being pulled.
+      center = fixed + (center - fixed) * (zoom / v.current.zoom) + (d.part === 'end' ? 1 : -1) * k * 90 * dt * zoom;
+    }
+    if (d.zoomTo) { // eased zoom-in around the pointer
+      const target = d.zoomTo, at = center - (W / 2) * zoom + x * zoom, next = zoom + (target - zoom) * Math.min(1, dt * 14);
+      zoom = Math.abs(next - target) < target * 0.01 ? target : next; center = at - (x - W / 2) * zoom;
+      if (zoom === target) d.zoomTo = null;
+    }
+    if (zoom !== v.current.zoom || center !== v.current.center) { v.current = { zoom, center }; setView(v.current); }
+    const ms = magnet(center - (W / 2) * zoom + x * zoom, zoom, r.current.timed), min = 5 * 60_000;
+    const next = d.part === 'start' ? { ...r.current, start: Math.min(ms, r.current.end - min) } : { ...r.current, end: Math.max(ms, r.current.start + min) };
+    if (next.start !== r.current.start || next.end !== r.current.end) { r.current = next; setRange(next); }
+    raf.current = requestAnimationFrame(frame);
+  };
   const down = (part) => (e) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault(); e.stopPropagation(); cancelAnimationFrame(glide.current);
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { part, x0: e.clientX, r0: range, c0: view.center, w: { x: e.clientX } };
+    const x = e.clientX - box.current.getBoundingClientRect().left;
+    drag.current = { part, x, x0: e.clientX, r0: r.current, c0: v.current.center, swing: {}, last: [{ x: e.clientX, t: performance.now() }] };
+    if (part === 'start' || part === 'end') raf.current = requestAnimationFrame(frame);
   };
   const move = (e) => {
     const d = drag.current; if (!d) return;
-    const rect = box.current.getBoundingClientRect(), x = e.clientX - rect.left, now = performance.now();
-    if (d.part === 'pan') { setView((v) => ({ ...v, center: d.c0 - (e.clientX - d.x0) * v.zoom })); return; }
-    // Back and forth quickly: zoom in around the handle.
-    d.w = wobble(d.w, e.clientX, now);
-    let zoom = view.zoom, center = view.center;
-    if (d.w.zoomIn) { const at = toMs(x); zoom = clampZoom(zoom / 1.6); center = at - (x - width / 2) * zoom; }
-    // Pulling an end out toward the edge: zoom out so the span keeps fitting.
-    if ((d.part === 'end' && x > width * EDGE) || (d.part === 'start' && x < width * (1 - EDGE))) {
-      const fixed = d.part === 'end' ? range.start : range.end;
-      zoom = clampZoom(zoom * 1.045);
-      center = fixed + (center - fixed) * 1.045; // around the end that stays put
+    d.x = e.clientX - box.current.getBoundingClientRect().left;
+    const { zoom } = v.current;
+    if (d.part === 'pan') {
+      d.last = [...d.last.slice(-4), { x: e.clientX, t: performance.now() }];
+      v.current = { ...v.current, center: d.c0 - (e.clientX - d.x0) * zoom }; setView(v.current); return;
     }
-    if (zoom !== view.zoom || center !== view.center) setView((v) => ({ ...v, zoom, center }));
-    const vs = center - (width / 2) * zoom, ms = vs + x * zoom, step = snapStep(zoom, range.timed);
     if (d.part === 'body') {
-      const shift = snap(d.r0.start + (e.clientX - d.x0) * zoom, step) - d.r0.start;
-      setRange({ ...range, start: d.r0.start + shift, end: d.r0.end + shift });
-    } else if (d.part === 'start') setRange({ ...range, start: Math.min(snap(ms, step), range.end - step) });
-    else setRange({ ...range, end: Math.max(snap(ms, step), range.start + step) });
+      const shift = magnet(d.r0.start + (e.clientX - d.x0) * zoom, zoom, d.r0.timed) - d.r0.start;
+      r.current = { ...d.r0, start: d.r0.start + shift, end: d.r0.end + shift }; setRange(r.current); return;
+    }
+    const s = swing(d.swing, e.clientX, performance.now()); d.swing = s.state;
+    if (s.zoomIn) d.zoomTo = clampZoom(zoom / 1.8);
   };
-  const up = () => { drag.current = null; };
+  const up = () => {
+    const d = drag.current; drag.current = null; cancelAnimationFrame(raf.current);
+    if (!d) return;
+    // Handles and the bar settle on the nearest round time.
+    if (d.part !== 'pan') {
+      const step = snapStep(v.current.zoom, r.current.timed), cur = r.current;
+      const settled = d.part === 'start' ? { ...cur, start: Math.min(snap(cur.start, step), cur.end - step) } : d.part === 'end' ? { ...cur, end: Math.max(snap(cur.end, step), cur.start + step) } : { ...cur, start: snap(cur.start, step), end: snap(cur.start, step) + (cur.end - cur.start) };
+      r.current = settled; setRange(settled); return;
+    }
+    // A pan glides on a little after letting go.
+    const [a, b] = [d.last[0], d.last.at(-1)], vel = b && a && b.t > a.t ? (b.x - a.x) / (b.t - a.t) : 0;
+    let speed = vel * 16, prev = performance.now();
+    const coast = (now) => {
+      const dt = (now - prev) / 16; prev = now; speed *= Math.pow(0.9, dt);
+      if (Math.abs(speed) < 0.3) return;
+      v.current = { ...v.current, center: v.current.center - speed * dt * v.current.zoom }; setView(v.current);
+      glide.current = requestAnimationFrame(coast);
+    };
+    if (Math.abs(speed) > 1) glide.current = requestAnimationFrame(coast);
+  };
   const wheel = (e) => {
     e.preventDefault();
-    const rect = box.current.getBoundingClientRect(), x = e.clientX - rect.left;
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) { setView((v) => ({ ...v, center: v.center + (e.deltaX || e.deltaY) * v.zoom })); return; }
-    setView((v) => { const at = v.center - (width / 2) * v.zoom + x * v.zoom, zoom = clampZoom(v.zoom * Math.exp(e.deltaY * 0.0022)); return { ...v, zoom, center: at - (x - width / 2) * zoom }; });
+    const x = e.clientX - box.current.getBoundingClientRect().left, cur = v.current;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) { v.current = { ...cur, center: cur.center + (e.deltaX || e.deltaY) * cur.zoom }; setView(v.current); return; }
+    const at = cur.center - (w.current / 2) * cur.zoom + x * cur.zoom, zoom = clampZoom(cur.zoom * Math.exp(e.deltaY * 0.0022));
+    v.current = { zoom, center: at - (x - w.current / 2) * zoom }; setView(v.current);
   };
-  useEffect(() => { const el = box.current; el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel); });
-  const left = toX(range.start), right = toX(range.end);
-  return <div className="sched-banner" ref={box} onPointerDown={down('pan')} onPointerMove={move} onPointerUp={up} onPointerCancel={up} role="group" aria-label="시간 막대: 끝을 끌어 시작과 끝을 바꿔요">
-    <div className="sched-days">{days.map((d) => <span key={d.t} style={{ left: d.x }} className={d.day === todayStr() ? 'today' : ''}>{Number(d.day.slice(5, 7))}/{Number(d.day.slice(8))} {DOW[new Date(d.t).getDay()]}</span>)}</div>
-    <div className="sched-ticks">{ticks.map((k) => <i key={k.t} style={{ left: k.x }} className={(k.major ? 'major' : '') + (k.label ? ' labeled' : '')}>{k.label && !k.major && <b>{tickLabel(k.t)}</b>}</i>)}</div>
-    <div className="sched-bar" style={{ left, width: Math.max(4, right - left) }} onPointerDown={down('body')}>
-      <span className="sched-handle start" onPointerDown={down('start')} aria-label="시작 끌기" />
+  useEffect(() => { const el = box.current; el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel); }, []);
+  // An end scrolled out of view stays at the edge (with an arrow), so it can always be grabbed.
+  const left = toX(range.start), right = toX(range.end), pin = (x) => Math.max(7, Math.min(width - 7, x));
+  const barL = Math.max(-20, left), barR = Math.min(width + 20, right);
+  return <div className="sched-banner" ref={box} onPointerDown={down('pan')} onPointerMove={move} onPointerUp={up} onPointerCancel={up} role="group" aria-label="시간 막대: 끝을 끌어 시작과 끝을 바꿔요 · 빈 곳을 끌면 옮겨져요 · 휠로 확대·축소">
+    <div className="sched-days">{dayNames.map((d) => <span key={d.t} style={{ left: d.x }} className={d.day === todayStr() ? 'today' : ''}>{Number(d.day.slice(5, 7))}/{Number(d.day.slice(8))} {DOW[new Date(d.t).getDay()]}</span>)}</div>
+    <div className="sched-ticks">{ticks.map((k) => <i key={k.t} style={{ transform: `translateX(${k.x}px)` }} className={(k.major ? 'major' : '') + (k.label ? ' labeled' : '')}>{k.label && !k.major && <b>{tickLabel(k.t)}</b>}</i>)}</div>
+    <div className="sched-bar" style={{ transform: `translateX(${barL}px)`, width: Math.max(4, barR - barL) }} onPointerDown={down('body')}>
       <span className="sched-bar-label">{barLabel(range)}</span>
-      <span className="sched-handle end" onPointerDown={down('end')} aria-label="끝 끌기" />
     </div>
+    <span className={'sched-handle start' + (left < 7 ? ' pinned' : '')} style={{ transform: `translateX(${pin(left) - 7}px)` }} onPointerDown={down('start')} aria-label="시작 끌기" />
+    <span className={'sched-handle end' + (right > width - 7 ? ' pinned' : '')} style={{ transform: `translateX(${pin(right) - 7}px)` }} onPointerDown={down('end')} aria-label="끝 끌기" />
   </div>;
 }
 

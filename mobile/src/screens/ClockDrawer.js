@@ -7,7 +7,7 @@ import { useDesign } from '../design.js';
 import { todayStr, effectiveTeamId } from '../util.js';
 import { LENS, PILL, aimAngle, at, compactTitle, estimatePill, halfOf, lensGlass, lensScene, timeAngle } from '../clock-lens.js';
 import * as Haptics from 'expo-haptics';
-import { todosOn, spanPatch } from '../../../shared/multi-day.js';
+import { todosOn, spanPatch, addDay } from '../../../shared/multi-day.js';
 import { toRange, fromRange } from '../../../shared/schedule-span.js';
 import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, DAY_MIN } from '../../../shared/clock-span.js';
 
@@ -132,9 +132,11 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
  const aim=(pageX,pageY,half)=>{const x=pageX-touch.current.x,y=pageY-touch.current.y,R=size/2,prev=lensNext.current?.half===half?lensNext.current.angle:null;showLens({half,angle:aimAngle(x-R,y-R,R,prev),x,y});};
  const teamColor=t=>db.teams.find(x=>x.id===effectiveTeamId(t,db))?.color||d.accent;
  // Stretching a to-do's end round the dial: { id, todo, startMs, cx, cy, st, place, flash } (page coordinates).
+ // While it runs the clock shows the day the end has reached; turning is measured around the dial under the finger.
  const [stretch,setStretch]=useState(null),flashAnim=useRef(new Animated.Value(0)).current;
+ const shownDay=stretch?addDay(stretch.baseDay,stretch.place.days):day;
  const live=stretch?db.todos.map(t=>t.id===stretch.id?{...t,...fromRange({start:stretch.startMs,end:stretch.st.end??stretch.st.endMs,timed:true})}:t):db.todos;
- const parts=todosOn(live.filter(t=>t.status!=='bucket'),day).filter(t=>t.startTime||t.span?.allDay).sort((a,b)=>(a.startTime||'00:00').localeCompare(b.startTime||'00:00'));
+ const parts=todosOn(live.filter(t=>t.status!=='bucket'),shownDay).filter(t=>t.startTime||t.span?.allDay).sort((a,b)=>(a.startTime||'00:00').localeCompare(b.startTime||'00:00'));
  const timed=parts.filter(t=>t.startTime).map(t=>({id:t.id,startTime:t.startTime,title:t.title,status:t.status,color:teamColor(t)}));
  const arcsOn=half=>parts.map((t,i)=>{const sl=t.span?.allDay?{s:0,e:DAY_MIN}:slice(t),p=sl&&onHalf(sl,half);if(!p)return null;
   return {id:t.id,a:p.a,b:p.b,r:88-i%3*8,color:teamColor(t),done:t.status==='done',active:stretch?.id===t.id,knob:sl.e!=null&&(!t.span||t.span.last)&&sl.e>half*720&&sl.e<=(half+1)*720,end:sl.e};}).filter(Boolean);
@@ -143,12 +145,15 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
   for(const x of arcsOn(half)){if(!x.knob)continue;const [kx,ky]=pointAt(140,140,x.r,x.b);if(Math.hypot(pageX-(f.left+kx*k),pageY-(f.top+ky*k))<22)return x;}return null;};
  const grabEnd=(x,half,pageX,pageY)=>{const todo=db.todos.find(t=>t.id===x.id);if(!todo)return false;const f=frames.current[half],cx=f.left+f.w/2,cy=f.top+f.h/2,range=toRange(todo);
   clearLens();Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(()=>{});
-  setStretch({id:todo.id,todo,startMs:range.start,cx,cy,st:stretchStart(range.end,angleAt(pageX,pageY,cx,cy)),place:placeOf(range.end,day),flash:null});return true;};
- const moveEnd=(pageX,pageY)=>setStretch(s=>{if(!s)return s;const st=stretchMove(s.st,angleAt(pageX,pageY,s.cx,s.cy),s.startMs),place=placeOf(st.end,day);
-  const crossed=place.days!==s.place.days?{kind:'day',at:Date.now(),days:place.days}:place.half!==s.place.half?{kind:'half',half:place.half,at:Date.now()}:null;
-  if(crossed){Haptics.notificationAsync(crossed.kind==='day'?Haptics.NotificationFeedbackType.Success:Haptics.NotificationFeedbackType.Warning).catch(()=>{});flashAnim.setValue(1);Animated.timing(flashAnim,{toValue:0,duration:1000,useNativeDriver:true}).start();}
+  setStretch({id:todo.id,todo,startMs:range.start,baseDay:day,ref:half,cx,cy,st:stretchStart(range.end,angleAt(pageX,pageY,cx,cy)),place:placeOf(range.end,day),flash:null});return true;};
+ const moveEnd=(pageX,pageY)=>setStretch(s=>{if(!s)return s;let {ref,cx,cy,st}=s;
+  const over=dialAt(pageX,pageY),f=over&&frames.current[over.half];
+  if(over&&over.half!==ref&&f){ref=over.half;cx=f.left+f.w/2;cy=f.top+f.h/2;st={...st,last:angleAt(pageX,pageY,cx,cy)};} // carries on from the other dial
+  st=stretchMove(st,angleAt(pageX,pageY,cx,cy),s.startMs);const place=placeOf(st.end,s.baseDay);
+  const crossed=place.days!==s.place.days?{kind:'day',at:Date.now(),days:place.days,on:ref,back:place.days<s.place.days}:place.half!==s.place.half?{kind:'half',half:place.half,at:Date.now(),on:ref}:null;
+  if(crossed){Haptics.notificationAsync(crossed.kind==='day'?Haptics.NotificationFeedbackType.Success:Haptics.NotificationFeedbackType.Warning).catch(()=>{});flashAnim.setValue(1);Animated.timing(flashAnim,{toValue:0,duration:1300,delay:250,useNativeDriver:true}).start();}
   else if(st.end!==s.st.end)Haptics.selectionAsync().catch(()=>{});
-  return {...s,st,place,flash:crossed||s.flash};});
+  return {...s,ref,cx,cy,st,place,flash:crossed||s.flash};});
  const releaseEnd=()=>setStretch(s=>{if(s?.st.end!=null){const f=fromRange({start:s.startMs,end:s.st.end,timed:true});api.updateTodo(s.id,spanPatch(s.todo,f));setNotice(`${f.endDate?f.endDate.slice(5).replace('-','/')+' ':''}${f.endTime}까지 · ${s.todo.title}`);}return null;});
  const glass={borderWidth:1,borderColor:d.edge,overflow:'hidden'};
  const toast=pending?pending.title:notice;
@@ -175,7 +180,10 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
      onResponderRelease={e=>{if(stretch){releaseEnd();return;}clearLens();const {pageX,pageY}=e.nativeEvent;if(pending)dials.current[half]?.measureInWindow((left,top,w)=>assign(pending,timeAt(pageX-left,pageY-top,w,half)));}}>
      <DialFace size={size} half={half} own={own} ownKey={ownKey} arcs={arcs} arcKey={arcKey} d={d} hands={half===current?{h:hours,m:minutes,s:seconds}:null}/>
      {/* Crossing 12 o'clock while stretching: a ring of light over the dial the end moved onto. */}
-     {stretch?.flash?.kind==='half'&&stretch.flash.half===half&&<Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill,{borderRadius:size/2,borderWidth:4,borderColor:'#a5b4fc',opacity:flashAnim,transform:[{scale:flashAnim.interpolate({inputRange:[0,1],outputRange:[1.08,1]})}]}]}/>}
+     {stretch?.flash&&stretch.flash.on===half&&<>
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill,{borderRadius:size/2,borderWidth:4,borderColor:stretch.flash.kind==='day'?'#fde047':'#a5b4fc',opacity:flashAnim,transform:[{scale:flashAnim.interpolate({inputRange:[0,1],outputRange:[1.08,1]})}]}]}/>
+      <Animated.View pointerEvents="none" style={{position:'absolute',alignSelf:'center',top:size*0.42,paddingHorizontal:14,paddingVertical:7,borderRadius:99,backgroundColor:'#ffffffee',opacity:flashAnim}}><Text style={{fontSize:13,fontWeight:'800',color:stretch.flash.kind==='day'?'#a16207':d.accent}}>{stretch.flash.kind==='day'?`${Number(shownDay.slice(5,7))}월 ${Number(shownDay.slice(8))}일 · ${stretch.flash.back?'전날로':'다음 날'}`:stretch.flash.half?'오후로 넘어갔어요':'오전으로'}</Text></Animated.View>
+     </>}
     </View>
     {aiming?.half===half&&<View pointerEvents="none" style={{position:'absolute',top:size/2-20,left:size/2-44,width:88,height:40,borderRadius:20,alignItems:'center',justifyContent:'center',backgroundColor:'#ffffffe6',borderWidth:1,borderColor:d.edge}}><Text style={{fontSize:18,fontWeight:'800',color:d.accent,fontVariant:['tabular-nums']}}>{aiming.time}</Text></View>}
     {lens?.half===half&&size>0&&<Lens lens={lens} half={half} size={size} todos={own} d={d} sizes={sizes} bounds={boundsOf(half)}/>}
@@ -196,7 +204,7 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
    <Text style={{position:'absolute',top:18,left:24,fontSize:11,color:d.muted}}>시계</Text>
    {stretch&&stretch.st.end!=null&&(()=>{const f=fromRange({start:stretch.startMs,end:stretch.st.end,timed:true}),nd=stretch.flash?.kind==='day';
     return <Animated.View pointerEvents="none" style={[glass,{position:'absolute',top:12,alignSelf:'center',paddingHorizontal:18,paddingVertical:7,borderRadius:16,backgroundColor:'#ffffffe6',alignItems:'center',borderColor:nd?d.accent:d.edge,transform:[{scale:nd?flashAnim.interpolate({inputRange:[0,1],outputRange:[1,1.16]}):1}]}]}>
-     <Text style={{fontSize:16,fontWeight:'800',color:d.text,fontVariant:['tabular-nums']}}>{f.endDate?`${Number(f.endDate.slice(5,7))}월 ${Number(f.endDate.slice(8))}일 `:''}{f.endTime}</Text>
+     <Text style={{fontSize:16,fontWeight:'800',color:d.text,fontVariant:['tabular-nums']}}>{`${Number(shownDay.slice(5,7))}월 ${Number(shownDay.slice(8))}일 `}{f.endTime}</Text>
      <Text style={{fontSize:11,color:stretch.place.days>0?d.accent:d.muted,fontWeight:stretch.place.days>0?'700':'400'}}>{stretch.place.days>0?`+${stretch.place.days}일 · 다음 날로 넘어갔어요`:stretch.place.half?'오후':'오전'}</Text>
     </Animated.View>;})()}
    {/* The day the clock is working on: a to-do brought in from another day keeps its own date (only the time is set). */}

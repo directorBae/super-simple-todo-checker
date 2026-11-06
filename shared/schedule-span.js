@@ -66,3 +66,21 @@ export function wobble(state, x, now) {
   }
   return { ...state, x, dir: dir || state.dir, zoomIn: false };
 }
+
+// Smooth dragging: a handle follows the pointer to the minute, and only sticks to a round time (the zoom's snap step)
+// when it comes within a few pixels of one; on letting go it settles on the nearest round time.
+export function magnet(ms, msPerPx, timed = true, px = 3) {
+  const step = snapStep(msPerPx, timed), s = snap(ms, step), reach = Math.min(px, (step / msPerPx) * 0.18);
+  if (Math.abs(s - ms) / msPerPx <= reach) return s;
+  return timed ? Math.round(ms / MIN) * MIN : ms;
+}
+// A handle swung back and forth over a spot (three quick turns of at least `minPx` each) means "let me find this
+// exactly": zoom in. Returns the new tracker state and whether to zoom.
+export function swing(state, x, now, minPx = 8, windowMs = 650) {
+  const s = { x0: x, dir: 0, turns: [], ...state };
+  const moved = x - s.x0;
+  if (Math.abs(moved) < minPx) return { state: s, zoomIn: false };
+  const dir = Math.sign(moved), turns = dir !== s.dir && s.dir ? [...s.turns.filter((t) => now - t < windowMs), now] : s.turns;
+  const zoomIn = turns.length >= 3;
+  return { state: { x0: x, dir, turns: zoomIn ? [] : turns }, zoomIn };
+}
