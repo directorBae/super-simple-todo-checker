@@ -12,6 +12,8 @@ export function db(env) {
     insert: (table, rows, { upsert = false, ignore = false, onConflict } = {}) => go(`${table}${onConflict ? '?on_conflict=' + onConflict : ''}`, { method: 'POST', body: JSON.stringify(rows), headers: upsert ? { Prefer: 'return=representation,resolution=merge-duplicates' } : ignore ? { Prefer: 'return=representation,resolution=ignore-duplicates' } : {} }).then((r) => r || []),
     update: (table, query, patch) => go(`${table}?${query}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r || []),
     remove: (table, query) => go(`${table}?${query}`, { method: 'DELETE' }),
+    // A database function (POST /rest/v1/rpc/<name>).
+    rpc: (name, args) => go(`rpc/${name}`, { method: 'POST', body: JSON.stringify(args) }).then((r) => r || []),
   };
 }
 

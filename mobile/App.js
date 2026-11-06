@@ -11,6 +11,8 @@ import { ImportTypingProvider } from './src/ImportTyping.js';
 import RainbowEdge from './src/RainbowEdge.js';
 import { DesignProvider, useDesign, Surface, Button, Sheet, Icon } from './src/design.js';
 import Board from './src/screens/Board.js';
+import TeamScreen, { IncomingDive, CallPanel } from './src/screens/Team.js';
+import { WorkProvider } from './src/work.js';
 import Integrations from './src/screens/Integrations.js';
 import AppSettings from './src/screens/AppSettings.js';
 import Manage from './src/screens/Manage.js';
@@ -31,6 +33,9 @@ function Shell() {
  const onboarding = !db.settings.onboardingDone;
  // Rooms side by side: teams/buckets (-1) ← main (0) → clock (1). The phone app has no pet.
  const [room, setRoom] = useState(0), [clockTodo, setClockTodo] = useState(null), clock = useRef(null), latest = useRef(null);
+ // 팀버전 (Work): tapping '✓ 체커' in the top bar switches to Team and back; a tapped dive push opens Team too.
+ const [mode, setMode] = useState('checker');
+ const openWork = view => { if (latest.current.onboarding) return; setMenu(false); setSettings(false); setRoom(0); setMode(view === 'checker' ? 'checker' : 'team'); };
  const { width } = useWindowDimensions();
  latest.current = { room, width, onboarding, menu, settings, music };
  const camera = useRef(new Animated.Value(0)).current;
@@ -69,9 +74,9 @@ function Shell() {
  const tap = useRef(null);
  const touchStart = e => { tap.current = { x:e.nativeEvent.pageX, y:e.nativeEvent.pageY }; };
  const touchEnd = e => { const t = tap.current; tap.current = null; if (t && Math.abs(e.nativeEvent.pageX-t.x)+Math.abs(e.nativeEvent.pageY-t.y) < 10) setTimeout(outsideTap, 0); }; // after a line's own tap handling
- return <SafeAreaView style={{ flex:1, paddingTop:Platform.OS === 'android' ? NativeStatusBar.currentHeight || 0 : 0 }}><View {...swipe.panHandlers} onTouchStart={touchStart} onTouchEnd={touchEnd} style={{flex:1,overflow:'hidden'}}>
+ return <WorkProvider onOpen={openWork}><SafeAreaView style={{ flex:1, paddingTop:Platform.OS === 'android' ? NativeStatusBar.currentHeight || 0 : 0 }}><View {...swipe.panHandlers} onTouchStart={touchStart} onTouchEnd={touchEnd} style={{flex:1,overflow:'hidden'}}>
    <Surface native style={{borderRadius:0,borderWidth:0,borderBottomWidth:1}} contentStyle={{ paddingHorizontal:18, paddingVertical:10, flexDirection:'row', alignItems:'center', gap:10 }}>
-    <Text style={{ fontSize:16, fontWeight:'800', color:d.accent, letterSpacing:-.3 }}>✓ 체커</Text><View style={{ flex:1 }} />
+    <Pressable accessibilityRole="button" accessibilityLabel={mode === 'team' ? '체커로 전환' : 'Team으로 전환'} disabled={onboarding} hitSlop={10} onPress={() => { setRoom(0); setMode(mode === 'team' ? 'checker' : 'team'); }} style={{ flexDirection:'row', alignItems:'center', gap:6 }}><Text style={{ fontSize:16, fontWeight:'800', color:d.accent, letterSpacing:-.3 }}>{mode === 'team' ? 'Team' : '✓ 체커'}</Text>{!onboarding && <Text style={{ fontSize:11, color:d.muted }}>⇄</Text>}</Pressable><View style={{ flex:1 }} />
     {/* A closed music panel never plays unseen: what is on (playing or paused) stays here — Ⅱ pauses, ▶ plays again. */}
     {nowPlaying && !music && <View style={{ flexDirection:'row', alignItems:'center', maxWidth:200, borderRadius:99, backgroundColor:'#ffffffa6', borderWidth:1, borderColor:d.edge }}>
      <Pressable accessibilityLabel="음악 열기" onPress={openMusic} style={{ flexShrink:1, paddingLeft:10, paddingVertical:5 }}><Text numberOfLines={1} style={{ fontSize:12, color:d.accent }}>♪ {nowPlaying.title}</Text></Pressable>
@@ -80,7 +85,7 @@ function Shell() {
     <Pressable accessibilityLabel="메뉴" onPress={() => setMenu(true)} hitSlop={12}><View style={{padding:5}}><Icon name="menu" size={19} /></View></Pressable>
    </Surface>
    {onboarding ? <View style={{ flex:1 }}><View style={{ paddingHorizontal:28, paddingTop:32, paddingBottom:12 }}><Text style={{ color:'#fff', fontSize:12, fontWeight:'700', letterSpacing:2 }}>WELCOME TO CHECKER</Text><Text style={{ color:'#fff', fontSize:32, lineHeight:42, fontWeight:'700', letterSpacing:-1, marginTop:14, textShadowColor:'#0006', textShadowRadius:8 }}>흩어진 일들을{ '\n' }한곳으로.</Text></View><ScrollView style={{ flex:1 }} contentContainerStyle={{ padding:22, paddingTop:8 }}><Integrations /></ScrollView><View style={{ padding:22, paddingTop:0, gap:8 }}><Button title="시작하기" primary onPress={finish} /><Button title="지금은 건너뛰기" onPress={finish} /></View></View> :
-    <View style={{ flex:1 }}><Board clockOpen={room===1} clockLeft={0} onClockReveal={todo=>{setClockTodo(todo);setRoom(1);}} onClockClose={()=>setRoom(0)} onClockDrop={(todo,x,y)=>clock.current?.drop(todo,x,y)} onClockHover={(x,y,todo)=>clock.current?.hover(x,y,todo)} /></View>}
+    mode === 'team' ? <View style={{ flex:1 }}><TeamScreen /></View> : <View style={{ flex:1 }}><Board clockOpen={room===1} clockLeft={0} onClockReveal={todo=>{setClockTodo(todo);setRoom(1);}} onClockClose={()=>setRoom(0)} onClockDrop={(todo,x,y)=>clock.current?.drop(todo,x,y)} onClockHover={(x,y,todo)=>clock.current?.hover(x,y,todo)} /></View>}
    {menu && <Sheet title="메뉴" onClose={() => setMenu(false)}><Button title="음악" onPress={openMusic} /><Button title="설정" onPress={() => { setMenu(false); setSettingsTab('notify'); setSettings(true); }} /></Sheet>}
    {settings && <Sheet title="설정" onClose={() => setSettings(false)}><AppSettings key={settingsTab} initialTab={settingsTab} /></Sheet>}
    {!onboarding&&<Animated.View pointerEvents={room===-1?'auto':'none'} style={[StyleSheet.absoluteFill,{zIndex:60,borderRightWidth:1,borderRightColor:'#ffffffb3',transform:[{translateX:camera.interpolate({inputRange:[-1,0],outputRange:[0,-width],extrapolate:'clamp'})}]}]}>
@@ -88,11 +93,13 @@ function Shell() {
     <Manage onClose={()=>setRoom(0)}/>
    </Animated.View>}
    {!onboarding&&<ClockDrawer ref={clock} visible={room===1} camera={camera} db={db} api={api} pending={clockTodo} onAssigned={()=>setClockTodo(null)} onClose={()=>setRoom(0)}/>}
+   {!onboarding && <IncomingDive />}
+   {!onboarding && <CallPanel />}
    <JobToast />
    {postponeDate && !onboarding && <PostponeSheet date={postponeDate} db={db} api={api} onClose={clearPostpone} />}
    {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} playlist={playlist} />}
    <StatusBar style="dark" />
- </View></SafeAreaView>;
+ </View></SafeAreaView></WorkProvider>;
 }
 // With Supabase on, nothing shows until someone is signed in (blank while the saved session is read).
 function Themed() {

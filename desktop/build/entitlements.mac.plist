@@ -12,6 +12,9 @@
 	<!-- 동기화 서버 / 구글 캘린더 API 호출 -->
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- 팀버전 다이브(그룹 통화)의 마이크 -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 	<!-- gcal.cjs 의 OAuth 콜백용 127.0.0.1 로컬 서버 -->
 	<key>com.apple.security.network.server</key>
 	<true/>

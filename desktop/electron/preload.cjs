@@ -40,5 +40,8 @@ contextBridge.exposeInMainWorld('api', {
 
 
   onDbChanged: (cb) => ipcRenderer.on('db-changed', (_, db) => cb(db)),
+  // 팀버전 (Work): the team state the main process looks at every 10 s, and asking for a fresh look now.
+  onWorkState: (cb) => ipcRenderer.on('work-state', (_, s) => cb(s)),
+  workRefresh: () => invoke('work:refresh'),
   onOpenView: (cb) => ipcRenderer.on('open-view', (_, view) => cb(view)),
 });

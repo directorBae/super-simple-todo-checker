@@ -23,7 +23,18 @@ const provider = (p) => { if (!PROVIDERS.includes(p)) throw new Error('연결할
 const id = (v) => { const s = String(v || ''); if (!s || s.length > 200) throw new Error('항목을 찾을 수 없어요.'); return s; };
 // Several accounts per tool: an optional connection id picks the Notion workspace / the one account to drop.
 const conn = (v) => (v ? id(v) : undefined);
+// 팀버전 (Work): the routes the window may call, and what may come back as the call server's address.
+const WORK_PATHS = ['/state', '/name', '/team', '/team/delete', '/invite', '/invite/accept', '/invite/decline', '/member/remove', '/dive', '/dive/join', '/dive/reply', '/dive/leave'];
+async function workCall(c, p) {
+  if (!WORK_PATHS.includes(p.path)) throw new Error('요청을 찾을 수 없어요.');
+  const body = p.body && typeof p.body === 'object' && !Array.isArray(p.body) ? p.body : {};
+  if (JSON.stringify(body).length > 4000) throw new Error('내용이 너무 길어요.');
+  const r = await c.work(p.path, body);
+  if (r?.call && !/^wss:\/\/[a-z0-9.-]+(:\d+)?\/?$/i.test(r.call.url || '')) throw new Error('통화 서버 주소가 올바르지 않아요.');
+  return r;
+}
 const ACTIONS = {
+  work: workCall,
   state: (c) => c.state(),
   start: async (c, p) => { const url = safeUrl(await c.start(provider(p.provider)), AUTH_HOSTS); if (!url) throw new Error('계정 연결 주소가 올바르지 않아요.'); return { url }; },
   pages: async (c, p) => ({ pages: await c.pages(String(p.q || '').slice(0, 200), conn(p.connectionId)) }),

@@ -1,0 +1,42 @@
+/* 팀버전 (Work) in the desktop app's main process: looks at the team state every 10 s — also while the window sits
+ * hidden in the tray (a hidden window's timers get slowed down, which would make an incoming dive late) — hands it to
+ * the window and shows system notifications for new dives (picked: stays on screen until dealt with), answers to
+ * the person's own dives and team invites. Clicking one opens the dive (or the Team tab). */
+const { Notification } = require('electron');
+const fs = require('node:fs'), path = require('node:path'), { pathToFileURL } = require('node:url');
+const tools = require('./tools.cjs');
+
+const EVERY_MS = 10_000;
+// Packaged builds carry the shared files under app/shared; in the repo they sit two levels up.
+const sharedFile = (name) => [path.join(__dirname, '../shared', name), path.join(__dirname, '../../shared', name)].find((p) => fs.existsSync(p));
+
+function start({ client, send, openView, icon }) {
+  let seen = new Set(), first = true, who = null, alerts = null, busy = null, last = null;
+  const notify = (a) => {
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title: a.title, body: a.body, icon, silent: false, ...(a.important ? { timeoutType: 'never', urgency: 'critical' } : {}) });
+    n.on('click', () => openView(a.dive ? 'dive:' + a.dive : 'team'));
+    n.show();
+  };
+  async function look() {
+    const c = client();
+    if (!c) return null;
+    // Without the alert rules (a broken install) the Team tab still works, only without notifications.
+    alerts ||= await import(pathToFileURL(sharedFile('work-alerts.mjs') || '').href).catch(() => ({ workAlerts: () => [] }));
+    const r = await tools.run(c, 'work', { path: '/state' });
+    if (!r.ok || !r.me) return r;
+    // Someone else signed in: start over (nothing of the last person's is news to this one).
+    if (r.me?.id !== who) { who = r.me?.id; seen = new Set(); first = true; }
+    for (const a of alerts.workAlerts(r, seen, { first })) notify(a);
+    first = false; last = r;
+    send(r);
+    return r;
+  }
+  // One look at a time; asking again while one runs waits for that one.
+  const refresh = () => (busy ||= look().catch((e) => ({ ok: false, error: e.message })).finally(() => { busy = null; }));
+  refresh();
+  setInterval(refresh, EVERY_MS);
+  return { refresh, last: () => last };
+}
+
+module.exports = { start };

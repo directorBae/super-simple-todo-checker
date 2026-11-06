@@ -180,7 +180,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
       if (!file.startsWith(root + path.sep)) throw error('잘못된 경로입니다.', 403);
       const content = await fsp.readFile(file);
       const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' }[path.extname(file)] || 'application/octet-stream';
-      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; media-src 'self' blob:; connect-src 'self' wss://*.livekit.cloud https://*.livekit.cloud; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
       res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' }); res.end(req.method === 'HEAD' ? undefined : content);
     } catch (e) { if (!res.headersSent) send(res, e.code === 'ENOENT' ? 404 : e.status || 500, { ok: false, error: e.code === 'ENOENT' ? '먼저 npm run build를 실행해 주세요.' : e.message }); }
   });

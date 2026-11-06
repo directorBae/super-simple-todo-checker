@@ -16,6 +16,7 @@ import { sweep } from './sweep.js';
 import { sendDue } from './push.js';
 import { handleMcp, createLink, listLinks, revokeLink } from './mcp.js';
 import * as oauth from './oauth.js';
+import * as work from './work.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
@@ -171,6 +172,8 @@ async function appRoute(env, req, route) {
   if (route === '/mcp/links') return reply({ links: await listLinks(env, user.id) });
   if (route === '/mcp/link') return reply({ link: await createLink(env, user.id, body.label) });
   if (route === '/mcp/revoke') { await revokeLink(env, user.id, String(body.id || '')); return reply({ ok: true }); }
+  // 팀버전 (Work): teams, invites, who is online, dives (group calls).
+  if (route.startsWith('/work/')) return reply(await workRoute(env, user, route, body));
   if (route === '/disconnect') {
     // One account (id), or every account of a tool (provider).
     for (const conn of await mine('connections', (body.id ? 'id=' + eq(body.id) : 'provider=' + eq(body.provider)) + '&select=*')) {
@@ -185,6 +188,24 @@ async function appRoute(env, req, route) {
     return reply({ ok: true, started: subs.length });
   }
   throw new HttpError('요청을 찾을 수 없어요.', 404);
+}
+
+async function workRoute(env, user, route, b) {
+  switch (route) {
+    case '/work/state': return work.workState(env, user);
+    case '/work/name': return work.setName(env, user, b.name);
+    case '/work/team': return work.createTeam(env, user, b.name);
+    case '/work/team/delete': return work.deleteTeam(env, user, b.team);
+    case '/work/invite': return work.invite(env, user, b.team, b.emails);
+    case '/work/invite/accept': return work.answerInvite(env, user, b.team, true);
+    case '/work/invite/decline': return work.answerInvite(env, user, b.team, false);
+    case '/work/member/remove': return work.removeMember(env, user, b.team, b.email);
+    case '/work/dive': return work.startDive(env, user, b);
+    case '/work/dive/join': return work.joinDive(env, user, b.dive);
+    case '/work/dive/reply': return work.replyDive(env, user, b.dive, b.answer);
+    case '/work/dive/leave': return work.leaveDive(env, user, b.dive, !!b.end);
+    default: throw new HttpError('요청을 찾을 수 없어요.', 404);
+  }
 }
 
 export async function handle(req, env) {
@@ -227,6 +248,7 @@ export function environment(get, extra = {}) {
     NOTION_CLIENT_ID: get('NOTION_CLIENT_ID'), NOTION_CLIENT_SECRET: get('NOTION_CLIENT_SECRET'),
     GOOGLE_CLIENT_ID: get('GOOGLE_CLIENT_ID'), GOOGLE_CLIENT_SECRET: get('GOOGLE_CLIENT_SECRET'),
     OPENAI_API_KEY: get('OPENAI_API_KEY'), OPENAI_MODEL: get('OPENAI_MODEL') || 'gpt-6.1-terra',
+    LIVEKIT_URL: get('LIVEKIT_URL'), LIVEKIT_API_KEY: get('LIVEKIT_API_KEY'), LIVEKIT_API_SECRET: get('LIVEKIT_API_SECRET'),
     STATE_SECRET: get('STATE_SECRET'), HOOK_SECRET: get('HOOK_SECRET'), TIME_ZONE: get('TIME_ZONE') || 'Asia/Seoul',
     base, redirect: (p) => `${base}/oauth/callback/${p}`, webhook: (p) => `${base}/webhook/${p}`,
     fetch: globalThis.fetch.bind(globalThis), now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)), waitUntil: (p) => p, ...extra,

@@ -1,9 +1,11 @@
 // Puts the per-person tool connections live on Supabase, in one go (safe to run again):
-//   1. tables, policies and the push-back trigger (supabase/integrations.sql, with pg_cron/pg_net)
+//   1. tables, policies and the push-back trigger (supabase/integrations.sql, with pg_cron/pg_net), and the team
+//      version's tables (supabase/work.sql)
 //   2. the function's secrets (Google/Notion/OpenAI keys from server/.env, plus two generated secrets)
 //   3. the `integrations` Edge Function
 // Needs in server/.env: SUPABASE_URL, SUPABASE_KEY (secret key), SUPABASE_ACCESS_TOKEN (dashboard → Account → Access Tokens),
-// OPENAI_API_KEY, GOOGLE_CLIENT_ID/SECRET, NOTION_CLIENT_ID/SECRET (Notion may be filled in later — run again).
+// OPENAI_API_KEY, GOOGLE_CLIENT_ID/SECRET, NOTION_CLIENT_ID/SECRET (Notion may be filled in later — run again),
+// and for the team version's calls LIVEKIT_URL (wss://…livekit.cloud), LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
 //   node supabase/deploy.cjs                 deploy
 //   node supabase/deploy.cjs --notion-token  show the Notion webhook verification token (after Notion sent it)
 const fs = require('node:fs');
@@ -49,6 +51,7 @@ async function main() {
   await sql(`insert into public.function_settings (key, value) values ('functions_url', ${literal(fnUrl)}), ('hook_secret', ${literal(hookSecret)})
     on conflict (key) do update set value = excluded.value;`);
   await sql(fs.readFileSync(path.join(__dirname, 'integrations.sql'), 'utf8')); // again, now that pg_cron exists for the renewal job
+  await sql(fs.readFileSync(path.join(__dirname, 'work.sql'), 'utf8'));
 
   console.log('2/3 함수 비밀값 …');
   const secrets = {
@@ -56,6 +59,7 @@ async function main() {
     GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
     NOTION_CLIENT_ID: env.NOTION_CLIENT_ID, NOTION_CLIENT_SECRET: env.NOTION_CLIENT_SECRET,
     STATE_SECRET: stateSecret, HOOK_SECRET: hookSecret, TIME_ZONE: env.TIME_ZONE || 'Asia/Seoul',
+    LIVEKIT_URL: env.LIVEKIT_URL, LIVEKIT_API_KEY: env.LIVEKIT_API_KEY, LIVEKIT_API_SECRET: env.LIVEKIT_API_SECRET,
   };
   const list = Object.entries(secrets).filter(([, v]) => v).map(([name, value]) => ({ name, value }));
   await api('/secrets', list);

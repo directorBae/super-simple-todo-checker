@@ -6,6 +6,8 @@ const { titleFields } = require('./todo-title.cjs');
 const { ensureDates, localDate } = require('./ensure-dates.cjs');
 const { createUndoHistory, applyChanges } = require('./undo-history.cjs');
 const path = require('path');
+// The app is called Work now, but its data stays where the 할 일 체커 builds kept it (the folder follows the app name).
+app.setPath('userData', path.join(app.getPath('appData'), '할 일 체커'));
 const Store = require('./store.cjs');
 const scheduler = require('./scheduler.cjs');
 const integrations = require('./integrations.cjs');
@@ -120,7 +122,7 @@ function openView(view) {
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
-  tray.setToolTip('할 일 체커');
+  tray.setToolTip('Work');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '열기', click: showWindow },
@@ -420,6 +422,9 @@ app.whenReady().then(() => {
   const growRepeats = () => { if (repeats.grow(store.db)) done(); };
   growRepeats();
   setInterval(growRepeats, 60 * 60 * 1000);
+  // 팀버전 (Work): the team state every 10 s, notifications for dives (electron/work.cjs).
+  const workWatch = require('./work.cjs').start({ client: () => supabase.tools, send: (state) => win && win.webContents.send('work-state', state), openView, icon: ICON });
+  ipcMain.handle('work:refresh', () => workWatch.refresh());
   app.on('browser-window-focus', autoSupabase);
   app.on('browser-window-focus', autoServerSync);
 

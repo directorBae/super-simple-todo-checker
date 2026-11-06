@@ -5,6 +5,9 @@ import Integrations from './views/Integrations.jsx';
 import Bell from './views/Bell.jsx';
 import Postpone from './views/Postpone.jsx';
 import Login from './views/Login.jsx';
+import Team, { IncomingDive, CallPanel } from './views/Team.jsx';
+import { WorkProvider } from './work/work-state.jsx';
+import './work/work.css';
 import ClockWindow from './focus/ClockWindow.jsx';
 import RoomDock from './focus/RoomDock.jsx';
 import RoamingPet from './focus/RoamingPet.jsx';
@@ -20,10 +23,12 @@ import './focus/focus.css';
 export default function App() {
  const [db,setDb] = useState(null), [popup,setPopup] = useState(null), [menu,setMenu] = useState(false), [bell,setBell] = useState(false), [room,setRoom] = useState(0);
  const [nowPlaying,setNowPlaying] = useState(null), music = useRef(null);
+ // 팀버전 (Work): the 체커 (to-dos) and Team tabs; focusDive is the dive a notification was clicked for.
+ const [mode,setMode] = useState('checker'), [focusDive,setFocusDive] = useState(null);
  // No pet on phones (mobile web), like the phone app; same width as the phone layout in glass.css.
  const [phone,setPhone] = useState(() => matchMedia('(max-width: 700px)').matches);
  useEffect(() => { const m = matchMedia('(max-width: 700px)'), change = () => setPhone(m.matches); m.addEventListener('change',change); return () => m.removeEventListener('change',change); }, []);
- const open = view => { setMenu(false); setBell(false); if(view === 'missed') setBell(true); else if(view === 'today') { setPopup(null); setRoom(0); } else setPopup(view); };
+ const open = view => { setMenu(false); setBell(false); if(view === 'missed') setBell(true); else if(view === 'today') { setPopup(null); setRoom(0); setMode('checker'); } else if(view === 'team' || view.startsWith('dive:')) { setPopup(null); setRoom(0); setMode('team'); if(view.startsWith('dive:')) setFocusDive(view.slice(5)); } else setPopup(view); };
  useEffect(() => { window.api.getState().then(setDb); window.api.onDbChanged(setDb); window.api.onOpenView(open); }, []);
  useEffect(() => { const key = e => { if(e.key === 'Escape') { setPopup(null); setMenu(false); setBell(false); } }; window.addEventListener('keydown',key); return () => window.removeEventListener('keydown',key); }, []);
  // The web version reminds through the browser (the desktop app uses its own system notifications).
@@ -47,8 +52,10 @@ export default function App() {
  const finish = () => { window.api.updateSettings({ onboardingDone:true }).then(setDb); };
  if(new URLSearchParams(window.location.search).get('view') === 'clock') return <ClockWindow db={db} />;
  const close = () => setPopup(null);
- return <div className="app-v">
-  <header className="topbar"><button className="logo" onClick={() => setRoom(0)}>✓ 체커</button>
+ return <WorkProvider onOpen={open}><div className="app-v">
+  <header className="topbar">{/* Desktop: 체커 | Team side by side. Phone: the title itself switches between them. */}
+   {phone ? <button className="logo" aria-label={mode === 'team' ? '체커로 전환' : 'Team으로 전환'} onClick={() => { setRoom(0); setMode(mode === 'team' ? 'checker' : 'team'); }}>{mode === 'team' ? 'Team' : '✓ 체커'} <span className="logo-switch" aria-hidden="true">⇄</span></button>
+    : <nav className="top-tabs" aria-label="화면"><button className={'logo' + (mode === 'checker' ? ' active' : '')} aria-current={mode === 'checker' ? 'page' : undefined} onClick={() => { setRoom(0); setMode('checker'); }}>✓ 체커</button><button className={'top-tab' + (mode === 'team' ? ' active' : '')} aria-current={mode === 'team' ? 'page' : undefined} onClick={() => { setRoom(0); setMode('team'); }}>Team</button></nav>}
    <div className="top-icons">
     {/* What is on — playing or paused — stays in the bar: Ⅱ pauses, ▶ plays it again. */}
     {nowPlaying && popup !== 'music' && <div className="now-playing"><button className="now-playing-title" title="음악 창 열기" onClick={() => open('music')}>♪ {nowPlaying.title}</button><button className="now-playing-pause" aria-label={nowPlaying.playing ? '음악 일시정지' : '음악 다시 재생'} onClick={() => (nowPlaying.playing ? music.current?.pause() : music.current?.play())}>{nowPlaying.playing ? 'Ⅱ' : '▶'}</button></div>}
@@ -57,7 +64,7 @@ export default function App() {
    </div>
   </header>
   {onboarding ? <main className="onboarding"><div className="welcome-mark">✓</div><p className="eyebrow">WELCOME TO CHECKER</p><h1>흩어진 일들을 한곳으로.</h1><p className="welcome-desc">쓰고 있는 도구를 연결해 시작하세요.<br />이제 할 일만 적으면 됩니다.</p><Integrations db={db} /><div className="welcome-actions"><button className="primary" onClick={finish}>시작하기 →</button><button className="ghost" onClick={finish}>지금은 건너뛰기</button></div></main> :
-   <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>}
+   (mode === 'team' ? <Team /> : <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>)}
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} open={popup === 'music'} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />
@@ -67,5 +74,7 @@ export default function App() {
   {popup?.startsWith('postpone:') && <Postpone db={db} date={popup.slice('postpone:'.length)} onClose={close} />}
   <MoveNote />
   <AiEdge on={!!(petJobs.working || typing)} />
- </div>;
+  {!onboarding && <IncomingDive focus={focusDive} onSeen={() => setFocusDive(null)} />}
+  {!onboarding && <CallPanel />}
+ </div></WorkProvider>;
 }
