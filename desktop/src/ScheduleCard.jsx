@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { TimeField, RepeatEditor, repeatLabel } from './components.jsx';
 import { todayStr, localDateStr } from './util.js';
 import { spanPatch } from '../../shared/multi-day.js';
-import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, swing, dayOf, DAY, HOUR } from '../../shared/schedule-span.js';
+import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, dragFrame, dayOf, DAY, HOUR } from '../../shared/schedule-span.js';
 
 /*
  * The schedule card: clicking a to-do's time or 📅 unfolds this glass card under the line.
@@ -22,9 +22,9 @@ const EDGE = 0.86;
  * dragged, works from refs every animation frame — so the bar glides with the pointer instead of stepping:
  *   - a handle follows the pointer to the minute and only sticks to a round time within a few pixels of one; letting
  *     go settles it on the nearest round time.
- *   - holding a handle near either edge slides the view that way and zooms out, smoothly, faster the closer to the
- *     edge — so pulling an end out keeps stretching the span and the whole span stays in view.
- *   - three quick back-and-forth swings of a handle zoom in (eased), to find a time exactly.
+ *   - holding a handle near the outer edge zooms out around the other end (keeps stretching the span, all of it in
+ *     view); pulling it back toward the other side slides the view that way, so it can be shrunk back any distance.
+ *   - small movements for a moment zoom in around the handle by themselves, down to 5-minute detail.
  *   - dragging the bar moves the whole span; dragging the empty strip pans (with a little glide after letting go);
  *     the wheel zooms around the pointer, shift/sideways wheel pans.
  */
@@ -58,20 +58,9 @@ function Banner({ range, setRange }) {
   const frame = (now) => {
     const d = drag.current; if (!d || (d.part !== 'start' && d.part !== 'end')) return;
     const dt = Math.min(0.05, (now - (d.t || now)) / 1000); d.t = now;
-    let { zoom, center } = v.current; const W = w.current, x = d.x;
-    const depth = d.part === 'end' ? (x - W * EDGE) / (W * (1 - EDGE)) : (W * (1 - EDGE) - x) / (W * (1 - EDGE));
-    if (depth > 0) {
-      const k = Math.min(1.4, depth), fixed = d.part === 'end' ? r.current.start : r.current.end;
-      const grow = 1 + 0.9 * k * dt;
-      zoom = clampZoom(zoom * grow);
-      // Zoom around the end that stays put, and slide toward the edge being pulled.
-      center = fixed + (center - fixed) * (zoom / v.current.zoom) + (d.part === 'end' ? 1 : -1) * k * 90 * dt * zoom;
-    }
-    if (d.zoomTo) { // eased zoom-in around the pointer
-      const target = d.zoomTo, at = center - (W / 2) * zoom + x * zoom, next = zoom + (target - zoom) * Math.min(1, dt * 14);
-      zoom = Math.abs(next - target) < target * 0.01 ? target : next; center = at - (x - W / 2) * zoom;
-      if (zoom === target) d.zoomTo = null;
-    }
+    const W = w.current, x = d.x;
+    d.recent = [...(d.recent || []).filter((p) => now - p.t < 500), { x, t: now }];
+    const { zoom, center } = dragFrame(v.current, { part: d.part, x, w: W, dt, range: r.current, recent: d.recent, held: (now - d.began) / 1000 });
     if (zoom !== v.current.zoom || center !== v.current.center) { v.current = { zoom, center }; setView(v.current); }
     const ms = magnet(center - (W / 2) * zoom + x * zoom, zoom, r.current.timed), min = 5 * 60_000;
     const next = d.part === 'start' ? { ...r.current, start: Math.min(ms, r.current.end - min) } : { ...r.current, end: Math.max(ms, r.current.start + min) };
@@ -82,7 +71,7 @@ function Banner({ range, setRange }) {
     e.preventDefault(); e.stopPropagation(); cancelAnimationFrame(glide.current);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const x = e.clientX - box.current.getBoundingClientRect().left;
-    drag.current = { part, x, x0: e.clientX, r0: r.current, c0: v.current.center, swing: {}, last: [{ x: e.clientX, t: performance.now() }] };
+    drag.current = { part, x, x0: e.clientX, r0: r.current, c0: v.current.center, began: performance.now(), last: [{ x: e.clientX, t: performance.now() }] };
     if (part === 'start' || part === 'end') raf.current = requestAnimationFrame(frame);
   };
   const move = (e) => {
@@ -97,8 +86,6 @@ function Banner({ range, setRange }) {
       const shift = magnet(d.r0.start + (e.clientX - d.x0) * zoom, zoom, d.r0.timed) - d.r0.start;
       r.current = { ...d.r0, start: d.r0.start + shift, end: d.r0.end + shift }; setRange(r.current); return;
     }
-    const s = swing(d.swing, e.clientX, performance.now()); d.swing = s.state;
-    if (s.zoomIn) d.zoomTo = clampZoom(zoom / 1.8);
   };
   const up = () => {
     const d = drag.current; drag.current = null; cancelAnimationFrame(raf.current);

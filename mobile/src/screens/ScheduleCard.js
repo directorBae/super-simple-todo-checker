@@ -7,7 +7,7 @@ import { Text } from '../text.js';
 import { useDesign, Button } from '../design.js';
 import { todayStr, localDateStr } from '../util.js';
 import { spanPatch } from '../../../shared/multi-day.js';
-import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, swing, dayOf, DAY, HOUR } from '../../../shared/schedule-span.js';
+import { toRange, fromRange, tickStep, snapStep, snap, fitZoom, clampZoom, tickLabel, magnet, dragFrame, dayOf, DAY, HOUR } from '../../../shared/schedule-span.js';
 
 /*
  * The schedule card on the phone (as on PC: desktop/src/ScheduleCard.jsx): tapping a line's time or calendar
@@ -22,8 +22,8 @@ const DOW = ['일', '월', '화', '수', '목', '금', '토'];
 const EDGE = 0.86, H = 84;
 
 // Same behaviour as the PC banner (desktop/src/ScheduleCard.jsx): handles follow the finger to the minute (sticking to
-// round times only right next to them, settling on one when let go), holding a handle near an edge slides and zooms
-// out every frame, three quick swings zoom in (eased), the bar moves the span, the empty strip pans (gliding a little
+// round times only right next to them, settling on one when let go), holding a handle near the outer edge zooms out,
+// pulled back toward the other side the view slides back, small movements zoom in by themselves, the bar moves the span, the empty strip pans (gliding a little
 // after), pinching zooms. An end scrolled out of view stays at the edge so it can always be grabbed.
 function Banner({ range, setRange }) {
   const d = useDesign(), [width, setWidth] = useState(320);
@@ -42,21 +42,13 @@ function Banner({ range, setRange }) {
   for (let t = snap(vs, DAY) - DAY; t <= vs + width * view.zoom; t += DAY) days.push({ t, x: Math.max(0, toX(t)), day: dayOf(t) });
   const dayNames = days.filter((x, i) => (days[i + 1]?.x ?? Infinity) - x.x > 58);
 
-  const frame = (now) => {
+  const frame = () => {
+    const now = performance.now(); // one clock for frames and the drag's start (RN's frame argument may differ)
     const g = drag.current; if (!g || (g.part !== 'start' && g.part !== 'end')) return;
     const dt = Math.min(0.05, (now - (g.t || now)) / 1000); g.t = now;
-    let { zoom, center } = v.current; const W = w.current, x = g.x;
-    const depth = g.part === 'end' ? (x - W * EDGE) / (W * (1 - EDGE)) : (W * (1 - EDGE) - x) / (W * (1 - EDGE));
-    if (depth > 0) {
-      const k = Math.min(1.4, depth), fixed = g.part === 'end' ? r.current.start : r.current.end, prev = zoom;
-      zoom = clampZoom(zoom * (1 + 0.9 * k * dt));
-      center = fixed + (center - fixed) * (zoom / prev) + (g.part === 'end' ? 1 : -1) * k * 90 * dt * zoom;
-    }
-    if (g.zoomTo) {
-      const at = center - (W / 2) * zoom + x * zoom, next = zoom + (g.zoomTo - zoom) * Math.min(1, dt * 14);
-      zoom = Math.abs(next - g.zoomTo) < g.zoomTo * 0.01 ? g.zoomTo : next; center = at - (x - W / 2) * zoom;
-      if (zoom === g.zoomTo) g.zoomTo = null;
-    }
+    const W = w.current, x = g.x;
+    g.recent = [...(g.recent || []).filter((p) => now - p.t < 500), { x, t: now }];
+    const { zoom, center } = dragFrame(v.current, { part: g.part, x, w: W, dt, range: r.current, recent: g.recent, held: (now - g.began) / 1000 });
     if (zoom !== v.current.zoom || center !== v.current.center) { v.current = { zoom, center }; setView(v.current); }
     const ms = magnet(center - (W / 2) * zoom + x * zoom, zoom, r.current.timed), min = 5 * 60_000;
     const next = g.part === 'start' ? { ...r.current, start: Math.min(ms, r.current.end - min) } : { ...r.current, end: Math.max(ms, r.current.start + min) };
@@ -68,7 +60,7 @@ function Banner({ range, setRange }) {
   };
   const begin = (part) => (e) => {
     cancelAnimationFrame(glide.current);
-    drag.current = { part, x: e.absoluteX - origin.current, x0: e.absoluteX, r0: r.current, c0: v.current.center, swing: {}, last: [{ x: e.absoluteX, t: Date.now() }] };
+    drag.current = { part, x: e.absoluteX - origin.current, x0: e.absoluteX, r0: r.current, c0: v.current.center, began: performance.now(), last: [{ x: e.absoluteX, t: Date.now() }] };
     if (part === 'start' || part === 'end') { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); raf.current = requestAnimationFrame(frame); }
   };
   const update = (e) => {
@@ -77,8 +69,6 @@ function Banner({ range, setRange }) {
     const { zoom } = v.current;
     if (g.part === 'pan') { g.last = [...g.last.slice(-4), { x: e.absoluteX, t: Date.now() }]; v.current = { ...v.current, center: g.c0 - (e.absoluteX - g.x0) * zoom }; setView(v.current); return; }
     if (g.part === 'body') { const shift = magnet(g.r0.start + (e.absoluteX - g.x0) * zoom, zoom, g.r0.timed) - g.r0.start; r.current = { ...g.r0, start: g.r0.start + shift, end: g.r0.end + shift }; setRange(r.current); return; }
-    const s = swing(g.swing, e.absoluteX, Date.now()); g.swing = s.state;
-    if (s.zoomIn) { g.zoomTo = clampZoom(zoom / 1.8); Haptics.selectionAsync().catch(() => {}); }
   };
   const end = () => {
     const g = drag.current; drag.current = null; cancelAnimationFrame(raf.current);

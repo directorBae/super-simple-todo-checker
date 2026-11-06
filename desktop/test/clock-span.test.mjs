@@ -26,3 +26,17 @@ test('stretching: every turn adds 12 hours, past noon and on into the next days;
   assert.equal(st.end, start + 5 * 60_000, 'turning back stops 5 minutes after the start');
   assert.deepEqual(placeOf(new Date(2026, 10, 8, 0, 0).getTime(), '2026-11-07'), { half: 1, days: 0 }, '24:00 is still the day before');
 });
+
+test('the hover lens finds a to-do anywhere along its arc, with its whole time range', async () => {
+  const { lensItems } = await import('../../shared/clock-span.js');
+  const meet = { id: 'm', title: '랩 미팅', startTime: '10:00', endTime: '15:30' };
+  // Lens over 1:00 on the 오후 dial (60 min in): the meeting runs through it.
+  const [pm] = lensItems([meet], 1, 60);
+  assert.deepEqual([pm.startTime, pm.label], ['13:00', '10:00–15:30']);
+  // Over 11:00 on the 오전 dial; and past its end it sits at its end (still the nearest point).
+  assert.equal(lensItems([meet], 0, 660)[0].startTime, '11:00');
+  assert.equal(lensItems([meet], 1, 400)[0].startTime, '15:29');
+  assert.equal(lensItems([{ id: 'c', startTime: '08:30' }], 1, 30).length, 0, 'a start-only to-do in the morning is not on the 오후 dial');
+  const part = { id: 'p', title: '학회', startTime: '00:00', endTime: '02:00', span: { n: 3, total: 3 } };
+  assert.equal(lensItems([part], 0, 30)[0].label, '00:00–02:00 · 3일차');
+});

@@ -84,3 +84,32 @@ export function swing(state, x, now, minPx = 8, windowMs = 650) {
   const zoomIn = turns.length >= 3;
   return { state: { x0: x, dir, turns: zoomIn ? [] : turns }, zoomIn };
 }
+
+// One animation frame of dragging a handle ('start' or 'end') on the banner, `w` px wide, the pointer at `x`:
+//   - near the OUTER edge (right for the end, left for the start): zoom out around the other end, which stays put;
+//     at the widest zoom the view slides outward instead.
+//   - near the INNER edge (the end pulled back toward the start, or the start toward the end): the view slides that
+//     way, so the span can be shrunk back however far it was stretched.
+//   - small movements for a moment (finding a spot): zoom in around the handle, gradually, down to 5-minute detail.
+// `recent` is the handle's x over the last ~half second. Returns the new { zoom, center }.
+export const ZOOM_FINE = MIN / 2;
+export function dragFrame({ zoom, center }, { part, x, w, dt, range, recent = [], held = 0 }) {
+  const band = w * 0.14, out = part === 'end' ? (x - (w - band)) / band : (band - x) / band, back = part === 'end' ? (band - x) / band : (x - (w - band)) / band;
+  if (out > 0) {
+    const k = Math.min(1.4, out), fixed = part === 'end' ? range.start : range.end, next = clampZoom(zoom * (1 + 0.9 * k * dt));
+    center = fixed + (center - fixed) * (next / zoom);
+    if (next === zoom) center += (part === 'end' ? 1 : -1) * k * 220 * dt * zoom; // as wide as it goes: slide on
+    return { zoom: next, center };
+  }
+  if (back > 0) {
+    // Coming back: slide that way and zoom back in around the other end, so the scale returns as the span shrinks.
+    const k = Math.min(1.4, back), fixed = part === 'end' ? range.start : range.end, next = Math.max(ZOOM_FINE, zoom * (1 - 0.7 * k * dt));
+    return { zoom: next, center: fixed + (center - fixed) * (next / zoom) + (part === 'end' ? -1 : 1) * k * 120 * dt * next };
+  }
+  const xs = recent.map((s) => s.x), spread = xs.length ? Math.max(...xs) - Math.min(...xs) : Infinity;
+  if (held > 0.35 && spread < 26 && zoom > ZOOM_FINE) {
+    const at = center - (w / 2) * zoom + x * zoom, next = Math.max(ZOOM_FINE, zoom * (1 - 0.85 * dt));
+    return { zoom: next, center: at - (x - w / 2) * next };
+  }
+  return { zoom, center };
+}

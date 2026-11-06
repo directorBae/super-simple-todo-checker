@@ -4,7 +4,7 @@ import { clockTimeAt, compactTitle, schedulePatch, TODO_DRAG_TYPE } from '../foc
 import { LENS, arcPath, at, inWindow, lensAngle, lensPath, timeAngle } from './clock-lens.js';
 import { todosOn, spanPatch, addDay } from '../../../shared/multi-day.js';
 import { toRange, fromRange, dayOf } from '../../../shared/schedule-span.js';
-import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, DAY_MIN } from '../../../shared/clock-span.js';
+import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, lensItems, DAY_MIN } from '../../../shared/clock-span.js';
 
 const pad = n => String(n).padStart(2, '0');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
@@ -52,7 +52,7 @@ function Hands({ h, m, seconds }) {
 function Lens({ lens, half, todos, teams }) {
   const clockLabel = minutes => { const v = ((Math.round(minutes) % 720) + 720) % 720 + half * 720; return `${pad(Math.floor(v / 60))}:${pad(v % 60)}`; };
   const centreMinutes = lens.angle * 2, windowMinutes = LENS.span / LENS.zoom * 2;
-  const inLens = todos.filter(t => inWindow(timeAngle(t.startTime), lens.angle));
+  const inLens = todos.filter(t => inWindow(timeAngle(t.startTime), lens.angle)).sort((a, b) => a.startTime.localeCompare(b.startTime));
   // Pills alternate lanes when their times sit close together so the titles never overlap.
   const lanes = inLens.map((t, i) => (i && lensAngle(timeAngle(t.startTime), lens.angle) - lensAngle(timeAngle(inLens[i - 1].startTime), lens.angle) < 11 ? [LENS.pill, LENS.pill - 0.13, LENS.pill + 0.13][i % 3] : LENS.pill));
   // Pills grow outward from their anchor (away from the dial centre) so they never cover the dot.
@@ -79,7 +79,7 @@ function Lens({ lens, half, todos, teams }) {
     </svg>
     {ticks.filter(mm => mm % 15 === 0).map(mm => <span key={mm} className="lens-time" style={pos(lensAngle(mm / 2, lens.angle), 1.17)}>{clockLabel(mm)}</span>)}
     <span className="lens-range" style={pos(lens.angle - LENS.span / 2 + 7, LENS.inner + 0.12)}>{clockLabel(centreMinutes - windowMinutes / 2)} – {clockLabel(centreMinutes + windowMinutes / 2)}</span>
-    {inLens.map((t, i) => { const deg = lensAngle(timeAngle(t.startTime), lens.angle); return <div key={t.id} className={'clock-lens-task' + (t.status === 'done' ? ' done' : '')} style={{ ...pos(deg, lanes[i] - 0.12), transform: outward(deg), '--team': color(t) }}><time>{t.startTime}</time>{compactTitle(t.title, 28)}</div>; })}
+    {inLens.map((t, i) => { const deg = lensAngle(timeAngle(t.startTime), lens.angle); return <div key={t.id} className={'clock-lens-task' + (t.status === 'done' ? ' done' : '')} style={{ ...pos(deg, lanes[i] - 0.12), transform: outward(deg), '--team': color(t) }}><time>{t.label || t.startTime}</time>{compactTitle(t.title, 28)}</div>; })}
   </div>;
 }
 
@@ -266,7 +266,7 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
           {half === current && <Hands h={h} m={m} seconds={seconds} />}
           {here && <div className="drop-time">{here}<small>{pendingTodo ? '눌러서 시간 배정' : '놓으면 시간 배정'}</small></div>}
         </div>
-        {lens?.half === half && !hover && <Lens lens={lens} half={half} todos={own} teams={db.teams} />}
+        {lens?.half === half && !hover && <Lens lens={lens} half={half} todos={lensItems(scheduled, half, lens.angle * 2, sliceOf)} teams={db.teams} />}
       </div>
     </div>;
   };

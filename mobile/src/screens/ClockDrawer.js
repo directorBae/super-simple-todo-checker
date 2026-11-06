@@ -9,7 +9,7 @@ import { LENS, PILL, aimAngle, at, compactTitle, estimatePill, halfOf, lensGlass
 import * as Haptics from 'expo-haptics';
 import { todosOn, spanPatch, addDay } from '../../../shared/multi-day.js';
 import { toRange, fromRange } from '../../../shared/schedule-span.js';
-import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, DAY_MIN } from '../../../shared/clock-span.js';
+import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, lensItems, DAY_MIN } from '../../../shared/clock-span.js';
 
 const pad=n=>String(n).padStart(2,'0');
 const ACCENT_2='#8b5cf6';
@@ -20,7 +20,7 @@ function timeAt(x,y,size,half) {
  const minutes=Math.round(angle/(Math.PI*2)*720/15)*15%720+half*720;
  return `${pad(Math.floor(minutes/60))}:${pad(minutes%60)}`;
 }
-const pillKey=(t,max)=>`${t.id}|${t.startTime}|${t.title}|${t.status}|${max}`;
+const pillKey=(t,max)=>`${t.id}|${t.label||t.startTime}|${t.title}|${t.status}|${max}`;
 
 // The dial face (ticks, numbers, the day's dots, the hands). Memoised so a finger sliding the lens around
 // only redraws the lens, not two full dials, on every move.
@@ -65,7 +65,7 @@ function GlassShapes({glass}) {
 // Text is laid out natively at its real size (never a scaled picture), on one line.
 function Pill({t,d,style,onLayout}) {
  return <View onLayout={onLayout} style={[{flexDirection:'row',alignItems:'center',height:PILL.height,paddingLeft:PILL.pad,paddingRight:PILL.padRight,borderRadius:11,backgroundColor:'#ffffffee',borderLeftWidth:PILL.bar,borderLeftColor:t.color},style]}>
-  <Text style={{fontSize:PILL.timeSize,fontWeight:'700',color:d.accent,fontVariant:['tabular-nums'],marginRight:PILL.gap,opacity:t.status==='done'?0.55:1}}>{t.startTime}</Text>
+  <Text style={{fontSize:PILL.timeSize,fontWeight:'700',color:d.accent,fontVariant:['tabular-nums'],marginRight:PILL.gap,opacity:t.status==='done'?0.55:1}}>{t.label||t.startTime}</Text>
   <Text numberOfLines={1} style={{flexShrink:1,fontSize:PILL.titleSize,fontWeight:'500',color:d.text,textDecorationLine:t.status==='done'?'line-through':'none',opacity:t.status==='done'?0.55:1}}>{compactTitle(t.title)}</Text>
  </View>;
 }
@@ -157,8 +157,9 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
  const releaseEnd=()=>setStretch(s=>{if(s?.st.end!=null){const f=fromRange({start:s.startMs,end:s.st.end,timed:true});api.updateTodo(s.id,spanPatch(s.todo,f));setNotice(`${f.endDate?f.endDate.slice(5).replace('-','/')+' ':''}${f.endTime}까지 · ${s.todo.title}`);}return null;});
  const glass={borderWidth:1,borderColor:d.edge,overflow:'hidden'};
  const toast=pending?pending.title:notice;
- const sizes=t=>measured[pillKey(t,pillMax)]||estimatePill(t.startTime,t.title,pillMax);
- const unmeasured=visible?timed.filter(t=>!measured[pillKey(t,pillMax)]):[];
+ const sizes=t=>measured[pillKey(t,pillMax)]||estimatePill(t.label||t.startTime,t.title,pillMax);
+ const lensTodos=half=>lens?.half===half?lensItems(parts,half,lens.angle*2,t=>t.span?.allDay?{s:0,e:DAY_MIN}:slice(t)).map(t=>({...t,color:teamColor(t)})):[];
+ const unmeasured=visible?(lens?lensTodos(lens.half):timed).filter(t=>!measured[pillKey(t,pillMax)]):[];
  // Where the lens' labels may go, in the dial's frame: the sheet's width, below the close button, above the bottom.
  const boundsOf=half=>{const side=(box.width-size)/2,f=frames.current[half],top=f?f.top-origin.current.y:null;
   return {minX:-side+8,maxX:size+side-8,minY:top==null?-size*0.4:-top+52,maxY:top==null?size*1.4:box.height-top-10};};
@@ -186,7 +187,7 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
      </>}
     </View>
     {aiming?.half===half&&<View pointerEvents="none" style={{position:'absolute',top:size/2-20,left:size/2-44,width:88,height:40,borderRadius:20,alignItems:'center',justifyContent:'center',backgroundColor:'#ffffffe6',borderWidth:1,borderColor:d.edge}}><Text style={{fontSize:18,fontWeight:'800',color:d.accent,fontVariant:['tabular-nums']}}>{aiming.time}</Text></View>}
-    {lens?.half===half&&size>0&&<Lens lens={lens} half={half} size={size} todos={own} d={d} sizes={sizes} bounds={boundsOf(half)}/>}
+    {lens?.half===half&&size>0&&<Lens lens={lens} half={half} size={size} todos={lensTodos(half)} d={d} sizes={sizes} bounds={boundsOf(half)}/>}
    </View>
   </View>;
  };

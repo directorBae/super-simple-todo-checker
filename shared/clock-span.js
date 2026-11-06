@@ -48,3 +48,16 @@ export function placeOf(ms, day) {
   const days = Math.round((new Date(local.getFullYear(), local.getMonth(), local.getDate()) - base) / 86_400_000);
   return { half: local.getHours() >= 12 ? 1 : 0, days };
 }
+
+// The hover lens shows every to-do whose arc runs through it, not only those starting there: each at the point of its
+// arc nearest the lens' centre (`centre`: minutes on that dial), labelled with its whole time range.
+const hhmm = (m) => { const v = Math.floor(m); return `${String(Math.floor(v / 60) % 24).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`; };
+export function lensItems(parts, half, centre, sliceOf = slice) {
+  return parts.map((t) => {
+    const sl = sliceOf(t), p = sl && onHalf(sl, half);
+    if (!p) return null;
+    const anchor = p.b == null ? p.a : Math.min(p.b - 0.5, Math.max(p.a, centre));
+    const range = t.span?.allDay ? '종일' : t.endTime ? `${t.startTime || '00:00'}–${t.endTime}` : t.startTime;
+    return { ...t, startTime: hhmm(anchor + half * HALF_MIN), label: range + (t.span ? ` · ${t.span.n}일차` : '') };
+  }).filter(Boolean);
+}
