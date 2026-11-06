@@ -4,6 +4,7 @@ import { TodoEditor, TeamControl, RepeatEditor, repeatLabel } from '../component
 import { SourceMark } from '../icons.jsx';
 import { compactTitle } from '../focus-utils.mjs';
 import { lineSort, teamSort, teamGroups, cycleTeam } from '../../../shared/todo-drop.js';
+import { onDay, todosOn, spanDates, dayTitle, toggleDayPatch } from '../../../shared/multi-day.js';
 import { useTodoDrag } from './useTodoDrag.js';
 import { Typed } from '../typing.jsx';
 import {
@@ -132,6 +133,8 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
   const project = db.projects.find((p) => p.id === todo.projectId);
   const isDone = todo.status === 'done';
   const hl = importantHighlight(todo, db);
+  // A day's part of a multi-day to-do (shared/multi-day.js): the to-do itself, for checking that day.
+  const whole = todo.span ? db.todos.find((t) => t.id === todo.id) || todo : todo;
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -199,16 +202,17 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
 
   return (
     <div
-      className={'memo-line' + (isDone ? ' is-done' : '') + (indent ? ' indent' : '') + (hl ? ' hl' : '') + (selected ? ' is-selected' : '')}
+      className={'memo-line' + (isDone ? ' is-done' : '') + (indent ? ' indent' : '') + (hl ? ' hl' : '') + (selected ? ' is-selected' : '') + (todo.span ? ' is-span' : '')}
       aria-selected={selected || undefined}
       data-todo-id={todo.id}
+      data-span-day={todo.span ? todo.span.day : undefined}
       style={hl ? { '--hl': hl } : undefined}
     >
       <div className="memo-line-main">
         <input
           type="checkbox"
           checked={isDone}
-          onChange={() => window.api.updateTodo(todo.id, { status: isDone ? 'todo' : 'done' })}
+          onChange={() => window.api.updateTodo(todo.id, todo.span ? toggleDayPatch(whole, todo.span.day) : { status: isDone ? 'todo' : 'done' })}
         />
         {editing && pickedTeam !== undefined && <TeamTag team={db.teams.find((t) => t.id === pickedTeam)} />}
         {editing ? (
@@ -240,7 +244,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
           />
         ) : (
           <span className="memo-title" title={todo.title} onClick={onStartEdit}>
-            <Typed id={todo.id} text={compactTitle(todo.title)} />
+            <Typed id={todo.id} text={compactTitle(todo.title)} />{todo.span && <span className="span-day">({todo.span.n}일차)</span>}
           </span>
         )}
 
@@ -248,9 +252,9 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
         {/* The empty stretch of the row: press and move here to drag it (on touch, only here). */}
         <span className="memo-grab" aria-hidden="true" />
         <span className="memo-right">
-          {(todo.startTime || todo.endTime) && (
+          {(todo.startTime || todo.endTime || todo.span?.allDay) && (
             <span className="meta">
-              {todo.startTime || ''}
+              {todo.span?.allDay ? '종일' : todo.startTime || ''}
               {todo.endTime ? `~${todo.endTime}` : ''}
             </span>
           )}
@@ -561,7 +565,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
   const headRef = useRef(null);
   const teamInputs = useRef({});
   const pendingTeamFocus = useRef(null);
-  const items = [...db.todos.filter((t) => t.kind === kind && t.date === date && t.status !== 'bucket')].sort(lineSort);
+  const items = [...todosOn(db.todos.filter((t) => t.kind === kind && t.status !== 'bucket'), date)].sort(lineSort);
 
   const events =
     kind === 'todo'
@@ -813,15 +817,58 @@ function calChip(t, db, showTime = false) {
   return (
     <div
       key={t.id}
-      className={'cal-chip' + (t.status === 'done' ? ' chip-done' : '') + (hl ? ' chip-hl' : '')}
+      className={'cal-chip' + (t.status === 'done' ? ' chip-done' : '') + (hl ? ' chip-hl' : '') + (t.span ? ' chip-span' + (t.span.first ? ' first' : '') + (t.span.last ? ' last' : '') : '')}
       data-todo-id={t.id}
+      data-span-day={t.span ? t.span.day : undefined}
       style={hl ? { borderLeftColor: edge, '--hl': hl } : { borderLeftColor: edge }}
-      title={t.title}
+      title={dayTitle(t)}
     >
       {showTime && t.startTime && <span className="cal-chip-time">{t.startTime}</span>}
-      <span className="cal-chip-title"><Typed id={t.id} text={compactTitle(t.title)} /></span><SourceMark todo={t} size={12} />
+      <span className="cal-chip-title"><Typed id={t.id} text={compactTitle(t.title)} />{t.span && <span className="span-day"> {t.span.n}일차</span>}</span><SourceMark todo={t} size={12} />
     </div>
   );
+}
+
+/* Multi-day to-dos in the day list: a hair-thin line just outside the list's left edge joins a to-do's parts from one
+   day to the next, with a short glow running along it like a meteor. Pointing at (or selecting) one of its lines
+   makes it clearer. Redrawn whenever the list changes size or the to-dos change. */
+function SpanTrails({ rootRef, db, selection }) {
+  const [trails, setTrails] = useState([]), [hover, setHover] = useState(null), [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    let frame = 0;
+    const draw = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const base = root.getBoundingClientRect(), groups = {};
+        for (const el of root.querySelectorAll('.memo-line.is-span')) (groups[el.dataset.todoId] ||= []).push(el);
+        const out = [];
+        for (const [id, els] of Object.entries(groups)) {
+          if (els.length < 2) continue;
+          const pts = els.map((el) => { const r = el.getBoundingClientRect(); return { x: r.left - base.left, y: r.top - base.top + Math.min(r.height, 34) / 2 }; });
+          const x = Math.min(...pts.map((p) => p.x)) - 9;
+          // In from each line's edge, down the side, out to the next line's edge.
+          const d = pts.map((p, i) => (i === 0 ? `M${p.x - 2} ${p.y} Q${x} ${p.y} ${x} ${p.y + 8}` : `L${x} ${p.y - 8} Q${x} ${p.y} ${p.x - 2} ${p.y}${i < pts.length - 1 ? ` M${p.x - 2} ${p.y} Q${x} ${p.y} ${x} ${p.y + 8}` : ''}`)).join(' ');
+          const team = db.teams.find((t) => t.id === db.todos.find((x) => x.id === id)?.teamId);
+          out.push({ id, d, color: team?.color || 'var(--accent)' });
+        }
+        setTrails(out); setSize({ w: root.scrollWidth, h: root.scrollHeight });
+      });
+    };
+    draw();
+    const ro = new ResizeObserver(draw); ro.observe(root);
+    const over = (e) => setHover(e.target.closest?.('.memo-line.is-span')?.dataset.todoId || null);
+    root.addEventListener('pointerover', over);
+    return () => { cancelAnimationFrame(frame); ro.disconnect(); root.removeEventListener('pointerover', over); };
+  }, [db.todos, db.teams]);
+  if (!trails.length) return null;
+  return <svg className="span-trails" width={size.w} height={size.h} aria-hidden="true">
+    {trails.map((t) => { const on = hover === t.id || selection?.has?.(t.id); return <g key={t.id} className={'span-trail' + (on ? ' on' : '')} style={{ '--trail': t.color }}>
+      <path className="span-trail-line" d={t.d} pathLength="100" />
+      <path className="span-trail-pulse" d={t.d} pathLength="100" />
+    </g>; })}
+  </svg>;
 }
 
 function MonthView({ db, kind, ym, setYm, openDay, toggle }) {
@@ -836,7 +883,7 @@ function MonthView({ db, kind, ym, setYm, openDay, toggle }) {
   const byDate = {};
   for (const t of db.todos) {
     if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
-    (byDate[t.date] = byDate[t.date] || []).push(t);
+    for (const day of spanDates(t)) (byDate[day] = byDate[day] || []).push(onDay(t, day));
   }
   // Chips follow the teams (no names here, just the order).
   for (const list of Object.values(byDate)) list.sort(teamSort(db));
@@ -907,7 +954,7 @@ function WeekView({ db, kind, weekOf, setWeekOf, openDay, toggle }) {
   const byDate = {};
   for (const t of db.todos) {
     if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
-    (byDate[t.date] = byDate[t.date] || []).push(t);
+    for (const day of spanDates(t)) (byDate[day] = byDate[day] || []).push(onDay(t, day));
   }
   const a = dateParts(days[0]), b = dateParts(days[6]);
   return (
@@ -1177,6 +1224,7 @@ export default function MemoBoard({ db, kind = 'todo', onOpenTeams }) {
         </div>
       ) : (
         <>
+          <SpanTrails rootRef={rootRef} db={db} selection={selection} />
           {dates.map((date, i) => {
             const p = dateParts(date);
             const showMonth = i === 0 || p.d === 1;

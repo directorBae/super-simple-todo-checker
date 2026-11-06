@@ -1,4 +1,5 @@
 import React from 'react';
+import { todosOn } from '../../../shared/multi-day.js';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../text.js';
 import { useDesign } from '../design.js';
@@ -28,7 +29,7 @@ export default function WeekView({ db, weekOf, setWeekOf, openDay, toggle }) {
     <View style={{ gap: 5 }}>
       {days.map((date, i) => {
         const isToday = date === today;
-        const list = db.todos.filter((t) => t.date === date && t.status !== 'bucket').sort(teamSort(db)); // grouped by team
+        const list = todosOn(db.todos.filter((t) => t.status !== 'bucket'), date).sort(teamSort(db)); // grouped by team; multi-day ones on each of their days
         return <Pressable key={date} accessibilityLabel={`${parts(date).m}월 ${parts(date).d}일`} onPress={() => openDay(date)}
           style={[styles.day, { backgroundColor: isToday ? T.input : T.fill, borderColor: isToday ? T.accent + '55' : 'transparent' }]}>
           <View style={styles.head}>

@@ -157,7 +157,7 @@ export function DbProvider({ children }) {
         update((d) => {
           const t = d.todos.find((x) => x.id === todoId);
           if (t) {
-            const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder'];
+            const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder', 'doneDays'];
             Object.assign(t, Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k))));
             t.kind = 'todo';
             t.updatedAt = Math.max(Date.now(), (t.updatedAt || 0) + 1);

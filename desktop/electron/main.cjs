@@ -236,7 +236,7 @@ function registerIpc() {
     if (!t) return publicState();
     const before = snap(t);
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
-    const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder'];
+    const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder', 'doneDays'];
     if ('title' in patch) {
       if (!String(patch.title || '').trim()) return publicState();
       patch = { ...patch, ...titleFields(patch.title, patch.notes ?? t.notes ?? '') };

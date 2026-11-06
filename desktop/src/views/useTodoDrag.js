@@ -77,7 +77,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       if (row && root.contains(row)) {
         if (p.ids.includes(row.dataset.todoId)) return null;
         const r = row.querySelector('.memo-line-main').getBoundingClientRect();
-        return { kind: 'line', targetId: row.dataset.todoId, after: y > r.top + r.height / 2, rect: r };
+        return { kind: 'line', targetId: row.dataset.todoId, targetDay: row.dataset.spanDay, after: y > r.top + r.height / 2, rect: r };
       }
       const day = el.closest('.memo-day');
       if (day && root.contains(day)) return { kind: 'day', date: day.id.slice(4), el: day.querySelector('.memo-head') };
@@ -92,6 +92,8 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       if (!p.chip && sel.has(p.id)) ids = order().filter((id) => sel.has(id));
       else if (!p.chip && !p.touch) set([p.id]);
       p.ids = ids; p.started = true;
+      // The day of a multi-day to-do's part that was picked up (it lands where it is dropped; the span moves along).
+      p.fromDays = p.el.dataset.spanDay ? { [p.id]: p.el.dataset.spanDay } : {};
       const todo = live.current.db.todos.find((t) => t.id === p.id);
       ghost = document.createElement('div');
       ghost.className = 'todo-drag-ghost';
@@ -158,7 +160,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       if (!t) return;
       if (t.kind === 'trash') { trash(live.current.db.todos.filter((x) => ids.includes(x.id))); if (ids.length > 1) set([]); return; }
       if (t.kind === 'clock') { window.dispatchEvent(new CustomEvent('checker:clock-pointer-drop', { detail: { ids, id: ids[0], x, y } })); return; }
-      const patches = dropPatches(live.current.db, ids, t);
+      const patches = dropPatches(live.current.db, ids, t, undefined, p.fromDays || {});
       await Promise.all(patches.map(({ id, patch }) => window.api.updateTodo(id, patch)));
     };
     const cleanup = () => {

@@ -2,6 +2,7 @@
 // name on its own line as the heading for the lines under it (lines before any heading have no team). After editing,
 // the text is matched back to the to-dos — unchanged and edited lines keep their to-do (and with it its time,
 // done state and links), new lines become to-dos and missing ones are deleted. Pure, so it can be unit-tested.
+import { todosOn } from './multi-day.js';
 export const TITLE_MAX = 50;
 const teamOf = (todo, db) => {
   const p = db.projects.find((x) => x.id === todo.projectId), id = (p && p.teamId) || todo.teamId || null;
@@ -11,8 +12,9 @@ const teamOf = (todo, db) => {
 const order = (a, b) => (a.sortOrder ?? a.createdAt ?? 0) - (b.sortOrder ?? b.createdAt ?? 0) || String(a.id).localeCompare(String(b.id));
 
 // The day in reading order: [{ team: null|team, todos: [...] }], lines without a team first, then each team in order.
-export function dayGroups(db, date) {
-  const items = db.todos.filter((t) => (t.date || null) === date && t.status !== 'bucket').sort(order);
+// { spans: true } also shows the day's parts of multi-day to-dos (shared/multi-day.js) — for showing the day only.
+export function dayGroups(db, date, { spans = false } = {}) {
+  const items = (spans ? todosOn(db.todos.filter((t) => t.status !== 'bucket'), date) : db.todos.filter((t) => (t.date || null) === date && t.status !== 'bucket')).sort(order);
   return [{ team: null, todos: items.filter((t) => !teamOf(t, db)) }, ...db.teams.map((team) => ({ team, todos: items.filter((t) => teamOf(t, db) === team.id) }))]
     .filter((g) => g.todos.length);
 }

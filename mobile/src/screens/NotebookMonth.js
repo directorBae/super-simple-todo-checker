@@ -1,4 +1,5 @@
 import { SourceMark } from '../SourceIcons.js';
+import { onDay, spanDates } from '../../../shared/multi-day.js';
 import React from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../text.js';
@@ -21,7 +22,7 @@ export default function MonthView({ db, ym, setYm, openDay, toggle }) {
   const byDate = {};
   for (const t of db.todos) {
     if (t.kind !== kind || t.status === 'bucket' || !t.date) continue;
-    (byDate[t.date] = byDate[t.date] || []).push(t);
+    for (const day of spanDates(t)) (byDate[day] = byDate[day] || []).push(onDay(t, day));
   }
   for (const list of Object.values(byDate)) list.sort(teamSort(db)); // grouped by team, like the day list
 

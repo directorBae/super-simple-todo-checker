@@ -1,3 +1,4 @@
+import { moveToDate, covers } from './multi-day.js';
 // Where dragged notebook rows land: reorder inside a day, move into/out of a team, or onto another date.
 // Pure so the same rules are shared by the desktop/web notebook and the phone app, and unit-tested.
 
@@ -52,13 +53,15 @@ const teamPatch = (todo, teamId, db) => {
 
 /*
  * drop:
- *   { kind: 'line', targetId, after }  — next to another line (takes its day and team)
+ *   { kind: 'line', targetId, after, targetDay? }  — next to another line (takes its day and team; targetDay: the
+ *                                        day of the multi-day part it was dropped by)
  *   { kind: 'team', teamId, date? }    — into a team (with a date: at the end of that day's group)
  *   { kind: 'day', date }              — onto a day outside any team (out of the team)
  *   { kind: 'date', date }             — onto a calendar cell (date only)
  * `sort` is the order the caller shows lines in. Returns [{ id, patch }] with only the fields that change.
  */
-export function dropPatches(db, ids, drop, sort = lineSort) {
+// fromDays: { [id]: the day whose part was dragged } for multi-day to-dos (shared/multi-day.js moves the whole span).
+export function dropPatches(db, ids, drop, sort = lineSort, fromDays = {}) {
   const moving = ids.map((id) => db.todos.find((t) => t.id === id)).filter(Boolean);
   if (!moving.length || !drop) return [];
   const out = new Map();
@@ -68,7 +71,7 @@ export function dropPatches(db, ids, drop, sort = lineSort) {
   };
 
   if (drop.kind === 'date') {
-    for (const t of moving) put(t, { date: drop.date });
+    for (const t of moving) put(t, { date: t.date, ...moveToDate(t, drop.date, fromDays[t.id]) });
     return [...out].map(([id, patch]) => ({ id, patch }));
   }
   if (drop.kind === 'team' && !drop.date) {
@@ -80,19 +83,19 @@ export function dropPatches(db, ids, drop, sort = lineSort) {
   if (drop.kind === 'line') {
     target = db.todos.find((t) => t.id === drop.targetId);
     if (!target || ids.includes(target.id)) return [];
-    date = target.date; teamId = teamOf(target, db); kind = target.kind;
+    date = drop.targetDay && covers(target, drop.targetDay) ? drop.targetDay : target.date; teamId = teamOf(target, db); kind = target.kind;
   } else {
     date = drop.date; teamId = drop.kind === 'team' ? drop.teamId || null : null; kind = moving[0].kind;
   }
   const group = db.todos
-    .filter((t) => t.kind === kind && t.date === date && t.status !== 'bucket' && !ids.includes(t.id) && teamOf(t, db) === teamId)
+    .filter((t) => t.kind === kind && covers(t, date) && t.status !== 'bucket' && !ids.includes(t.id) && teamOf(t, db) === teamId)
     .sort(sort);
   if (target) index = group.indexOf(target) + (drop.after ? 1 : 0);
   const list = [...group];
   list.splice(Math.min(index, list.length), 0, ...moving);
   list.forEach((t, i) => {
     const patch = { sortOrder: (i + 1) * 1024 };
-    if (moving.includes(t)) Object.assign(patch, { date }, teamPatch(t, teamId, db));
+    if (moving.includes(t)) Object.assign(patch, { date: t.date, ...moveToDate(t, date, fromDays[t.id]) }, teamPatch(t, teamId, db));
     put(t, patch);
   });
   return [...out].map(([id, patch]) => ({ id, patch }));

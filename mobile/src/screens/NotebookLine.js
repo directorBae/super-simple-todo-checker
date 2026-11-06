@@ -12,6 +12,7 @@ import { touch } from '../gesture.js';
 import { cycleTeam } from '../../../shared/todo-drop.js';
 import { CHAR_MS, ERASE_MS, rewriteAt, TICK_MS, CHIP_MS, CARET_MS, STRIKE_MS, FOLD_MS } from '../import-typing.js';
 import repeatEngine from '../../../shared/repeat.cjs';
+import { toggleDayPatch } from '../../../shared/multi-day.js';
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const teamOf = (todo, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return (p && p.teamId) || todo.teamId || null; };
 // A project tied to another team would override the new team, so the link is dropped.
@@ -113,7 +114,7 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    const parts=splitLine(text,todo,next), head=parts[0];
    if(head.title.trim()) api.updateTodo(todo.id,{ title:head.title, sortOrder:head.sortOrder }); else api.deleteTodo(todo.id);
    let focusId=null;
-   parts.slice(1).forEach(p => { if(p.title.trim()) { focusId=newId(); api.addTodo({ ...todo, id:focusId, title:p.title, sortOrder:p.sortOrder, status:'todo', startTime:null, endTime:null }); } });
+   parts.slice(1).forEach(p => { if(p.title.trim()) { focusId=newId(); api.addTodo({ ...todo, span:undefined, endDate:null, doneDays:undefined, date:todo.span?.day ?? todo.date, id:focusId, title:p.title, sortOrder:p.sortOrder, status:'todo', startTime:null, endTime:null }); } });
    setValue(head.title);
    // The caret goes to the new line right below (never down to the day's last line).
    onFocusLine(focusId ? { id:focusId, position:0 } : { id:'after:'+todo.id });
@@ -150,16 +151,16 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
    <GestureDetector gesture={gesture} enabled={!editing}>
    <Animated.View accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={todo.title} accessibilityHint="눌러서 고치기 · 글자를 꾹 눌러 쓸면 여러 줄 선택 · 빈 곳을 꾹 눌러 옮기기" style={{ transform:translate.getTranslateTransform(), opacity:carried?0.35:1, borderRadius:16,borderWidth:1,borderColor:selected||busy==='glow'?'#ffffffcc':busy==='type'?'#c4b5fdcc':editing||lifted?d.edge:'transparent',backgroundColor:lifted ? '#ffffffd9' : selected ? '#c4b5fd73' : editing||busy==='type' ? '#ffffff8c' : busy==='glow' ? '#c4b5fd59' : 'transparent', shadowColor:'#1e1b4b',shadowOpacity:lifted?0.18:0,shadowRadius:12,shadowOffset:{ width:0,height:6 },elevation:lifted?6:0 }}>
    <View pointerEvents="box-none" style={{ flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:6,paddingVertical:5 }}>
-    <Check done={done} d={d} pop={ticking ? pop : null} label={todo.title+' 완료'} onPress={() => api.updateTodo(todo.id,{ status:todo.status==='done'?'todo':'done' })} />
+    <Check done={done} d={d} pop={ticking ? pop : null} label={todo.title+' 완료'} onPress={() => api.updateTodo(todo.id, todo.span ? toggleDayPatch(db.todos.find(t => t.id===todo.id) || todo, todo.span.day) : { status:todo.status==='done'?'todo':'done' })} />
     {/* Narrow text that wraps onto more lines; the rest of the line is free to hold and move. */}
     {editing && picked !== undefined && <TeamTag team={db.teams.find(t => t.id === picked)} d={d} />}
     {editing
       ? <TextInput ref={input} accessibilityLabel={'할 일 '+todo.title} inputAccessoryViewID={Platform.OS==='ios' ? 'team-'+todo.id : undefined} maxLength={50} value={value} onChangeText={change} onKeyPress={backspace} onSelectionChange={e => { sel.current=e.nativeEvent.selection; }} multiline scrollEnabled={false} submitBehavior="newline" onBlur={() => { if(!value.trim()) api.deleteTodo(todo.id); else if(picked !== undefined && picked !== (teamOf(todo, db) || null)) api.updateTodo(todo.id, teamPatch(todo, picked, db)); onEndEdit(todo); }} style={{ ...textStyle, flex:1, maxWidth:'82%' }} />
       : typed?.mode==='write' ? <WrittenTitle key={typed.key} from={typed.from} to={typed.to} linger={typed.from===typed.to ? 240 : CARET_MS} style={textStyle} accent={d.accent} onLayout={layoutText} onDone={written} />
-      : <Text onLayout={layoutText} style={{ ...textStyle, paddingVertical:2, opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.title}</Text>}
+      : <Text onLayout={layoutText} style={{ ...textStyle, paddingVertical:2, opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.title}{todo.span ? <Text style={{ fontSize:12,color:d.muted }}> ({todo.span.n}일차)</Text> : null}</Text>}
     {!!typed?.chip && (typed.mode==='write' || typed.mode==='glow') && <MoveChip key={typed.key} text={typed.chip} d={d} />}
     <View style={{ flex:1,alignSelf:'stretch',minWidth:28 }} />
-    {!!face.startTime && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'],opacity:typed?.mode==='wait' ? 0 : 1 }}>{face.startTime}{face.endTime?`~${face.endTime}`:''}</Text>}
+    {(!!face.startTime || !!todo.span?.allDay) && <Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'],opacity:typed?.mode==='wait' ? 0 : 1 }}>{todo.span?.allDay ? '종일' : face.startTime}{face.endTime?`~${face.endTime}`:''}</Text>}
     {editing ? <Pressable accessibilityRole="button" accessibilityLabel={todo.title+' 반복'+(todo.repeat?' · '+repeatEngine.describe(todo.repeat):'')} hitSlop={8} onPress={() => onRepeat?.(todo)}><Icon name="repeat" size={15} color={todo.repeat?d.accent:d.muted} /></Pressable>
       : !!todo.repeat && <View accessibilityLabel={repeatEngine.describe(todo.repeat)+' 반복'}><Icon name="repeat" size={13} color={d.muted} /></View>}
     <Pressable onLayout={e => { box.current.calX = e.nativeEvent.layout.x; }} accessibilityLabel={todo.title+' 날짜'} hitSlop={8} onPress={() => onDate(todo)}><Icon name="calendar" size={15} color={d.muted} /></Pressable>

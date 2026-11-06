@@ -114,7 +114,7 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     }
     const input = action === 'add' ? p : p.patch;
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw error('항목 내용을 확인해 주세요.');
-    const fields = kind === 'todo' ? ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'channel', 'status', 'important', 'sortOrder'] : kind === 'team' ? ['name', 'color', 'important'] : ['name', 'notes', 'teamId', 'term', 'status', 'important'];
+    const fields = kind === 'todo' ? ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'channel', 'status', 'important', 'sortOrder', 'doneDays'] : kind === 'team' ? ['name', 'color', 'important'] : ['name', 'notes', 'teamId', 'term', 'status', 'important'];
     const patch = Object.fromEntries(Object.entries(input).filter(([key]) => fields.includes(key)));
     const item = action === 'add' ? { id: randomUUID(), createdAt: Date.now(), ...(kind === 'todo' ? { kind: 'todo', origin: { type: 'app' }, title: '', notes: '', date: null, startTime: null, endTime: null, teamId: null, projectId: null, status: 'todo', timeZone: config.timeZone || 'Asia/Seoul' } : {}) } : old;
     if ('title' in patch) {

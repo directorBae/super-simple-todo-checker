@@ -9,6 +9,8 @@ import { lineOrder } from '../notepad.js';
 import { dropPatches } from '../../../shared/todo-drop.js';
 import { TaskLine, LeavingLine, DateSheet, RepeatSheet } from './NotebookLine.js';
 import { dayGroups } from '../../../shared/notepad-diff.js';
+import { SpanTrails } from './SpanTrails.js';
+import { isMultiDay } from '../../../shared/multi-day.js';
 import MonthView from './NotebookMonth.js';
 import WeekView from './NotebookWeek.js';
 import { onOutsideTap } from '../gesture.js';
@@ -62,7 +64,7 @@ function DaySection({ date, db, api, focus, setFocus, onDate, onRepeat, onGrab, 
  useEffect(()=>{if(!pill)return;return onOutsideTap(()=>{if(Date.now()-pillAt.current>350)setPill(false);});},[pill]);
  useEffect(()=>{const id=pendingTeam.current;if(!id)return;pendingTeam.current=null;setTimeout(()=>teamInputs.current[id]?.focus(),60);});
  // Lines the AI removed or moved away still show at their old place until their turn (typing.ghosts, LeavingLine).
- const ghosts=typing.ghosts(date), shown=dayGroups(ghosts.length?{...db,todos:[...db.todos,...ghosts]}:db,date), items=shown.flatMap(g=>g.todos).filter(t=>!t.ghost);
+ const ghosts=typing.ghosts(date), shown=dayGroups(ghosts.length?{...db,todos:[...db.todos,...ghosts]}:db,date,{spans:true}), items=shown.flatMap(g=>g.todos).filter(t=>!t.ghost);
  const groups=[...shown.filter(g=>!g.team),...db.teams.map(t=>shown.find(g=>g.team?.id===t.id)||(allTeams?{team:t,todos:[]}:null)).filter(Boolean)];
  const ordered=groups.flatMap(g=>g.todos).filter(t=>!t.ghost), isToday=date===todayStr();
  const part=date?dateParts(date):null;
@@ -88,7 +90,7 @@ function DaySection({ date, db, api, focus, setFocus, onDate, onRepeat, onGrab, 
   </View>
   {groups.map(g=><View key={g.team?.id||'none'}>
    {g.team&&<View style={{flexDirection:'row',alignItems:'center',gap:6,marginTop:8,marginBottom:2}}><View style={{width:7,height:7,borderRadius:4,backgroundColor:g.team.color}}/><Text style={{fontSize:12,fontWeight:'700',color:g.team.important?g.team.color:d.muted}}>{g.team.name}{g.team.important?' ★':''}</Text></View>}
-   {g.todos.map((todo,k)=>{if(todo.ghost)return <View key={todo.id} style={{marginLeft:g.team?16:0}}><LeavingLine todo={todo} show={typing.ghostShow(todo.ghost)} rowRef={ref=>typing.ghostRef(todo.ghost,ref)} onDone={typing.done}/></View>;const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} db={db} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onRepeat={onRepeat} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} typing={typing.of(todo.id)} onTyped={typing.done} />{focus?.id==='after:'+todo.id&&<LineBelow key={'below'+focus.nonce} anchor={todo} next={g.todos[k+1]} date={date} api={api} setFocus={setFocus} reveal={reveal}/>}</View>;})}
+   {g.todos.map((todo,k)=>{if(todo.ghost)return <View key={todo.id} style={{marginLeft:g.team?16:0}}><LeavingLine todo={todo} show={typing.ghostShow(todo.ghost)} rowRef={ref=>typing.ghostRef(todo.ghost,ref)} onDone={typing.done}/></View>;const i=ordered.findIndex(t=>t.id===todo.id);return <View key={todo.id} collapsable={false} ref={todo.span?(r=>{const k='span:'+todo.id+'@'+todo.span.day;if(r)rows.current[k]=r;else delete rows.current[k];}):undefined} style={{marginLeft:g.team?16:0}}><TaskLine reveal={reveal} todo={todo} db={db} api={api} previous={ordered[i-1]} next={ordered[i+1]} editing={focus?.id===todo.id} caret={focus?.id===todo.id?focus.position:null} onEdit={t=>focusLine({id:t.id,position:t.title.length})} onEndEdit={t=>setFocus(f=>f?.id===t.id?null:f)} onFocusLine={focusLine} rowRef={ref=>{rows.current[todo.id]=ref;}} onDate={onDate} onRepeat={onRepeat} onGrab={onGrab} onStart={onStart} onDrop={onDrop} onMove={onMove} selected={selection.has(todo.id)} selecting={selection.size>0} onSelectStart={onSelectStart} onSelectMove={onSelectMove} onSelectEnd={onSelectEnd} onToggle={onToggle} typing={typing.of(todo.id)} onTyped={typing.done} />{focus?.id==='after:'+todo.id&&<LineBelow key={'below'+focus.nonce} anchor={todo} next={g.todos[k+1]} date={date} api={api} setFocus={setFocus} reveal={reveal}/>}</View>;})}
    {/* Only a team with no lines yet (or the one being typed in) keeps an input row: no empty rows between teams. */}
    {allTeams&&g.team&&(!g.todos.length||typingTeam===g.team.id)&&<TeamAddLine onTyping={on=>setTypingTeam(cur=>on?g.team.id:cur===g.team.id?null:cur)} team={g.team} date={date} api={api} items={items} reveal={reveal} inputRef={el=>{if(el)teamInputs.current[g.team.id]=el;else delete teamInputs.current[g.team.id];}} onNext={()=>nextTeam(g.team.id)}/>}
   </View>)}
@@ -109,7 +111,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  const [focus,setFocus]=useState(null),[selection,setSelection]=useState(()=>new Set()),[dateTodo,setDateTodo]=useState(null),[repeatTodo,setRepeatTodo]=useState(null),[dragging,setDragging]=useState(null),[hover,setHover]=useState(null),[undo,setUndo]=useState(null);
  // A held line is being moved (the list stops scrolling while it is).
  const [grabbing,setGrabbing]=useState(false);
- const scroll=useRef(null),positions=useRef({}),pending=useRef(today),busy=useRef(false),rows=useRef({}),zones=useRef({}),geometry=useRef({rows:[],teams:[]}),activeInput=useRef(null),viewport=useRef(null),scrollY=useRef(0),keyboardTop=useRef(Infinity);
+ const scroll=useRef(null),content=useRef(null),positions=useRef({}),pending=useRef(today),busy=useRef(false),rows=useRef({}),zones=useRef({}),geometry=useRef({rows:[],teams:[]}),activeInput=useRef(null),viewport=useRef(null),scrollY=useRef(0),keyboardTop=useRef(Infinity);
  const dates=useMemo(()=>Array.from({length:range.end-range.start+1},(_,i)=>addDays(today,range.start+i)),[range,today]);
  const reveal=ref=>{if(ref)activeInput.current=ref;setTimeout(()=>{
   const field=activeInput.current?.current;if(!field?.isFocused())return;
@@ -124,7 +126,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  const openDay=date=>{const offset=Math.round((Date.parse(date+'T12:00:00')-Date.parse(today+'T12:00:00'))/864e5);pending.current=date;setRange(r=>({start:Math.min(r.start,offset-7),end:Math.max(r.end,offset+14)}));setView('list');};
  const goToday=()=>{if(view==='month'){const n=new Date();setYm({y:n.getFullYear(),m:n.getMonth()});}else if(view==='week')setWeekOf(today);else if(positions.current[today]!=null)scroll.current?.scrollTo({y:Math.max(0,positions.current[today]-6),animated:true});else openDay(today);};
  const onScroll=e=>{scrollY.current=e.nativeEvent.contentOffset.y;if(busy.current||pending.current||dragging)return;const {contentOffset,contentSize,layoutMeasurement}=e.nativeEvent;if(contentOffset.y+layoutMeasurement.height>contentSize.height-600){busy.current=true;setRange(r=>({...r,end:r.end+14}));}else if(contentOffset.y<200){busy.current=true;setRange(r=>({...r,start:r.start-14}));}};
- const measure=()=>{const g={rows:[],teams:[]};geometry.current=g;Object.entries(rows.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.rows.push({id,x,y,w,h})));Object.entries(zones.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.teams.push({id,x,y,w,h})));};
+ const measure=()=>{const g={rows:[],teams:[]};geometry.current=g;Object.entries(rows.current).forEach(([key,ref])=>{const span=key.startsWith('span:'),[id,day]=span?key.slice(5).split('@'):[key];if(!span&&isMultiDay(db.todos.find(t=>t.id===id)))return;ref?.measureInWindow((x,y,w,h)=>g.rows.push({id,day,x,y,w,h}));});Object.entries(zones.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.teams.push({id,x,y,w,h})));};
  useEffect(()=>{if(dragging){const t=setTimeout(measure,80);return()=>clearTimeout(t);}},[dragging,db.teams]);
  const hit=(items,x,y)=>items.find(r=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h);
  const apply=patches=>patches.forEach(({id,patch})=>api.updateTodo(id,patch));
@@ -167,7 +169,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
   if(clockOpen&&x>=clockLeft){onClockDrop(list,x,y);return;}
   if(hit(geometry.current.teams,x,y)){ids.forEach(id=>api.deleteTodo(id));setUndo({todos:list,action:'delete'});setSelection(new Set());return;}
   const row=hit(geometry.current.rows,x,y);
-  if(row&&!ids.includes(row.id))apply(dropPatches(db,ids,{kind:'line',targetId:row.id,after:y>row.y+row.h/2},lineOrder));
+  if(row&&!ids.includes(row.id))apply(dropPatches(db,ids,{kind:'line',targetId:row.id,targetDay:row.day,after:y>row.y+row.h/2},lineOrder,todo.span?{[todo.id]:todo.span.day}:{}));
  };
  // Dragging to the right edge slides the clock in; back to the left edge slides it away again.
  // Over the clock the dragged line is hidden under the sheet, so the clock draws it (title + the time it would get).
@@ -235,10 +237,13 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
   {view==='week'?<ScrollView contentContainerStyle={{paddingHorizontal:16,paddingBottom:120}}><WeekView db={db} weekOf={weekOf} setWeekOf={setWeekOf} openDay={openDay} toggle={toggle}/></ScrollView>:
    view==='month'?<ScrollView contentContainerStyle={{paddingHorizontal:16,paddingBottom:120}}><MonthView db={db} ym={ym} setYm={setYm} openDay={openDay} toggle={toggle}/></ScrollView>:
    <View ref={viewport} collapsable={false} style={{flex:1}} onTouchStart={()=>{if(typing.current)typing.finishAll();}} onLayout={()=>reveal(activeInput.current)}><GestureScrollView ref={scroll} onContentSizeChange={(w,h)=>{contentH.current=h;reveal(activeInput.current);}} scrollEnabled={!dragging&&!grabbing} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" onScroll={onScroll} scrollEventThrottle={64} maintainVisibleContentPosition={{minIndexForVisible:0}} contentContainerStyle={{paddingHorizontal:16,paddingBottom:160}}>
+    <View ref={content} collapsable={false}>
+    <SpanTrails content={content} rows={rows} db={db} selection={selection} />
     {dates.map((date,i)=><View key={date} onLayout={e=>{positions.current[date]=e.nativeEvent.layout.y;if(pending.current===date&&scroll.current){pending.current=null;const y=Math.max(0,e.nativeEvent.layout.y-6);requestAnimationFrame(()=>scroll.current?.scrollTo({y,animated:false}));}}}>
      {(i===0||date.endsWith('-01'))&&<Text style={{fontSize:12,fontWeight:'600',color:d.muted,paddingVertical:12}}>{dateParts(date).y}년 {dateParts(date).m}월</Text>}
      {section(date)}
     </View>)}
+    </View>
    </GestureScrollView>
    {ghost&&<View pointerEvents="none" style={{position:'absolute',left:Math.max(8,ghost.x-40),top:ghost.y-44,maxWidth:240,flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:8,borderRadius:16,backgroundColor:'#fffffff0',borderWidth:1,borderColor:d.edge,shadowColor:'#1e1b4b',shadowOpacity:0.2,shadowRadius:12,shadowOffset:{width:0,height:6},elevation:8}}>
     <Text numberOfLines={1} style={{flexShrink:1,fontSize:14,color:d.text}}>{ghost.title}</Text>

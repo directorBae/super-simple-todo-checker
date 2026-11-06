@@ -51,3 +51,17 @@
   background: color-mix(in srgb, var(--team, #6366f1) 16%, rgba(255, 255, 255, 0.3)); border: 1px solid color-mix(in srgb, var(--team, #6366f1) 35%, transparent); }
 .edit-team-tag.none { color: var(--muted); background: rgba(255, 255, 255, 0.28); border: 1px dashed rgba(20, 26, 46, 0.18); }
 .edit-team-tag .team-dot { width: 7px; height: 7px; }
+
+/* Multi-day to-dos (n일차): the day number after the title, chips that run on across calendar cells, and the
+   meteor line in the day list that joins a to-do's days. */
+.span-day { margin-left: 5px; font-size: 0.86em; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.cal-chip.chip-span:not(.first) { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
+.cal-chip.chip-span:not(.last) { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
+.memo-wrap { position: relative; }
+.span-trails { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 1; }
+.span-trail-line { fill: none; stroke: var(--trail); stroke-width: 1; stroke-linecap: round; opacity: 0.32; transition: opacity 0.25s, stroke-width 0.25s; }
+.span-trail-pulse { fill: none; stroke: var(--trail); stroke-width: 1.4; stroke-linecap: round; stroke-dasharray: 7 93; opacity: 0.85; filter: drop-shadow(0 0 3px var(--trail)); animation: span-meteor 3.2s linear infinite; }
+.span-trail.on .span-trail-line { opacity: 0.85; stroke-width: 1.6; }
+.span-trail.on .span-trail-pulse { stroke-width: 2.2; opacity: 1; }
+@keyframes span-meteor { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { .span-trail-pulse { animation: none; opacity: 0; } }
