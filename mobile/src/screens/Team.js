@@ -73,9 +73,9 @@ function Invites() {
 function Members({ team }) {
   const w = useWork(), d = useDesign(), me = w.state.me, [emails, setEmails] = useState(''), [note, setNote] = useState(''), [error, setError] = useState('');
   const sorted = [...team.members].sort((a, b) => (b.online - a.online) || (a.status === 'invited') - (b.status === 'invited'));
-  const remove = (m) => Alert.alert(m.id === me.id ? `'${team.name}'에서 나갈까요?` : `${m.name}님을 내보낼까요?`, '', [{ text: '취소', style: 'cancel' }, { text: m.id === me.id ? '나가기' : '내보내기', style: 'destructive', onPress: () => run(setError, () => w.removeMember(team.id, m.email)) }]);
+  const remove = (m) => Alert.alert(`${m.name}님을 내보낼까요?`, '', [{ text: '취소', style: 'cancel' }, { text: '내보내기', style: 'destructive', onPress: () => run(setError, () => w.removeMember(team.id, m.email)) }]);
   return <Card><Title note={`${team.members.filter((m) => m.online).length}명 온라인`}>팀원</Title>
-    {sorted.map((m) => <Pressable key={m.email} onLongPress={() => (team.mine ? m.id !== me.id : m.id === me.id) && remove(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: m.online ? 1 : 0.6 }}>
+    {sorted.map((m) => <Pressable key={m.email} onLongPress={() => team.mine && m.id !== me.id && remove(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: m.online ? 1 : 0.6 }}>
       <Avatar person={m} /><View style={{ flex: 1 }}><Text style={{ color: d.text, fontWeight: '600', fontSize: 14 }}>{m.name}{m.id === me.id ? <Text style={{ color: d.muted, fontWeight: '500' }}> (나)</Text> : null}</Text><Text numberOfLines={1} style={{ color: d.muted, fontSize: 12 }}>{m.email}</Text></View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.online ? '#30c48d' : '#8a93a6' }} /><Text style={{ color: d.muted, fontSize: 12 }}>{statusOf(m)}</Text></View>
     </Pressable>)}
@@ -127,13 +127,8 @@ function Dives({ team }) {
 // Optional tags: any of the person's own 체커 teams (to-do groups) for this Work team, tapped on and off.
 // Only links — nothing is shared.
 function CheckerLink({ team }) {
-  const w = useWork(), d = useDesign(), { db } = useDb(), [error, setError] = useState(''), [links, setLinks] = useState(team.links || []);
-  useEffect(() => setLinks(team.links || []), [team.id, (team.links || []).join()]);
-  const toggle = (id) => {
-    const next = links.includes(id) ? links.filter((x) => x !== id) : [...links, id];
-    setLinks(next); setError('');
-    w.setLink(team.id, next).catch((e) => { setError(e.message); setLinks(team.links || []); });
-  };
+  const w = useWork(), d = useDesign(), { db } = useDb(), links = team.links || [];
+  const toggle = (id) => w.setLink(team.id, links.includes(id) ? links.filter((x) => x !== id) : [...links, id]);
   const gone = links.filter((id) => !db.teams.some((t) => t.id === id));
   const chip = (key, label, color, on, onPress) => <Pressable key={key} accessibilityRole="button" accessibilityState={{ selected: on }} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 99, borderWidth: 1, borderColor: on ? color : d.edge, backgroundColor: on ? color + '29' : 'transparent' }}>
     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, opacity: on ? 1 : 0.45 }} /><Text style={{ fontSize: 13, color: on ? d.text : d.muted, fontWeight: on ? '600' : '400' }}>{label}</Text>
@@ -145,7 +140,6 @@ function CheckerLink({ team }) {
       {gone.map((id) => chip(id, '(지워진 팀)', '#8a93a6', true, () => toggle(id)))}
       {!db.teams.length && !gone.length && <Text style={{ color: d.muted, fontSize: 13 }}>체커에 팀이 아직 없어요.</Text>}
     </View>
-    <ErrorText>{error}</ErrorText>
   </View>;
 }
 
@@ -157,9 +151,28 @@ function MyName() {
     : <Pressable accessibilityLabel="팀에 보이는 내 이름 바꾸기" onPress={() => setEdit(true)} hitSlop={8}><Text style={{ color: d.muted, fontSize: 13 }}>나: {w.state.me.name} ✎</Text></Pressable>;
 }
 
+// ⚙ next to the team's name: rename (the maker), leave (others), and — set apart, behind typing the name — delete.
+function TeamSettings({ team, onClose }) {
+  const w = useWork(), d = useDesign(), me = w.state.me, [name, setName] = useState(team.name), [typed, setTyped] = useState(''), [error, setError] = useState('');
+  const go = (f, close = true) => f().then(() => close && onClose(), (e) => setError(e.message));
+  return <Sheet title="팀 설정" onClose={onClose}>
+    <Text style={{ color: d.muted, fontSize: 12 }}>팀 이름</Text>
+    <View style={{ flexDirection: 'row', gap: 8 }}><Field value={name} onChangeText={setName} maxLength={40} editable={team.mine} />{team.mine && <Button title="저장" disabled={!name.trim() || name.trim() === team.name} onPress={() => go(() => w.renameTeam(team.id, name), false)} />}</View>
+    {!team.mine && <Text style={{ color: d.muted, fontSize: 12 }}>팀 이름은 팀을 만든 사람이 바꿀 수 있어요.</Text>}
+    {!team.mine && <Button title="팀 나가기" onPress={() => Alert.alert(`'${team.name}'에서 나갈까요?`, '다시 들어오려면 초대를 받아야 해요.', [{ text: '취소', style: 'cancel' }, { text: '나가기', style: 'destructive', onPress: () => go(() => w.removeMember(team.id, (me.email || '').toLowerCase())) }])} />}
+    {team.mine && <View style={{ gap: 8, marginTop: 8, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e5484d59', backgroundColor: '#e5484d0f' }}>
+      <Text style={{ color: '#e5484d', fontWeight: '700' }}>팀 없애기</Text>
+      <Text style={{ color: d.muted, fontSize: 13, lineHeight: 19 }}>팀원, 초대, 다이브 기록이 모두 지워지고 되돌릴 수 없어요. 없애려면 팀 이름 <Text style={{ fontWeight: '700', color: d.text }}>{team.name}</Text>을(를) 그대로 적어 주세요.</Text>
+      <Field value={typed} onChangeText={setTyped} placeholder={team.name} />
+      <Button title="팀 없애기" disabled={typed.trim() !== team.name} onPress={() => go(() => w.deleteTeam(team.id))} />
+    </View>}
+    <ErrorText>{error}</ErrorText>
+  </Sheet>;
+}
+
 export default function TeamScreen() {
   const w = useWork(), d = useDesign(), s = w.state;
-  const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false);
+  const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false), [settings, setSettings] = useState(false);
   if (!w.available) return <View style={{ flex: 1, padding: 24 }}><Text style={{ color: d.muted }}>팀 기능은 로그인해야 쓸 수 있어요.</Text></View>;
   if (!s) return <View style={{ flex: 1, padding: 24 }}><Text style={{ color: d.muted }}>{w.error || '팀을 불러오는 중…'}</Text></View>;
   const team = s.teams.find((t) => t.id === teamId) || s.teams[0];
@@ -167,7 +180,8 @@ export default function TeamScreen() {
   const chip = (label, active, onPress, key) => <Pressable key={key} onPress={onPress} style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 99, borderWidth: 1, borderColor: active ? d.accent : d.edge, backgroundColor: d.input }}><Text style={{ color: d.text, fontWeight: '600', fontSize: 13 }}>{label}</Text></Pressable>;
   return <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-      {s.teams.map((t) => chip(t.name, t.id === team?.id && !adding, () => { setTeamId(t.id); setAdding(false); }, t.id))}
+      {s.teams.map((t) => <React.Fragment key={t.id}>{chip(t.name, t.id === team?.id && !adding, () => { setTeamId(t.id); setAdding(false); }, t.id)}
+        {t.id === team?.id && !adding && <Pressable accessibilityRole="button" accessibilityLabel={t.name + ' 팀 설정'} hitSlop={8} onPress={() => setSettings(true)} style={{ padding: 4 }}><Text style={{ fontSize: 17, color: d.muted }}>⚙︎</Text></Pressable>}</React.Fragment>)}
       {s.teams.length > 0 && chip('+ 새 팀', adding, () => setAdding(true), 'add')}
       <View style={{ flex: 1 }} /><MyName />
     </View>
@@ -182,9 +196,9 @@ export default function TeamScreen() {
       </Card>
       <Dives team={team} />
       <Members team={team} />
-      {team.mine && <Button title="팀 없애기" onPress={() => Alert.alert(`'${team.name}' 팀을 없앨까요?`, '팀원과 다이브 기록이 모두 지워져요.', [{ text: '취소', style: 'cancel' }, { text: '없애기', style: 'destructive', onPress: () => w.deleteTeam(team.id) }])} />}
     </>}
     {composer && team && <DiveComposer team={team} onClose={() => setComposer(false)} />}
+    {settings && team && <TeamSettings team={team} onClose={() => setSettings(false)} />}
   </ScrollView>;
 }
 

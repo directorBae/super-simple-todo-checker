@@ -62,14 +62,14 @@ function Members({ team }) {
       setEmails(''); setNote(r.invited.length ? `${r.invited.length}명을 초대했어요.` : '이미 초대한 이메일이에요.');
     } catch (x) { setError(x.message); }
   };
-  const remove = (m) => { if (confirm(m.email === me.email?.toLowerCase() ? `'${team.name}'에서 나갈까요?` : `${m.name}님을 팀에서 내보낼까요?`)) w.removeMember(team.id, m.email).catch((x) => setError(x.message)); };
+  const remove = (m) => { if (confirm(`${m.name}님을 팀에서 내보낼까요?`)) w.removeMember(team.id, m.email).catch((x) => setError(x.message)); };
   const sorted = [...team.members].sort((a, b) => (b.online - a.online) || (a.status === 'invited') - (b.status === 'invited'));
   return <section className="work-card work-members" aria-label="팀원">
     <h3>팀원 <small>{team.members.filter((m) => m.online).length}명 온라인</small></h3>
     <ul>{sorted.map((m) => <li key={m.email} className={'work-member ' + (m.status === 'invited' ? 'invited' : m.online ? 'online' : 'offline')}>
       <Avatar person={m} /><span className="work-member-name"><b>{m.name}{m.id === me.id && <em> (나)</em>}</b><small>{m.email}</small></span>
       <span className="work-status"><i />{statusOf(m)}</span>
-      {(team.mine ? m.id !== me.id : m.id === me.id) && <button className="icon-btn work-remove" aria-label={m.id === me.id ? '팀에서 나가기' : m.name + ' 내보내기'} title={m.id === me.id ? '팀에서 나가기' : '내보내기'} onClick={() => remove(m)}>✕</button>}
+      {team.mine && m.id !== me.id && <button className="icon-btn work-remove" aria-label={m.name + ' 내보내기'} title="내보내기" onClick={() => remove(m)}>✕</button>}
     </li>)}</ul>
     {team.mine && <form className="work-row work-invite-form" onSubmit={send}><input value={emails} placeholder="초대할 이메일 (쉼표로 여러 명)" aria-label="초대할 이메일" onChange={(e) => setEmails(e.target.value)} /><button className="ghost" disabled={!emails.trim()}>초대</button></form>}
     {note && <p className="desc">{note}</p>}
@@ -130,13 +130,8 @@ function Dives({ team }) {
 // Optional tags: any of the person's own 체커 teams (to-do groups) for this Work team, tapped on and off.
 // Only links — nothing is shared. A tag whose 체커 team was deleted shows until it is tapped off.
 function CheckerLink({ team, checkerTeams = [] }) {
-  const w = useWork(), [error, setError] = useState(''), [links, setLinks] = useState(team.links || []);
-  useEffect(() => setLinks(team.links || []), [team.id, (team.links || []).join()]);
-  const toggle = (id) => {
-    const next = links.includes(id) ? links.filter((x) => x !== id) : [...links, id];
-    setLinks(next); setError('');
-    w.setLink(team.id, next).catch((x) => { setError(x.message); setLinks(team.links || []); });
-  };
+  const w = useWork(), links = team.links || [];
+  const toggle = (id) => w.setLink(team.id, links.includes(id) ? links.filter((x) => x !== id) : [...links, id]);
   const gone = links.filter((id) => !checkerTeams.some((t) => t.id === id));
   return <div className="work-link" role="group" aria-label="연결할 체커 팀">
     <span>체커 팀</span>
@@ -145,7 +140,6 @@ function CheckerLink({ team, checkerTeams = [] }) {
       {gone.map((id) => <button key={id} type="button" className="work-link-chip on gone" aria-pressed="true" title="지워진 체커 팀 — 눌러서 빼기" onClick={() => toggle(id)}><i />(지워진 팀)</button>)}
       {!checkerTeams.length && !gone.length && <small>체커에 팀이 아직 없어요</small>}
     </div>
-    {error && <small className="work-error">{error}</small>}
   </div>;
 }
 
@@ -157,16 +151,46 @@ function MyName() {
     : <button className="work-my-name ghost" title="팀에 보이는 이름 바꾸기" onClick={() => setEdit(true)}>나: {w.state.me.name} ✎</button>;
 }
 
+// ⚙ next to the team's name: the team's name (the maker renames it), leaving it, and — set apart, behind a typed
+// confirmation — deleting it (the maker only).
+function TeamSettings({ team, onClose }) {
+  const w = useWork(), me = w.state.me, [name, setName] = useState(team.name), [typed, setTyped] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const go = async (f, close = true) => { setBusy(true); setError(''); try { await f(); if (close) onClose(); } catch (x) { setError(x.message); } finally { setBusy(false); } };
+  const myEmail = (me.email || '').toLowerCase();
+  return <div className="popup-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <section className="popup-panel team-settings" role="dialog" aria-modal="true" aria-label="팀 설정">
+      <div className="popup-head"><h2>팀 설정</h2><button className="icon-btn" aria-label="닫기" onClick={onClose}>✕</button></div>
+      <div className="popup-body">
+        <label className="team-settings-row"><span>팀 이름</span>
+          <input value={name} maxLength={40} disabled={!team.mine} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim() && name.trim() !== team.name) go(() => w.renameTeam(team.id, name), false); }} />
+          {team.mine && <button className="ghost" disabled={busy || !name.trim() || name.trim() === team.name} onClick={() => go(() => w.renameTeam(team.id, name), false)}>저장</button>}
+        </label>
+        {!team.mine && <p className="desc">팀 이름은 팀을 만든 사람이 바꿀 수 있어요.</p>}
+        {!team.mine && <div className="team-settings-row"><span>팀 나가기</span><p className="desc">나가면 이 팀의 다이브 알림을 더 받지 않아요. 다시 들어오려면 초대를 받아야 해요.</p>
+          <button className="ghost danger" disabled={busy} onClick={() => { if (confirm(`'${team.name}'에서 나갈까요?`)) go(() => w.removeMember(team.id, myEmail)); }}>나가기</button></div>}
+        {team.mine && <div className="team-danger">
+          <b>팀 없애기</b>
+          <p className="desc">팀원, 초대, 다이브 기록이 모두 지워지고 되돌릴 수 없어요. 없애려면 팀 이름 <b>{team.name}</b>을(를) 그대로 적어 주세요.</p>
+          <div className="work-row"><input value={typed} placeholder={team.name} aria-label="없앨 팀 이름 확인" onChange={(e) => setTyped(e.target.value)} />
+            <button className="ghost danger" disabled={busy || typed.trim() !== team.name} onClick={() => go(() => w.deleteTeam(team.id))}>팀 없애기</button></div>
+        </div>}
+        {error && <p className="work-error" role="alert">{error}</p>}
+      </div>
+    </section>
+  </div>;
+}
+
 export default function Team({ checkerTeams = [] }) {
   const w = useWork(), s = w.state;
-  const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false);
+  const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false), [settings, setSettings] = useState(false);
   if (!s) return <main className="content team-view"><p className="team-empty">{w.error || '팀을 불러오는 중…'}</p></main>;
   const team = s.teams.find((t) => t.id === teamId) || s.teams[0];
   const others = team ? team.members.filter((m) => m.status === 'active' && m.id !== s.me.id) : [];
   return <main className="content team-view">
     <div className="team-head">
       <nav className="team-tabs" aria-label="팀">
-        {s.teams.map((t) => <button key={t.id} className={'team-chip' + (t.id === team?.id && !adding ? ' active' : '')} onClick={() => { setTeamId(t.id); setAdding(false); }}>{t.name}</button>)}
+        {s.teams.map((t) => <React.Fragment key={t.id}><button className={'team-chip' + (t.id === team?.id && !adding ? ' active' : '')} onClick={() => { setTeamId(t.id); setAdding(false); }}>{t.name}</button>
+          {t.id === team?.id && !adding && <button className="team-gear" aria-label={t.name + ' 팀 설정'} title="팀 설정" onClick={() => setSettings(true)}><svg viewBox="0 0 20 20" aria-hidden="true"><path fill="currentColor" d="M11.3 1.5l.4 2.1c.6.2 1.1.5 1.6.9l2-.8 1.3 2.3-1.6 1.4c.1.6.1 1.2 0 1.8l1.6 1.4-1.3 2.3-2-.8c-.5.4-1 .7-1.6.9l-.4 2.1H8.7l-.4-2.1c-.6-.2-1.1-.5-1.6-.9l-2 .8-1.3-2.3L5 9.2c-.1-.6-.1-1.2 0-1.8L3.4 6l1.3-2.3 2 .8c.5-.4 1-.7 1.6-.9l.4-2.1h2.6zM10 6.7a3.3 3.3 0 100 6.6 3.3 3.3 0 000-6.6z" /></svg></button>}</React.Fragment>)}
         {s.teams.length > 0 && <button className={'team-chip add' + (adding ? ' active' : '')} onClick={() => setAdding(true)}>+ 새 팀</button>}
       </nav>
       <MyName />
@@ -180,11 +204,11 @@ export default function Team({ checkerTeams = [] }) {
           <DiveIcon size={96} /><span>Dive</span>
         </button>
         <p className="desc">{w.call ? '지금 다이브 중이에요.' : others.length ? '팀원을 골라 안건과 함께 바로 그룹 통화를 열어요.' : '팀원을 초대하면 다이브할 수 있어요.'}</p>
-        {team.mine && <button className="ghost team-delete" onClick={() => { if (confirm(`'${team.name}' 팀을 없앨까요? 팀원과 다이브 기록이 모두 지워져요.`)) w.deleteTeam(team.id); }}>팀 없애기</button>}
       </section>
       <Dives team={team} />
     </div>}
     {composer && team && <DiveComposer team={team} onClose={() => setComposer(false)} />}
+    {settings && team && <TeamSettings team={team} onClose={() => setSettings(false)} />}
   </main>;
 }
 

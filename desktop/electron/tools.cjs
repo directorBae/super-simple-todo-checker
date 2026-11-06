@@ -24,7 +24,7 @@ const id = (v) => { const s = String(v || ''); if (!s || s.length > 200) throw n
 // Several accounts per tool: an optional connection id picks the Notion workspace / the one account to drop.
 const conn = (v) => (v ? id(v) : undefined);
 // 팀버전 (Work): the routes the window may call, and what may come back as the call server's address.
-const WORK_PATHS = ['/state', '/name', '/team', '/team/delete', '/link', '/invite', '/invite/accept', '/invite/decline', '/member/remove', '/dive', '/dive/join', '/dive/reply', '/dive/leave'];
+const WORK_PATHS = ['/state', '/name', '/team', '/team/delete', '/team/rename', '/link', '/invite', '/invite/accept', '/invite/decline', '/member/remove', '/dive', '/dive/join', '/dive/reply', '/dive/leave'];
 async function workCall(c, p) {
   if (!WORK_PATHS.includes(p.path)) throw new Error('요청을 찾을 수 없어요.');
   const body = p.body && typeof p.body === 'object' && !Array.isArray(p.body) ? p.body : {};

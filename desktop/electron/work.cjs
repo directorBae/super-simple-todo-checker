@@ -32,8 +32,13 @@ function start({ client, send, openView, icon }) {
     send(r);
     return r;
   }
-  // One look at a time; asking again while one runs waits for that one.
-  const refresh = () => (busy ||= look().catch((e) => ({ ok: false, error: e.message })).finally(() => { busy = null; }));
+  // One look at a time. Asking while one runs (it may have started before a change was saved) gets a fresh look
+  // right after it, not the one already under way.
+  let again = null;
+  const refresh = () => {
+    if (!busy) return (busy = look().catch((e) => ({ ok: false, error: e.message })).finally(() => { busy = null; }));
+    return (again ||= busy.then(() => { again = null; return refresh(); }));
+  };
   refresh();
   setInterval(refresh, EVERY_MS);
   return { refresh, last: () => last };

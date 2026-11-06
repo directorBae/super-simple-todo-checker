@@ -174,3 +174,13 @@ test('work: each member can tag the team with one of their own 체커 teams (or 
   assert.deepEqual([s.links, s.link], [[], null]);
   await assert.rejects(w.c('/link', { team: team.id, checkerTeam: 'x' }), /팀원이 아니에요/);
 });
+
+test('work: only the maker renames the team', async () => {
+  const w = world();
+  const { team } = await w.a('/team', { name: 'Old' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  await assert.rejects(w.b('/team/rename', { team: team.id, name: 'Mine' }), /만든 사람만/);
+  await assert.rejects(w.a('/team/rename', { team: team.id, name: '   ' }), /팀 이름/);
+  await w.a('/team/rename', { team: team.id, name: '  UO   BioLabs ' });
+  assert.equal((await w.b('/state')).teams[0].name, 'UO BioLabs');
+});

@@ -51,7 +51,18 @@ export function WorkProvider({ children, onOpen }) {
   const [call, setCall] = useState(null), live = useRef(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
   const desktop = !!window.api.workRefresh;
-  const take = (r) => { if (r?.ok && r.me) { setState(r); setError(''); } else if (r?.error) setError(r.error); return r; };
+  // Tags tapped but not yet confirmed by the server, per team: shown at once and kept over any older answer that
+  // comes in meanwhile (a regular look that started before the save) until the server says the same.
+  const tags = useRef(new Map()), saving = useRef(new Map());
+  const same = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const overlay = (r) => (!r?.teams || !tags.current.size ? r : { ...r, teams: r.teams.map((t) => (tags.current.has(t.id) ? { ...t, links: tags.current.get(t.id), link: tags.current.get(t.id)[0] || null } : t)) });
+  const take = (r) => {
+    if (r?.ok && r.me) {
+      for (const t of r.teams) if (tags.current.has(t.id) && !saving.current.has(t.id) && same(t.links, tags.current.get(t.id))) tags.current.delete(t.id);
+      setState(overlay(r)); setError('');
+    } else if (r?.error) setError(r.error);
+    return r;
+  };
   const refresh = () => (desktop ? window.api.workRefresh() : window.api.tools('work', { path: '/state' })).then(take, (e) => setError(e.message));
   useEffect(() => {
     if (desktop) { window.api.onWorkState((s) => take(s)); refresh(); return undefined; }
@@ -91,7 +102,18 @@ export function WorkProvider({ children, onOpen }) {
     setName: (name) => act('/name', { name }),
     createTeam: (name) => act('/team', { name }),
     deleteTeam: (team) => act('/team/delete', { team }),
-    setLink: (team, checkerTeams) => act('/link', { team, checkerTeams }),
+    // Tapping tags: the screen follows at once; quick taps are saved together (the last set) a moment later.
+    setLink: (team, checkerTeams) => {
+      tags.current.set(team, checkerTeams);
+      setState((s) => overlay(s));
+      clearTimeout(saving.current.get(team));
+      saving.current.set(team, setTimeout(async () => {
+        try { await act('/link', { team, checkerTeams: tags.current.get(team) }); }
+        catch (e) { tags.current.delete(team); setError(e.message); refresh(); }
+        finally { saving.current.delete(team); }
+      }, 350));
+    },
+    renameTeam: (team, name) => act('/team/rename', { team, name }),
     invite: (team, emails) => act('/invite', { team, emails }),
     acceptInvite: (team) => act('/invite/accept', { team }),
     declineInvite: (team) => act('/invite/decline', { team }),

@@ -36,9 +36,17 @@ async function connect({ url, token }, onChange) {
 export function WorkProvider({ onOpen, children }) {
   const [state, setState] = useState(null), [error, setError] = useState(''), [call, setCall] = useState(null), live = useRef(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
+  // Tags tapped but not yet confirmed: shown at once, kept over older answers until the server says the same.
+  const tags = useRef(new Map()), saving = useRef(new Map());
+  const same = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const overlay = (r) => (!r?.teams || !tags.current.size ? r : { ...r, teams: r.teams.map((t) => (tags.current.has(t.id) ? { ...t, links: tags.current.get(t.id), link: tags.current.get(t.id)[0] || null } : t)) });
   const refresh = async () => {
     if (!tools) return null;
-    try { const r = await tools.work('/state'); setState({ ok: true, ...r }); setError(''); return r; } catch (e) { setError(e.message); return null; }
+    try {
+      const r = await tools.work('/state');
+      for (const t of r.teams || []) if (tags.current.has(t.id) && !saving.current.has(t.id) && same(t.links, tags.current.get(t.id))) tags.current.delete(t.id);
+      setState(overlay({ ok: true, ...r })); setError(''); return r;
+    } catch (e) { setError(e.message); return null; }
   };
   useEffect(() => {
     if (!tools) return undefined;
@@ -73,7 +81,17 @@ export function WorkProvider({ onOpen, children }) {
     setName: (name) => act('/name', { name }),
     createTeam: (name) => act('/team', { name }),
     deleteTeam: (team) => act('/team/delete', { team }),
-    setLink: (team, checkerTeams) => act('/link', { team, checkerTeams }),
+    setLink: (team, checkerTeams) => {
+      tags.current.set(team, checkerTeams);
+      setState((s) => overlay(s));
+      clearTimeout(saving.current.get(team));
+      saving.current.set(team, setTimeout(async () => {
+        try { await act('/link', { team, checkerTeams: tags.current.get(team) }); }
+        catch (e) { tags.current.delete(team); setError(e.message); refresh(); }
+        finally { saving.current.delete(team); }
+      }, 350));
+    },
+    renameTeam: (team, name) => act('/team/rename', { team, name }),
     invite: (team, emails) => act('/invite', { team, emails }),
     acceptInvite: (team) => act('/invite/accept', { team }),
     declineInvite: (team) => act('/invite/decline', { team }),

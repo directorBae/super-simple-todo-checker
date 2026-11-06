@@ -133,3 +133,14 @@ input.work-my-name { width: 140px; }
 .work-link-chip.on { color: var(--text); border-color: var(--team); background: color-mix(in srgb, var(--team) 16%, transparent); font-weight: 600; }
 .work-link-chip.on i { opacity: 1; }
 .work-link-chip.gone { --team: #8a93a6; font-style: italic; }
+
+/* ⚙ next to the selected team's name, and its settings window (deleting is set apart). */
+.team-gear { display: inline-grid; place-items: center; width: 28px; height: 28px; margin-left: -2px; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; transition: background 0.15s, color 0.15s, transform 0.3s; }
+.team-gear svg { width: 16px; height: 16px; }
+.team-gear:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); transform: rotate(40deg); }
+.team-settings { max-width: 460px; }
+.team-settings-row { display: grid; grid-template-columns: 70px 1fr auto; gap: 8px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.team-settings-row .desc { grid-column: 2 / 3; margin: 0; }
+.team-danger { margin-top: 16px; padding: 14px; border-radius: 16px; border: 1px solid rgba(229, 72, 77, 0.35); background: rgba(229, 72, 77, 0.06); }
+.team-danger b { color: #e5484d; font-size: 13px; }
+.team-danger .desc b { color: inherit; }

@@ -125,6 +125,14 @@ export async function createTeam(env, user, name) {
   return { team: { id: team.id, name: team.name } };
 }
 
+export async function renameTeam(env, user, teamId, name) {
+  const store = db(env), me = await activeMember(store, user, teamId), n = clean(name, TEAM_NAME_MAX);
+  if (me.role !== 'owner') throw new HttpError('팀을 만든 사람만 이름을 바꿀 수 있어요.', 403);
+  if (!n) throw new HttpError('팀 이름을 적어 주세요.');
+  await store.update('work_teams', `id=${eq(me.team_id)}`, { name: n });
+  return { team: { id: me.team_id, name: n } };
+}
+
 export async function deleteTeam(env, user, teamId) {
   const store = db(env), me = await activeMember(store, user, teamId);
   if (me.role !== 'owner') throw new HttpError('팀을 만든 사람만 팀을 없앨 수 있어요.', 403);
