@@ -81,6 +81,15 @@ test('work: make a team, invite by email, accept, and see who is online', async 
   assert.equal((await w.a('/state')).teams[0].members.length, 2);
 });
 
+test('work: 나에게 테스트 알림 goes to the caller\'s own phones and says how many there are', async () => {
+  const w = world();
+  const r = await w.b('/ping');
+  assert.equal(r.devices, 1); assert.equal(r.reached, true);
+  assert.deepEqual(w.pushes.map((p) => p.to), ['ExponentPushToken[b]']);
+  w.tables.push_devices = w.tables.push_devices.filter((d) => !d.token.includes('[b]'));
+  assert.equal((await w.b('/ping')).devices, 0);
+});
+
 test('work: a dive rings the picked people again (20 s, 40 s) until they answer, like a call', async () => {
   const later = [], waits = [];
   let go = null;

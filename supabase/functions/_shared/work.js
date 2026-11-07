@@ -33,15 +33,23 @@ export async function livekitToken(env, { room, identity, name }) {
 
 // ---------- pushes ----------
 async function push(env, store, userIds, message) {
-  if (!userIds.length) return 0;
+  if (!userIds.length) return { sent: 0, tickets: [] };
   const devices = await store.select('push_devices', `user_id=${list(userIds)}&disabled_at=is.null&select=user_id,token`);
-  if (!devices.length) return 0;
+  if (!devices.length) return { sent: 0, tickets: [] };
   const messages = devices.map((d) => ({ to: d.token, sound: 'default', ...message(d.user_id) }));
   const res = await env.fetch(EXPO_PUSH, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(messages) }).catch((e) => (console.error('푸시를 보내지 못했어요', e.message), null));
   const out = res && (await res.json().catch(() => null));
   if (out?.errors) console.error('푸시 거절', JSON.stringify(out.errors));
   (out?.data || []).forEach((t, i) => t?.status === 'error' && console.error('푸시 거절', messages[i]?.to?.slice(0, 30), t.details?.error || '', t.message || ''));
-  return messages.length;
+  return { sent: messages.length, reached: !!res?.ok, errors: out?.errors || null, tickets: (out?.data || []).map((t) => ({ ok: t?.status === 'ok', error: t?.details?.error || t?.message || null })) };
+}
+
+// "나에게 테스트 알림" (phone settings): a push to the caller's own registered phones, and what Expo said about it —
+// how many phones this account has, and the reason when one is refused.
+export async function testPush(env, user) {
+  const store = db(env);
+  const r = await push(env, store, [user.id], () => ({ title: '🔔 테스트 알림', body: '이 알림이 보이면 다이브 알림도 와요.', sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'test' } }));
+  return { devices: r.sent, ...r };
 }
 
 // ---------- reading ----------

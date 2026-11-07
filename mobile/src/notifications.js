@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { reminders } from '../../shared/reminders.js';
 
@@ -23,16 +23,35 @@ export async function notificationPermission(ask = true) {
 // Signed in on an iPhone build with push: the server sends the reminders (Edge Function /push), written from the to-dos
 // as they are at that moment — a change made on the desktop counts even if this phone was never opened. The device's own
 // schedule then stays empty. Without push (a demo build, Android, offline at start) the phone schedules them itself.
-let pushToken = null;
+let pushToken = null, pushError = '';
+// For 설정 → 알림: whether this phone is registered for pushes, and why not.
+export const pushState = () => ({ registered: !!pushToken, error: pushError });
 export async function startPush(tools) {
-  if (!tools || Platform.OS !== 'ios' || (await Notifications.getPermissionsAsync()).granted !== true) return false;
+  if (!tools || Platform.OS !== 'ios') return false;
+  if ((await Notifications.getPermissionsAsync()).granted !== true) { pushError = '알림이 허용되지 않았어요.'; return false; }
   try {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId: Constants.expoConfig?.extra?.eas?.projectId });
     await tools.registerPush(data, Platform.OS);
-    pushToken = data; scheduled = '';
+    pushToken = data; scheduled = ''; pushError = '';
     await Notifications.cancelAllScheduledNotificationsAsync();
     return true;
-  } catch { return false; }
+  } catch (e) { pushError = '푸시 등록 실패: ' + (e?.message || String(e)); console.warn(pushError); return false; }
+}
+// Asking only once at start was not enough: iOS drops a permission request made while the app is not yet fully in
+// front (or while another system alert is up), and nothing asked again — so no permission, no push address, no dive
+// alerts. Now: ask (if never answered) and register whenever the app is in front, until it is registered.
+export function keepPush(tools, after) {
+  let busy = false;
+  const run = async () => {
+    if (busy || AppState.currentState !== 'active') return;
+    busy = true;
+    try { await notificationPermission(true); if (!pushToken) await startPush(tools); await after?.(); }
+    catch (e) { pushError = e?.message || String(e); }
+    finally { busy = false; }
+  };
+  const t = setTimeout(run, 800);
+  const sub = AppState.addEventListener('change', (s) => { if (s === 'active') setTimeout(run, 400); });
+  return () => { clearTimeout(t); sub.remove(); };
 }
 // Signing out: this phone stops getting that account's reminders.
 export async function stopPush(tools) {

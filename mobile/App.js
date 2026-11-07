@@ -21,7 +21,7 @@ import { usePlaylist } from './src/usePlaylist.js';
 import ClockDrawer from './src/screens/ClockDrawer.js';
 import Login from './src/screens/Login.js';
 import { outsideTap } from './src/gesture.js';
-import { notificationPermission, rescheduleReminders, startPush } from './src/notifications.js';
+import { keepPush, rescheduleReminders } from './src/notifications.js';
 import { usePostponeRequest, PostponeSheet } from './src/Postpone.js';
 import { startOta } from './src/ota.js';
 
@@ -58,7 +58,8 @@ function Shell() {
  })).current;
  // Reminders: ask once after onboarding, then keep the device's schedule in step with the to-dos.
  // With push the server sends them (always from the latest to-dos); otherwise this phone schedules its own.
- useEffect(() => { if (!onboarding) notificationPermission().then(() => startPush(account ? tools : null)).then(() => rescheduleReminders(db)).catch(() => {}); }, [onboarding, account?.id]);
+ const dbNow = useRef(db); dbNow.current = db;
+ useEffect(() => (onboarding ? undefined : keepPush(account ? tools : null, () => rescheduleReminders(dbNow.current))), [onboarding, account?.id]);
  useEffect(() => { const t = setTimeout(() => rescheduleReminders(db).catch(() => {}), 1500); return () => clearTimeout(t); }, [db.todos, db.settings]);
  // The tool sign-in page ends with a todochecker://settings/tools link: back in the app, open 설정 → 도구 연결.
  useEffect(() => {

@@ -7,16 +7,35 @@ import { useDb } from '../store.js';
 import { useDesign, WALLPAPERS, wallpaperSource } from '../design.js';
 import Integrations from './Integrations.js';
 import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
-import { notificationPermission } from '../notifications.js';
+import { notificationPermission, pushState, startPush } from '../notifications.js';
+import { Linking } from 'react-native';
+import { tools } from '../store.js';
 
 // Same switches as the desktop settings; reminders are scheduled on this phone.
 function Reminders() {
   const { db, api } = useDb(), d = useDesign(), s = { ...REMINDER_DEFAULTS, ...db.settings };
-  const [permission, setPermission] = useState('granted');
+  const [permission, setPermission] = useState('granted'), [test, setTest] = useState(''), [testing, setTesting] = useState(false);
   useEffect(() => { notificationPermission(false).then(setPermission).catch(() => {}); }, []);
+  // 나에게 테스트 알림: registers this phone if it is not yet, then the server pushes to this account's phones and
+  // says how many it has and what Expo answered — the reason, when alerts do not come.
+  const sendTest = async () => {
+    setTesting(true); setTest('');
+    try {
+      const p = await notificationPermission(true); setPermission(p);
+      if (p !== 'granted') { setTest('알림이 허용되지 않았어요. 휴대폰 설정 > Work > 알림에서 켜 주세요.'); return; }
+      if (!pushState().registered) await startPush(tools);
+      const s = pushState();
+      if (!s.registered) { setTest(s.error || '이 휴대폰을 푸시에 등록하지 못했어요.'); return; }
+      const r = await tools.work('/ping');
+      const bad = (r.tickets || []).filter((t) => !t.ok).map((t) => t.error);
+      setTest(!r.devices ? '서버에 등록된 휴대폰이 없어요.' : !r.reached ? '푸시 서버(Expo)에 닿지 못했어요.' : r.errors ? '푸시 거절: ' + JSON.stringify(r.errors) : bad.length ? `등록된 휴대폰 ${r.devices}대 중 ${bad.length}대 거절: ${bad.join(', ')}` : `보냈어요 (등록된 휴대폰 ${r.devices}대). 몇 초 안에 알림이 와야 해요.`);
+    } catch (e) { setTest('실패: ' + (e.message || e)); }
+    finally { setTesting(false); }
+  };
   const rows = [['notifyBefore', '시작 30분 전 알림 (시간이 있는 할 일)'], ['notifyStart', '시작 시간 알림'], ['notifyEnd', '마무리 시간 알림'], ['dailySummary', `아침 요약 (${s.dailySummaryTime}, 오늘 할 일 개수)`], ['dailyWrapup', `하루 마무리 (${s.dailyWrapupTime}, 완료·남은 일)`]];
   return <View style={{ gap: 12 }}>
-    {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => setPermission(await notificationPermission(true))} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 휴대폰 설정 > 체커 > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
+    {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => { if (permission === 'denied') Linking.openSettings(); else setPermission(await notificationPermission(true)); }} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 눌러서 휴대폰 설정 > Work > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
+    {Platform.OS === 'ios' && !!tools && <Pressable accessibilityRole="button" disabled={testing} onPress={sendTest} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input, opacity: testing ? 0.6 : 1 }}><Text style={{ color: d.accent, fontWeight: '700' }}>{testing ? '보내는 중…' : '🔔 나에게 테스트 알림'}</Text>{test ? <Text style={{ color: d.muted, fontSize: 12, marginTop: 6 }}>{test}</Text> : null}</Pressable>}
     {rows.map(([key, label]) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><Text style={{ color: d.text, fontSize: 14, flexShrink: 1 }}>{label}</Text><Switch accessibilityLabel={label} value={!!s[key]} onValueChange={(v) => api.updateSettings({ [key]: v })} /></View>)}
   </View>;
 }

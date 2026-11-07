@@ -6,6 +6,9 @@ import { useDesign, Surface, Button, Sheet } from '../design.js';
 import { useWork } from '../work.js';
 import { useDb } from '../store.js';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
+import { notificationPermission, pushState, startPush } from '../notifications.js';
+import { Linking, AppState } from 'react-native';
+import { tools } from '../store.js';
 import { todosOn, addDay } from '../../../shared/multi-day.js';
 
 /*
@@ -207,6 +210,23 @@ function TeamSettings({ team, onClose }) {
   </Sheet>;
 }
 
+// Without notifications a dive cannot ring this phone: say so on the Team screen, with the way to turn them on.
+function AlertsOff() {
+  const d = useDesign(), [state, setState] = useState(null);
+  const look = () => notificationPermission(false).then((p) => setState(p === 'granted' ? (pushState().registered ? 'ok' : 'unregistered') : p)).catch(() => {});
+  useEffect(() => { look(); const sub = AppState.addEventListener('change', (s) => s === 'active' && setTimeout(look, 1200)); return () => sub.remove(); }, []);
+  if (!state || state === 'ok' || Platform.OS !== 'ios') return null;
+  const fix = async () => {
+    if (state === 'denied') return Linking.openSettings();
+    if (state === 'default') await notificationPermission(true);
+    await startPush(tools); look();
+  };
+  return <Pressable accessibilityRole="button" onPress={fix} style={{ marginBottom: 12, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e5484d59', backgroundColor: '#fff1f1cc', gap: 4 }}>
+    <Text style={{ color: '#c4262e', fontWeight: '700' }}>🔕 다이브 알림을 받을 수 없어요</Text>
+    <Text style={{ color: d.text, fontSize: 13 }}>{state === 'denied' ? '눌러서 휴대폰 설정 > Work > 알림을 켜 주세요.' : state === 'default' ? '눌러서 알림을 허용해 주세요.' : '눌러서 이 휴대폰을 알림에 다시 등록해 주세요. ' + (pushState().error || '')}</Text>
+  </Pressable>;
+}
+
 export default function TeamScreen() {
   const w = useWork(), d = useDesign(), s = w.state;
   const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false), [settings, setSettings] = useState(false);
@@ -222,6 +242,7 @@ export default function TeamScreen() {
       {s.teams.length > 0 && chip('+ 새 팀', adding, () => setAdding(true), 'add')}
       <View style={{ flex: 1 }} /><MyName />
     </View>
+    <AlertsOff />
     <Invites />
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <>
       <Card style={{ alignItems: 'stretch' }}>
