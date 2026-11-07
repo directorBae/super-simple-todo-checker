@@ -174,7 +174,10 @@ create policy "own write" on public.push_devices for insert to authenticated wit
 create policy "own change" on public.push_devices for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "own remove" on public.push_devices for delete to authenticated using (user_id = auth.uid());
 revoke all on public.push_devices from anon, authenticated;
-grant select, insert, delete, update (platform, disabled_at, updated_at) on public.push_devices to authenticated;
+-- The phone registers with an upsert (on_conflict user_id,token): on a row that is already there PostgREST updates every
+-- column it was sent, token included — a column-list update grant made that "permission denied" and no phone could
+-- register twice (every start after the first). Rows are still the person's own only (the policies above).
+grant select, insert, update, delete on public.push_devices to authenticated;
 -- 이미 보낸 알림(같은 알림은 한 번만). Edge Function만 쓴다.
 create table if not exists public.push_sent (
   user_id uuid not null references auth.users(id) on delete cascade,

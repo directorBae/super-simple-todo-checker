@@ -110,3 +110,13 @@ test('push: every minute, what fell due is sent once to each phone, written from
   const bad = await handle(new Request('https://x.supabase.co/functions/v1/integrations/push', { method: 'POST' }), environment(() => 'x', {}));
   assert.equal(bad.status, 401);
 });
+
+// The phone registers its push address with an upsert; on a row that is already there PostgREST updates every column it
+// was sent (token too). A column-list update grant on push_devices refused that — "permission denied for table" on every
+// start after the first — so the grant must be table-wide.
+test('push_devices: the authenticated role can update every column (the phone re-registers with an upsert)', async () => {
+  const fs = await import('node:fs');
+  const sql = fs.readFileSync(new URL('../../supabase/integrations.sql', import.meta.url), 'utf8');
+  const line = sql.split('\n').find((l) => /^grant .* on public\.push_devices to authenticated/.test(l));
+  assert.match(line || '', /^grant select, insert, update, delete on public\.push_devices to authenticated;/);
+});
