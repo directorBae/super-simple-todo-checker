@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { tools } from './store.js';
+import { incomingDive } from '../../shared/work-alerts.mjs';
 
 /*
  * 팀버전 (Work) on the phone: the team state (looked at every 8 s while the app is open — that also shows the person
@@ -36,6 +37,7 @@ async function connect({ url, token }, onChange) {
 export function WorkProvider({ onOpen, children }) {
   const [state, setState] = useState(null), [error, setError] = useState(''), [call, setCall] = useState(null), live = useRef(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
+  const actionsRef = useRef(null);
   // Tags tapped but not yet confirmed: shown at once, kept over older answers until the server says the same.
   const tags = useRef(new Map()), saving = useRef(new Map());
   const same = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -61,7 +63,12 @@ export function WorkProvider({ onOpen, children }) {
     if (Platform.OS === 'web') return undefined;
     const take = (r) => {
       const data = r?.notification?.request?.content?.data;
-      if (data?.kind === 'dive' || data?.kind === 'dive-reply') { openRef.current?.('dive:' + data.dive); refresh(); }
+      if (data?.kind === 'dive' || data?.kind === 'dive-reply') {
+        openRef.current?.('dive:' + data.dive);
+        // A dive that picked you is a call: tapping its push answers it — if it is still calling (an old push seen
+        // again at the next start does nothing once you have answered or it is over).
+        refresh().then((r) => { if (data.picked && r && incomingDive(r)?.id === data.dive) return actionsRef.current.joinDive(data.dive); }).catch((e) => setError(e.message));
+      }
       else if (data?.kind === 'work-invite') { openRef.current?.('team'); refresh(); }
     };
     Notifications.getLastNotificationResponseAsync().then(take).catch(() => {});
@@ -92,6 +99,7 @@ export function WorkProvider({ onOpen, children }) {
       }, 350));
     },
     renameTeam: (team, name) => act('/team/rename', { team, name }),
+    memberBoard: (team, member) => tools.work('/member', { team, member }),
     invite: (team, emails) => act('/invite', { team, emails }),
     acceptInvite: (team) => act('/invite/accept', { team }),
     declineInvite: (team) => act('/invite/decline', { team }),
@@ -102,6 +110,7 @@ export function WorkProvider({ onOpen, children }) {
     leaveDive: async (end = false) => { const dive = call?.dive; live.current?.leave(); live.current = null; setCall(null); if (dive) await act('/dive/leave', { dive, end }).catch(() => {}); },
     mute: async () => { if (!live.current || !call) return; const muted = !call.muted; await live.current.mute(muted); setCall((c) => c && { ...c, muted }); },
   };
+  actionsRef.current = actions;
   useEffect(() => { if (call?.ended) actions.leaveDive(); }, [call?.ended]);
   return <WorkContext.Provider value={{ state, error, call, available: !!tools, ...actions }}>{children}</WorkContext.Provider>;
 }

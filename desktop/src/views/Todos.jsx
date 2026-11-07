@@ -126,6 +126,15 @@ function TeamTag({ team }) {
   </span>;
 }
 
+// 👁: whether teammates (Work → Team) can see this to-do. Open eye = shown (the default), crossed out = private.
+export function EyeIcon({ off = false }) {
+  return <svg className="eye-icon" viewBox="0 0 20 20" width="15" height="15" aria-hidden="true">
+    <path d="M1.8 10C3.7 6.4 6.6 4.5 10 4.5s6.3 1.9 8.2 5.5c-1.9 3.6-4.8 5.5-8.2 5.5S3.7 13.6 1.8 10Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+    <circle cx="10" cy="10" r="2.6" fill="currentColor" />
+    {off && <path d="M3 17 17 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />}
+  </svg>;
+}
+
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
 function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
@@ -259,6 +268,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
               {todo.endTime ? `~${todo.endTime}` : ''}
             </button>
           )}
+          {todo.private && <button type="button" className="private-mark" title="팀원에게 숨긴 할 일 · 눌러서 보이기" aria-label="팀원에게 보이기" onClick={() => window.api.updateTodo(todo.id, { private: false })}><EyeIcon off /></button>}
           {todo.repeat && <button type="button" className="repeat-mark" title="반복 설정" onClick={() => setRepeatOpen(!repeatOpen)}>↻ {repeatLabel(todo.repeat)}</button>}
           <TeamControl todo={todo} db={db} />
           <span className="memo-actions">
@@ -266,6 +276,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
               📅
             </button>
             {!todo.repeat && <button className="ghost" title="반복" aria-label="반복" onClick={() => setRepeatOpen(!repeatOpen)}>↻</button>}
+            {!todo.private && <button className="ghost eye-btn" title="팀원에게 숨기기" aria-label="팀원에게 숨기기" onClick={() => window.api.updateTodo(todo.id, { private: true })}><EyeIcon /></button>}
             <button className="ghost" title="버킷으로" onClick={() => window.api.updateTodo(todo.id, { status: 'bucket' })}>
               버킷
             </button>

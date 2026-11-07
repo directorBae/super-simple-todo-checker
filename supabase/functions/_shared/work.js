@@ -2,7 +2,7 @@
 // teammates they pick, with an agenda of up to 50 characters. The picked people get an important push (time-sensitive
 // on iPhone), everyone else in the team an ordinary one; anyone can join, or answer "카톡 가능" / "지금 연락 불가".
 // Only this function touches the work_* tables (service key); each request is checked against the person's membership.
-import { HttpError } from './http.js';
+import { HttpError, localDate, addDays } from './http.js';
 import { db, eq } from './db.js';
 
 export const ONLINE_MS = 45_000, DIVE_TTL_MS = 3 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
@@ -37,7 +37,10 @@ async function push(env, store, userIds, message) {
   const devices = await store.select('push_devices', `user_id=${list(userIds)}&disabled_at=is.null&select=user_id,token`);
   if (!devices.length) return 0;
   const messages = devices.map((d) => ({ to: d.token, sound: 'default', ...message(d.user_id) }));
-  await env.fetch(EXPO_PUSH, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(messages) }).catch(() => null);
+  const res = await env.fetch(EXPO_PUSH, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(messages) }).catch((e) => (console.error('푸시를 보내지 못했어요', e.message), null));
+  const out = res && (await res.json().catch(() => null));
+  if (out?.errors) console.error('푸시 거절', JSON.stringify(out.errors));
+  (out?.data || []).forEach((t, i) => t?.status === 'error' && console.error('푸시 거절', messages[i]?.to?.slice(0, 30), t.details?.error || '', t.message || ''));
   return messages.length;
 }
 
@@ -63,10 +66,17 @@ async function diveFor(store, user, diveId) {
 }
 
 // Everything the Team tab shows, and the heartbeat that makes the person "online".
-export async function workState(env, user) {
+// What of a pet is shown to teammates (kept small: no free text beyond its name).
+export function cleanPet(p) {
+  if (!p || typeof p !== 'object') return null;
+  const word = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+  return { species: word(p.species, 16), design: Number.isInteger(p.design) && p.design >= 0 && p.design < 3 ? p.design : null, color: word(p.color, 16), name: word(p.name, 12) };
+}
+export async function workState(env, user, body = {}) {
   const store = db(env), now = env.now();
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=*`);
-  await store.insert('work_presence', [{ user_id: user.id, last_seen: iso(now), name: mine?.name ?? null }], { upsert: true, onConflict: 'user_id' });
+  const pet = 'pet' in body ? cleanPet(body.pet) : mine?.pet ?? null;
+  await store.insert('work_presence', [{ user_id: user.id, last_seen: iso(now), name: mine?.name ?? null, pet }], { upsert: true, onConflict: 'user_id' });
   const { active, invited } = await membership(store, user);
   const teamIds = [...new Set([...active, ...invited].map((r) => r.team_id))];
   const teams = teamIds.length ? await store.select('work_teams', `id=${list(teamIds)}&select=*&order=created_at.asc`) : [];
@@ -93,6 +103,31 @@ export async function workState(env, user) {
       id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, targets: d.targets || [], createdAt: d.created_at,
       replies: replies.filter((r) => r.dive_id === d.id).map((r) => ({ id: r.user_id, answer: r.answer, at: r.at })),
     })),
+  };
+}
+
+// A teammate's to-dos (read only): every active member of a team can see the others', except the ones their owner
+// marked private (👁). Two weeks ahead and one back, multi-day ones included; with the owner's 체커 teams (names and
+// colours, for grouping) and, on a computer, their pet.
+export const BOARD_BACK = 7, BOARD_AHEAD = 21;
+export async function memberBoard(env, user, teamId, memberId) {
+  const store = db(env), me = await activeMember(store, user, teamId), who = String(memberId || '');
+  const [them] = await store.select('work_members', `team_id=${eq(me.team_id)}&user_id=${eq(uuid(who))}&status=eq.active&select=user_id,email`);
+  if (!them) throw new HttpError('이 팀의 팀원이 아니에요.', 403);
+  const today = localDate(env.now(), env.TIME_ZONE), from = addDays(today, -BOARD_BACK), to = addDays(today, BOARD_AHEAD);
+  const [rows, teams, [presence]] = await Promise.all([
+    store.select('todos', `user_id=${eq(who)}&deleted_at=is.null&status=neq.bucket&date=lte.${to}&or=(date.gte.${from},end_date.gte.${from})&select=id,title,date,end_date,start_time,end_time,status,team_id,sort_order,created_at,extra,origin&order=date.asc&limit=400`),
+    store.select('teams', `user_id=${eq(who)}&deleted_at=is.null&select=id,name,color,sort_order&order=sort_order.asc`),
+    store.select('work_presence', `user_id=${eq(who)}&select=name,last_seen,pet`),
+  ]);
+  const todos = rows.filter((t) => !t.extra?.private).map((t) => ({
+    id: t.id, title: t.title, date: t.date, endDate: t.end_date, startTime: t.start_time, endTime: t.end_time, status: t.status,
+    teamId: t.team_id, sortOrder: t.sort_order, createdAt: t.created_at, doneDays: Array.isArray(t.extra?.doneDays) ? t.extra.doneDays : [],
+    source: t.origin?.provider || null,
+  }));
+  return {
+    member: { id: who, name: presence?.name || them.email.split('@')[0], online: !!presence && env.now() - Date.parse(presence.last_seen) < ONLINE_MS },
+    today, from, to, todos, teams: teams.map((t) => ({ id: t.id, name: t.name, color: t.color })), pet: cleanPet(presence?.pet), hidden: rows.length - todos.length,
   };
 }
 
@@ -177,6 +212,22 @@ export async function removeMember(env, user, teamId, email) {
 }
 
 // Dive: the caller picks teammates and writes the agenda; the room opens with the caller in it.
+// Like a phone call, the picked people's push has its own ringtone (mobile/assets/dive-ring.wav, ~28 s; a build
+// without it plays the usual sound) and rings again after 20 s and 40 s for whoever has not answered by then.
+export const RING_SOUND = 'dive-ring.wav', RING_AGAIN_MS = [20_000, 40_000];
+async function ringAgain(env, diveId, picked, message) {
+  let waited = 0;
+  for (const at of RING_AGAIN_MS) {
+    await env.sleep(at - waited); waited = at;
+    const store = db(env);
+    const [dive] = await store.select('work_dives', `id=${eq(diveId)}&select=id,ended_at`);
+    if (!dive || dive.ended_at) return;
+    const replies = await store.select('work_replies', `dive_id=${eq(diveId)}&select=user_id`);
+    const left = picked.filter((id) => !replies.some((r) => r.user_id === id));
+    if (!left.length) return;
+    await push(env, store, left, () => message);
+  }
+}
 export async function startDive(env, user, { team, targets, agenda }) {
   const store = db(env), me = await activeMember(store, user, team), text = clean(agenda, AGENDA_MAX);
   if (!text) throw new HttpError('안건을 적어 주세요 (50자까지).');
@@ -189,9 +240,11 @@ export async function startDive(env, user, { team, targets, agenda }) {
   await store.update('work_presence', `user_id=${eq(user.id)}`, { in_dive: dive.id });
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=name`), who = nameOf(mine, user.email);
   // Picked people: important (time-sensitive — shows through Focus on iPhone). The rest of the team: an ordinary one.
+  const ring = { title: `🌊 ${who}님이 다이브를 요청했어요`, body: text, sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: true } };
   await push(env, store, ids.filter((id) => id !== user.id), (to) => picked.includes(to)
-    ? { title: `🌊 ${who}님이 다이브를 요청했어요`, body: text, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: true } }
+    ? ring
     : { title: `${who}님의 다이브가 열렸어요`, body: text, data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: false } });
+  env.waitUntil?.(ringAgain(env, dive.id, picked, ring).catch((e) => console.error('다시 울리지 못했어요', e.message)));
   return { dive: { id: dive.id }, call: await livekitToken(env, { room: dive.room, identity: user.id, name: who }) };
 }
 

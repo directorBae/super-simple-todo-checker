@@ -236,7 +236,7 @@ function registerIpc() {
     if (!t) return publicState();
     const before = snap(t);
     const timeChanged = ['date', 'startTime', 'endTime'].some((k) => k in patch && patch[k] !== t[k]);
-    const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder', 'doneDays'];
+    const allowed = ['title', 'notes', 'date', 'endDate', 'startTime', 'endTime', 'timeZone', 'projectId', 'teamId', 'status', 'important', 'sortOrder', 'doneDays', 'private'];
     if ('title' in patch) {
       if (!String(patch.title || '').trim()) return publicState();
       patch = { ...patch, ...titleFields(patch.title, patch.notes ?? t.notes ?? '') };
@@ -423,7 +423,9 @@ app.whenReady().then(() => {
   growRepeats();
   setInterval(growRepeats, 60 * 60 * 1000);
   // 팀버전 (Work): the team state every 10 s, notifications for dives (electron/work.cjs).
-  const workWatch = require('./work.cjs').start({ client: () => supabase.tools, send: (state) => win && win.webContents.send('work-state', state), openView, icon: ICON });
+  const workWatch = require('./work.cjs').start({ client: () => supabase.tools, pet: () => store.db.settings.focusPet || null, send: (state) => win && win.webContents.send('work-state', state), openView, icon: ICON,
+    // An incoming dive: the window comes up (without taking the keyboard) with the ringing card, and blinks in the taskbar.
+    ring: () => { if (!win) return; if (win.isMinimized()) win.restore(); if (!win.isVisible()) win.showInactive(); win.flashFrame(true); win.once('focus', () => win.flashFrame(false)); } });
   ipcMain.handle('work:refresh', () => workWatch.refresh());
   app.on('browser-window-focus', autoSupabase);
   app.on('browser-window-focus', autoServerSync);

@@ -72,7 +72,10 @@
         "expo-notifications",
         {
           "color": "#7c3aed",
-          "mode": "production"
+          "mode": "production",
+          "sounds": [
+            "./assets/dive-ring.wav"
+          ]
         }
       ],
       [

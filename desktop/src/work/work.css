@@ -144,3 +144,44 @@ input.work-my-name { width: 140px; }
 .team-danger { margin-top: 16px; padding: 14px; border-radius: 16px; border: 1px solid rgba(229, 72, 77, 0.35); background: rgba(229, 72, 77, 0.06); }
 .team-danger b { color: #e5484d; font-size: 13px; }
 .team-danger .desc b { color: inherit; }
+
+/* 👁 private to-dos, and a teammate's window (their board, their pet wandering in it). */
+.private-mark, .eye-btn { display: inline-grid; place-items: center; border: 0; background: none; padding: 2px 4px; color: var(--muted); cursor: pointer; border-radius: 6px; }
+.private-mark { opacity: 0.8; }
+.private-mark:hover, .eye-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.14); }
+.work-member.peekable { cursor: pointer; }
+.work-member.peekable:hover { background: rgba(255, 255, 255, 0.1); }
+.work-peek-hint { font-size: 11px; }
+.member-overlay { align-items: center; }
+.member-window { position: relative; width: min(560px, calc(100vw - 32px)); height: min(640px, calc(100vh - 80px)); display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; background: linear-gradient(rgba(236, 243, 255, 0.82), rgba(236, 243, 255, 0.74)); backdrop-filter: var(--glass-panel); -webkit-backdrop-filter: var(--glass-panel); box-shadow: var(--glass-light), 0 30px 80px rgba(8, 14, 40, 0.35); color: var(--text); animation: member-open 0.35s var(--ease-spring) both; }
+.member-window::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; background: var(--glass-rim); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+@keyframes member-open { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
+.member-window-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: rgba(255, 255, 255, 0.1); border-bottom: 1px solid rgba(255, 255, 255, 0.16); }
+.member-window-bar b { font-size: 13px; }
+.member-window-bar small { flex: 1; font-size: 11px; color: var(--muted); }
+.member-window-dots { display: inline-flex; gap: 5px; margin-right: 4px; }
+.member-window-dots i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
+.member-window-dots i:nth-child(2) { background: #febc2e; }
+.member-window-dots i:nth-child(3) { background: #28c840; }
+.member-window-body { flex: 1; overflow: auto; padding: 12px 18px 90px; position: relative; z-index: 1; }
+.member-day { margin-bottom: 14px; }
+.member-day h4 { margin: 0 0 6px; font-size: 13px; display: flex; gap: 6px; align-items: baseline; }
+.member-day h4 .sun { color: #e11d48; } .member-day h4 .sat { color: #4f6ef7; }
+.member-day h4 em { font-style: normal; font-size: 10px; color: #fff; background: var(--accent); border-radius: 99px; padding: 1px 7px; }
+.member-team { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--muted); margin: 6px 0 2px; }
+.member-team i { width: 8px; height: 8px; border-radius: 50%; }
+.member-todo { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 13px; }
+.member-check { width: 15px; height: 15px; border-radius: 5px; border: 1.5px solid var(--muted); display: inline-grid; place-items: center; font-size: 10px; color: #fff; flex: none; }
+.member-todo.done .member-check { background: var(--accent); border-color: var(--accent); }
+.member-todo.done .member-title { color: var(--muted); text-decoration: line-through; }
+.member-title { flex: 1; min-width: 0; }
+.member-title small { color: var(--muted); }
+.member-todo time { font: 500 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+.window-pet-room { position: absolute; inset: 44px 0 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.window-pet { position: absolute; left: 0; top: 0; width: 56px; height: 56px; transition-property: transform; transition-timing-function: cubic-bezier(0.45, 0, 0.3, 1); }
+@media (prefers-reduced-motion: reduce) { .window-pet { transition: none; } .member-window { animation: none; } }
+
+/* A ringing dive card pulses like an incoming call. */
+.dive-incoming.ringing { animation: dive-ring 1.4s ease-in-out infinite; }
+@keyframes dive-ring { 0%, 100% { box-shadow: var(--glass-light), 0 0 0 0 rgba(99, 102, 241, 0.45); } 50% { box-shadow: var(--glass-light), 0 0 0 14px rgba(99, 102, 241, 0); } }
+@media (prefers-reduced-motion: reduce) { .dive-incoming.ringing { animation: none; } }

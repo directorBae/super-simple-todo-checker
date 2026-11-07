@@ -8,16 +8,19 @@ let NOW = Date.parse('2026-11-06T03:00:00Z');
 const USERS = { 'tok-a': { id: '00000000-0000-4000-8000-00000000000a', email: 'a@x.com' }, 'tok-b': { id: '00000000-0000-4000-8000-00000000000b', email: 'B@x.com' }, 'tok-c': { id: '00000000-0000-4000-8000-00000000000c', email: 'c@x.com' } };
 const KEYS = { work_members: ['team_id', 'email'], work_presence: ['user_id'], work_replies: ['dive_id', 'user_id'] };
 
-function world() {
-  const tables = { work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
+function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {}) {
+  const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
   const pushes = [];
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
+    if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
     const v = row[key], [op, ...rest] = cond.split('.'), arg = decodeURIComponent(rest.join('.'));
     if (op === 'eq') return String(v) === arg;
     if (op === 'is') return v === null || v === undefined;
     if (op === 'in') return arg.slice(1, -1).split(',').includes(String(v));
-    if (op === 'gte') return v >= arg;
+    if (op === 'gte') return v != null && v >= arg;
+    if (op === 'lte') return v != null && v <= arg;
+    if (op === 'neq') return String(v) !== arg;
     throw new Error('filter ' + op);
   };
   const rows = (table, search) => tables[table].filter((r) => [...new URLSearchParams(search)].every((f) => match(r, f)));
@@ -46,7 +49,7 @@ function world() {
     if (method === 'PATCH') { const r = rows(table, u.search); r.forEach((x) => Object.assign(x, JSON.parse(init.body))); return reply(r.map((x) => structuredClone(x))); }
     if (method === 'DELETE') { const gone = new Set(rows(table, u.search)); tables[table] = tables[table].filter((x) => !gone.has(x)); if (table === 'work_teams') tables.work_members = tables.work_members.filter((m) => !([...gone].some((t) => t.id === m.team_id))); return reply(undefined, 204); }
   }
-  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret' })[k], { fetch, now: () => NOW, waitUntil: (p) => p });
+  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret' })[k], { fetch, now: () => NOW, sleep, waitUntil });
   const as = (who) => async (path, body = {}) => {
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
@@ -78,6 +81,26 @@ test('work: make a team, invite by email, accept, and see who is online', async 
   assert.equal((await w.a('/state')).teams[0].members.length, 2);
 });
 
+test('work: a dive rings the picked people again (20 s, 40 s) until they answer, like a call', async () => {
+  const later = [], waits = [];
+  let go = null;
+  const w = world({ sleep: (ms) => { waits.push(ms); return new Promise((r) => { go = r; }); }, waitUntil: (p) => later.push(p) });
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com', 'c@x.com'] });
+  await w.b('/invite/accept', { team: team.id }); await w.c('/invite/accept', { team: team.id });
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id, USERS['tok-c'].id], agenda: '급한 회의' });
+  const rings = () => w.pushes.filter((p) => p.data?.picked).map((p) => p.to.slice(-2, -1)).sort().join('');
+  assert.equal(rings(), 'bc');
+  // 20 s on: nobody answered → both again. Then C answers "busy"; 40 s on: only B.
+  w.pushes.length = 0; go(); await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
+  for (let i = 0; i < 20 && !waits[1]; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.equal(rings(), 'bc');
+  await w.c('/dive/reply', { dive: dive.id, answer: 'busy' });
+  w.pushes.length = 0; go(); await later[0];
+  assert.equal(rings(), 'b');
+  assert.deepEqual(waits, [20_000, 20_000]);
+});
+
 test('work: a dive picks teammates and an agenda, pushes them first, and anyone can join or decline', async () => {
   const w = world();
   const { team } = await w.a('/team', { name: 'Studio' });
@@ -96,7 +119,7 @@ test('work: a dive picks teammates and an agenda, pushes them first, and anyone 
   // B (picked) gets the important one, C an ordinary one.
   assert.ok(!w.pushes.some((p) => p.to.includes('[a]')), 'not to the caller');
   const toB = w.pushes.find((p) => p.to.includes('[b]')), toC = w.pushes.find((p) => p.to.includes('[c]'));
-  assert.equal(toB.interruptionLevel, 'time-sensitive'); assert.equal(toB.data.picked, true);
+  assert.equal(toB.interruptionLevel, 'time-sensitive'); assert.equal(toB.data.picked, true); assert.equal(toB.sound, 'dive-ring.wav');
   assert.equal(toC.interruptionLevel, undefined); assert.equal(toC.data.kind, 'dive');
   // Everyone in the team sees it; B declines with "카톡 가능", C joins (not picked, but allowed).
   let s = await w.c('/state'); assert.equal(s.dives[0].agenda.length, 50); assert.deepEqual(s.dives[0].targets, [USERS['tok-b'].id]);
@@ -183,4 +206,29 @@ test('work: only the maker renames the team', async () => {
   await assert.rejects(w.a('/team/rename', { team: team.id, name: '   ' }), /팀 이름/);
   await w.a('/team/rename', { team: team.id, name: '  UO   BioLabs ' });
   assert.equal((await w.b('/state')).teams[0].name, 'UO BioLabs');
+});
+
+test('work: a teammate board — their to-dos except private ones, their 체커 teams and their pet; only for teammates', async () => {
+  const w = world();
+  const { team } = await w.a('/team', { name: 'T' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  const B = USERS['tok-b'].id, today = '2026-11-06';
+  w.tables.todos.push(
+    { id: 't1', user_id: B, title: '실험', date: today, end_date: null, start_time: '10:00', end_time: null, status: 'todo', team_id: 'k1', deleted_at: null, extra: {} },
+    { id: 't2', user_id: B, title: '비밀', date: today, status: 'todo', deleted_at: null, extra: { private: true } },
+    { id: 't3', user_id: B, title: '학회', date: '2026-11-01', end_date: '2026-11-08', status: 'todo', deleted_at: null, extra: { doneDays: ['2026-11-02'] } },
+    { id: 't4', user_id: B, title: '옛날', date: '2026-09-01', end_date: null, status: 'todo', deleted_at: null, extra: {} },
+    { id: 't5', user_id: B, title: '버킷', date: today, status: 'bucket', deleted_at: null, extra: {} },
+    { id: 't6', user_id: USERS['tok-a'].id, title: '남의 것', date: today, status: 'todo', deleted_at: null, extra: {} },
+  );
+  w.tables.teams.push({ id: 'k1', user_id: B, name: 'UO', color: '#6685e8', deleted_at: null });
+  await w.b('/state', { pet: { species: 'dog', design: 0, name: '보리', extra: 'x'.repeat(500) } });
+  const board = await w.a('/member', { team: team.id, member: B });
+  assert.deepEqual(board.todos.map((t) => t.title).sort(), ['실험', '학회']);
+  assert.equal(board.hidden, 1, 'one private to-do left out');
+  assert.deepEqual(board.todos.find((t) => t.id === 't3').doneDays, ['2026-11-02']);
+  assert.deepEqual(board.teams, [{ id: 'k1', name: 'UO', color: '#6685e8' }]);
+  assert.deepEqual(board.pet, { species: 'dog', design: 0, color: null, name: '보리' });
+  await assert.rejects(w.c('/member', { team: team.id, member: B }), /팀원이 아니에요/);
+  await assert.rejects(w.a('/member', { team: team.id, member: USERS['tok-c'].id }), /팀원이 아니에요/);
 });

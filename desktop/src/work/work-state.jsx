@@ -16,7 +16,7 @@ function webNotify(a, onOpen) {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
   try {
     const n = new Notification(a.title, { body: a.body, tag: a.key, requireInteraction: !!a.important, icon: './icon.png' });
-    n.onclick = () => { window.focus(); n.close(); onOpen(a.dive ? 'dive:' + a.dive : 'team'); };
+    n.onclick = () => { window.focus(); n.close(); onOpen(a.dive ? (a.important ? 'join:' : 'dive:') + a.dive : 'team'); };
   } catch { /* some browsers only notify from a service worker */ }
 }
 
@@ -45,7 +45,8 @@ async function connect({ url, token }, onChange) {
   };
 }
 
-export function WorkProvider({ children, onOpen }) {
+export function WorkProvider({ children, onOpen, pet }) {
+  const petRef = useRef(pet); petRef.current = pet;
   const [state, setState] = useState(null), [error, setError] = useState('');
   // call: { dive, people, state, muted, micError } while in a dive; null otherwise.
   const [call, setCall] = useState(null), live = useRef(null);
@@ -68,7 +69,7 @@ export function WorkProvider({ children, onOpen }) {
     if (desktop) { window.api.onWorkState((s) => take(s)); refresh(); return undefined; }
     const seen = new Set(); let first = true, who = null;
     const look = async () => {
-      const r = take(await window.api.tools('work', { path: '/state' }).catch(() => null));
+      const r = take(await window.api.tools('work', { path: '/state', body: { pet: petRef.current || null } }).catch(() => null));
       if (!r?.ok || !r.me) return;
       if (r.me.id !== who) { who = r.me.id; seen.clear(); first = true; }
       for (const a of workAlerts(r, seen, { first })) webNotify(a, (v) => openRef.current?.(v));
@@ -119,6 +120,8 @@ export function WorkProvider({ children, onOpen }) {
     declineInvite: (team) => act('/invite/decline', { team }),
     removeMember: (team, email) => act('/member/remove', { team, email }),
     reply: (dive, answer) => act('/dive/reply', { dive, answer }),
+    // A teammate's board (read only): their to-dos except private ones, their 체커 teams, their pet.
+    memberBoard: async (team, member) => { const r = await window.api.tools('work', { path: '/member', body: { team, member } }); if (!r?.ok) throw new Error(r?.error || '불러오지 못했어요.'); return r; },
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
     joinDive: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
     leaveDive: async (end = false) => {

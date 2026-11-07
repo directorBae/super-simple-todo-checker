@@ -38,6 +38,8 @@ create table if not exists public.work_presence (
   last_seen timestamptz not null default now(),
   in_dive uuid
 );
+-- The person's pet (species, design, name…) so teammates looking at their board on a computer see it there too.
+alter table public.work_presence add column if not exists pet jsonb;
 
 create table if not exists public.work_dives (
   id uuid primary key default gen_random_uuid(),

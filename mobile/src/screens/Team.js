@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, ScrollView, Pressable, TextInput, Alert, Animated, Easing } from 'react-native';
+import { View, ScrollView, Pressable, TextInput, Alert, Animated, Easing, Vibration, Platform, StyleSheet } from 'react-native';
 import Svg, { Circle, Path, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Text } from '../text.js';
 import { useDesign, Surface, Button, Sheet } from '../design.js';
 import { useWork } from '../work.js';
 import { useDb } from '../store.js';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
+import { todosOn, addDay } from '../../../shared/multi-day.js';
 
 /*
  * 팀버전 (Work) — the Team screen (tap "체커" in the top bar): teams and invites, who is online, the dive button, and
@@ -70,17 +71,53 @@ function Invites() {
   </View>)}<ErrorText>{error}</ErrorText></Card>;
 }
 
+// A teammate's to-dos (read only), two weeks ahead, grouped by their 체커 teams. Their private (👁) ones never come.
+// Same as the member window on PC and web (desktop/src/views/Team.jsx), without the pet.
+const WIN_DAYS = 14, DOW_SHORT = ['일', '월', '화', '수', '목', '금', '토'];
+function MemberSheet({ team, member, onClose }) {
+  const w = useWork(), d = useDesign(), [board, setBoard] = useState(null), [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    const load = () => w.memberBoard(team.id, member.id).then((b) => alive && (setBoard(b), setError('')), (e) => alive && setError(e.message || '불러오지 못했어요.'));
+    load(); const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [member.id]);
+  const days = board ? Array.from({ length: WIN_DAYS }, (_, i) => addDay(board.today, i)) : [];
+  return <Sheet title={member.name + '의 할 일'} onClose={onClose}>
+    {board && <Text style={{ color: d.muted, fontSize: 12, marginTop: -8 }}>{member.online ? '온라인' : '오프라인'}{board.hidden ? ` · 숨긴 할 일 ${board.hidden}개` : ''}</Text>}
+    {!board ? <Text style={{ color: d.muted }}>{error || '불러오는 중…'}</Text> : days.map((day) => {
+      const list = todosOn(board.todos, day).sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99') || (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      if (!list.length && day !== board.today) return null;
+      const [, m, dd] = day.split('-').map(Number), dow = new Date(day + 'T12:00:00').getDay();
+      const groups = [null, ...board.teams].map((tm) => ({ tm, items: list.filter((t) => (board.teams.some((x) => x.id === t.teamId) ? t.teamId : null) === (tm?.id || null)) })).filter((g) => g.items.length);
+      return <View key={day} style={{ gap: 4 }}>
+        <Text style={{ color: d.text, fontWeight: '700', fontSize: 14 }}>{m}월 {dd}일 <Text style={{ color: dow === 0 ? '#e11d48' : dow === 6 ? '#4f6ef7' : d.muted }}>{DOW_SHORT[dow]}</Text>{day === board.today ? <Text style={{ color: d.accent }}>  오늘</Text> : null}</Text>
+        {!list.length && <Text style={{ color: d.muted, fontSize: 13 }}>할 일이 없어요</Text>}
+        {groups.map((g) => <View key={g.tm?.id || 'none'} style={{ gap: 2 }}>
+          {g.tm && <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}><View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: g.tm.color }} /><Text style={{ color: d.muted, fontSize: 12, fontWeight: '700' }}>{g.tm.name}</Text></View>}
+          {g.items.map((t) => { const done = t.status === 'done'; return <View key={t.id + day} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 }}>
+            <View accessibilityLabel={done ? '완료' : '할 일'} style={{ width: 16, height: 16, borderRadius: 5, borderWidth: 1.5, borderColor: done ? d.accent : d.muted, backgroundColor: done ? d.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>{done ? <Text style={{ color: '#fff', fontSize: 10 }}>✓</Text> : null}</View>
+            <Text style={{ flex: 1, color: done ? d.muted : d.text, fontSize: 14, textDecorationLine: done ? 'line-through' : 'none' }}>{t.title}{t.span ? <Text style={{ color: d.muted, fontSize: 12 }}> ({t.span.n}일차)</Text> : null}</Text>
+            {(t.startTime || t.span?.allDay) ? <Text style={{ color: d.muted, fontSize: 12, fontVariant: ['tabular-nums'] }}>{t.span?.allDay ? '종일' : t.startTime}{t.endTime ? '~' + t.endTime : ''}</Text> : null}
+          </View>; })}
+        </View>)}
+      </View>;
+    })}
+  </Sheet>;
+}
+
 function Members({ team }) {
-  const w = useWork(), d = useDesign(), me = w.state.me, [emails, setEmails] = useState(''), [note, setNote] = useState(''), [error, setError] = useState('');
+  const w = useWork(), d = useDesign(), me = w.state.me, [emails, setEmails] = useState(''), [note, setNote] = useState(''), [error, setError] = useState(''), [peek, setPeek] = useState(null);
   const sorted = [...team.members].sort((a, b) => (b.online - a.online) || (a.status === 'invited') - (b.status === 'invited'));
   const remove = (m) => Alert.alert(`${m.name}님을 내보낼까요?`, '', [{ text: '취소', style: 'cancel' }, { text: '내보내기', style: 'destructive', onPress: () => run(setError, () => w.removeMember(team.id, m.email)) }]);
   return <Card><Title note={`${team.members.filter((m) => m.online).length}명 온라인`}>팀원</Title>
-    {sorted.map((m) => <Pressable key={m.email} onLongPress={() => team.mine && m.id !== me.id && remove(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: m.online ? 1 : 0.6 }}>
+    {sorted.map((m) => <Pressable key={m.email} accessibilityHint={m.status === 'active' && m.id !== me.id ? '눌러서 할 일 보기' : undefined} onPress={() => m.status === 'active' && m.id !== me.id && setPeek(m)} onLongPress={() => team.mine && m.id !== me.id && remove(m)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, opacity: m.online ? 1 : 0.6 }}>
       <Avatar person={m} /><View style={{ flex: 1 }}><Text style={{ color: d.text, fontWeight: '600', fontSize: 14 }}>{m.name}{m.id === me.id ? <Text style={{ color: d.muted, fontWeight: '500' }}> (나)</Text> : null}</Text><Text numberOfLines={1} style={{ color: d.muted, fontSize: 12 }}>{m.email}</Text></View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: m.online ? '#30c48d' : '#8a93a6' }} /><Text style={{ color: d.muted, fontSize: 12 }}>{statusOf(m)}</Text></View>
     </Pressable>)}
     {team.mine && <View style={{ flexDirection: 'row', gap: 8 }}><Field value={emails} onChangeText={setEmails} placeholder="초대할 이메일 (쉼표로 여러 명)" autoCapitalize="none" keyboardType="email-address" /><Button title="초대" disabled={!emails.trim()} onPress={() => run(setError, async () => { const r = await w.invite(team.id, emails.split(/[\s,;]+/).filter(Boolean)); setEmails(''); setNote(r.invited.length ? `${r.invited.length}명을 초대했어요.` : '이미 초대한 이메일이에요.'); })} /></View>}
-    {team.mine && <Text style={{ color: d.muted, fontSize: 11 }}>팀원을 길게 누르면 내보낼 수 있어요.</Text>}
+    <Text style={{ color: d.muted, fontSize: 11 }}>팀원을 누르면 그 사람의 할 일을 볼 수 있어요{team.mine ? ', 길게 누르면 내보낼 수 있어요' : ''}. 👁로 숨긴 할 일은 보이지 않아요.</Text>
+    {peek && <MemberSheet team={team} member={peek} onClose={() => setPeek(null)} />}
     {note ? <Text style={{ color: d.muted, fontSize: 13 }}>{note}</Text> : null}<ErrorText>{error}</ErrorText>
   </Card>;
 }
@@ -202,13 +239,52 @@ export default function TeamScreen() {
   </ScrollView>;
 }
 
-// Someone picked you for a dive: a card at the bottom until you join or answer.
+// Someone picked you for a dive. Like a phone call: while it is new (RING_MS) it fills the screen and the phone
+// vibrates (the push itself brings the ringtone, mobile/assets/dive-ring.wav); after that it waits as a card at the
+// bottom until you join or answer.
+const RING_MS = 45_000;
+function Ringing({ x, team, by, go, w, error }) {
+  const d = useDesign();
+  useEffect(() => {
+    if (Platform.OS === 'android') { Vibration.vibrate([0, 700, 900], true); return () => Vibration.cancel(); }
+    Vibration.vibrate(); const t = setInterval(() => Vibration.vibrate(), 1600);
+    return () => { clearInterval(t); Vibration.cancel(); };
+  }, []);
+  const round = (bg, label, sub, onPress) => <View style={{ alignItems: 'center', gap: 8 }}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ width: 74, height: 74, borderRadius: 37, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.75 : 1, shadowColor: bg, shadowOpacity: 0.5, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } })}><Text style={{ color: '#fff', fontSize: 28 }}>{sub}</Text></Pressable>
+    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{label}</Text>
+  </View>;
+  return <View accessibilityViewIsModal accessibilityRole="alert" style={[StyleSheet.absoluteFill, { zIndex: 120, backgroundColor: '#0b1636e6', paddingHorizontal: 28, paddingTop: 90, paddingBottom: 60, justifyContent: 'space-between' }]}>
+    <View style={{ alignItems: 'center', gap: 14 }}>
+      <Text style={{ color: '#c7d2fe', fontSize: 14 }}>{team?.name} · 다이브 요청</Text>
+      <Text style={{ color: '#fff', fontSize: 30, fontWeight: '700', textAlign: 'center' }}>{by?.name || '팀원'}</Text>
+      <PulsingDive size={120} />
+      <Text style={{ color: '#fff', fontSize: 19, fontWeight: '600', lineHeight: 27, textAlign: 'center' }}>{x.agenda}</Text>
+    </View>
+    <View style={{ gap: 26 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+        {round('#e5484d', '지금 연락 불가', '✕', () => go(() => w.reply(x.id, 'busy')))}
+        {round('#30a46c', '참여', '🌊', () => go(() => w.joinDive(x.id)))}
+      </View>
+      <Pressable accessibilityRole="button" onPress={() => go(() => w.reply(x.id, 'kakao'))} style={{ alignSelf: 'center', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 99, backgroundColor: '#ffffff26' }}><Text style={{ color: '#fff', fontWeight: '600' }}>💬 카톡 가능</Text></Pressable>
+      <ErrorText>{error}</ErrorText>
+    </View>
+  </View>;
+}
 export function IncomingDive() {
   const w = useWork(), d = useDesign(), [gone, setGone] = useState(() => new Set()), [error, setError] = useState('');
-  const x = incomingDive(w.state);
-  if (!x || w.call || gone.has(x.id)) return null;
+  const x = incomingDive(w.state), showing = !!x && !w.call && !gone.has(x.id);
+  // Ringing: from when the card first shows for a dive still under a minute old, for RING_MS.
+  const [ringing, setRinging] = useState(null);
+  useEffect(() => {
+    if (!showing || Date.now() - Date.parse(x.createdAt) > 60_000) { setRinging(null); return undefined; }
+    setRinging(x.id); const t = setTimeout(() => setRinging(null), RING_MS);
+    return () => clearTimeout(t);
+  }, [showing, x?.id]);
+  if (!showing) return null;
   const team = w.state.teams.find((t) => t.id === x.team), by = team?.members.find((m) => m.id === x.by);
   const go = (f) => f().then(() => setGone((g) => new Set(g).add(x.id)), (e) => setError(e.message));
+  if (ringing === x.id) return <Ringing x={x} team={team} by={by} go={go} w={w} error={error} />;
   return <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: 28, zIndex: 90 }}>
     <Surface native style={{ borderColor: d.accent, borderWidth: 1.5, backgroundColor: '#eef2ffe6' }} contentStyle={{ padding: 16, gap: 10 }}>
       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}><DiveIcon size={40} /><View style={{ flex: 1 }}><Text style={{ color: d.muted, fontSize: 12 }}>{team?.name} · 다이브 요청</Text><Text style={{ color: d.text, fontWeight: '700', fontSize: 15 }}>{by?.name || '팀원'}님이 불러요</Text></View></View>

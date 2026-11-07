@@ -192,7 +192,8 @@ async function appRoute(env, req, route) {
 
 async function workRoute(env, user, route, b) {
   switch (route) {
-    case '/work/state': return work.workState(env, user);
+    case '/work/state': return work.workState(env, user, b);
+    case '/work/member': return work.memberBoard(env, user, b.team, b.member);
     case '/work/name': return work.setName(env, user, b.name);
     case '/work/team': return work.createTeam(env, user, b.name);
     case '/work/team/delete': return work.deleteTeam(env, user, b.team);

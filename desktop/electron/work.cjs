@@ -10,20 +10,23 @@ const EVERY_MS = 10_000;
 // Packaged builds carry the shared files under app/shared; in the repo they sit two levels up.
 const sharedFile = (name) => [path.join(__dirname, '../shared', name), path.join(__dirname, '../../shared', name)].find((p) => fs.existsSync(p));
 
-function start({ client, send, openView, icon }) {
+function start({ client, pet = () => null, send, openView, icon, ring = () => {} }) {
   let seen = new Set(), first = true, who = null, alerts = null, busy = null, last = null;
   const notify = (a) => {
-    if (!Notification.isSupported()) return;
+    if (!Notification.isSupported()) { if (a.important && a.dive) ring(a); return; }
     const n = new Notification({ title: a.title, body: a.body, icon, silent: false, ...(a.important ? { timeoutType: 'never', urgency: 'critical' } : {}) });
-    n.on('click', () => openView(a.dive ? 'dive:' + a.dive : 'team'));
+    // A dive that picked you is a call: clicking it answers (joins), and the window comes up ringing.
+    n.on('click', () => openView(a.dive ? (a.important ? 'join:' : 'dive:') + a.dive : 'team'));
     n.show();
+    if (a.important && a.dive) ring(a);
   };
   async function look() {
     const c = client();
     if (!c) return null;
     // Without the alert rules (a broken install) the Team tab still works, only without notifications.
     alerts ||= await import(pathToFileURL(sharedFile('work-alerts.mjs') || '').href).catch(() => ({ workAlerts: () => [] }));
-    const r = await tools.run(c, 'work', { path: '/state' });
+    // The heartbeat carries the person's pet, so teammates looking at their board see it.
+    const r = await tools.run(c, 'work', { path: '/state', body: { pet: pet() } });
     if (!r.ok || !r.me) return r;
     // Someone else signed in: start over (nothing of the last person's is news to this one).
     if (r.me?.id !== who) { who = r.me?.id; seen = new Set(); first = true; }

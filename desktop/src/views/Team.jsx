@@ -1,6 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useWork } from '../work/work-state.jsx';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
+import { ring } from '../work/ring.js';
+import { todosOn, addDay } from '../../../shared/multi-day.js';
+import { PetSprite, DEFAULT_PET } from '../focus/Pet.jsx';
 
 /*
  * 팀버전 (Work) — the Team tab: teams and invites, who is online, and the dive button in the middle. A dive is a group
@@ -53,8 +57,82 @@ function Invites() {
   </section>;
 }
 
+/*
+ * A teammate's window: their to-do board (read only — the days ahead, grouped by their own 체커 teams, multi-day ones
+ * as n일차) in a glass window with their name on the title bar, as if looking at their screen. On a computer their
+ * pet wanders around inside it. Their private (👁) to-dos never come here. Refreshed every 15 s while open.
+ */
+const WIN_DAYS = 14, DOW_SHORT = ['일', '월', '화', '수', '목', '금', '토'];
+function WindowPet({ pet }) {
+  const box = useRef(null), [s, setS] = useState({ x: 40, y: 40, dir: 1, walking: false, frame: 0, ms: 0 });
+  useEffect(() => {
+    let alive = true, walkTimer = null;
+    const wander = () => {
+      if (!alive || !box.current) return;
+      const W = box.current.clientWidth - 60, H = box.current.clientHeight - 64;
+      setS((p) => { const x = 10 + Math.random() * Math.max(10, W), y = 10 + Math.random() * Math.max(10, H), d = Math.hypot(x - p.x, y - p.y); return { ...p, x, y, dir: x >= p.x ? 1 : -1, walking: true, ms: Math.max(600, d * 14) }; });
+      setTimeout(() => alive && setS((p) => ({ ...p, walking: false })), 1400);
+      setTimeout(wander, 3200 + Math.random() * 3000);
+    };
+    const t = setTimeout(wander, 800);
+    walkTimer = setInterval(() => setS((p) => (p.walking ? { ...p, frame: p.frame + 1 } : p)), 140);
+    return () => { alive = false; clearTimeout(t); clearInterval(walkTimer); };
+  }, []);
+  return <div className="window-pet-room" ref={box} aria-hidden="true">
+    <div className="window-pet" style={{ transform: `translate(${s.x}px, ${s.y}px)`, transitionDuration: s.ms + 'ms' }}>
+      <PetSprite pet={{ ...DEFAULT_PET, ...Object.fromEntries(Object.entries(pet || {}).filter(([, v]) => v != null)) }} pose={s.walking ? 'walk' : 'idle'} frame={s.frame} direction={s.dir} />
+    </div>
+  </div>;
+}
+function MemberWindow({ team, member, onClose }) {
+  const w = useWork(), [board, setBoard] = useState(null), [error, setError] = useState('');
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches;
+  useEffect(() => {
+    let alive = true;
+    const load = () => w.memberBoard(team.id, member.id).then((b) => alive && (setBoard(b), setError('')), (e) => alive && setError(e.message));
+    load(); const t = setInterval(load, 15000);
+    const key = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', key);
+    return () => { alive = false; clearInterval(t); window.removeEventListener('keydown', key); };
+  }, [member.id]);
+  const days = board ? Array.from({ length: WIN_DAYS }, (_, i) => addDay(board.today, i)) : [];
+  const teamOf = (t) => board.teams.find((x) => x.id === t.teamId) || null;
+  return createPortal(<div className="popup-overlay member-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <section className="member-window" role="dialog" aria-modal="true" aria-label={member.name + '의 할 일'}>
+      <header className="member-window-bar">
+        <span className="member-window-dots" aria-hidden="true"><i /><i /><i /></span>
+        <Avatar person={member} size={22} />
+        <b>{member.name}의 Work</b>
+        <small>{member.online ? '온라인' : '오프라인'}{board?.hidden ? ` · 숨긴 할 일 ${board.hidden}개` : ''}</small>
+        <button className="icon-btn" aria-label="닫기" onClick={onClose}>✕</button>
+      </header>
+      <div className="member-window-body">
+        {!board ? <p className="desc">{error || '불러오는 중…'}</p> : days.map((day) => {
+          const list = todosOn(board.todos, day).sort((a, b) => (a.startTime || '99').localeCompare(b.startTime || '99') || (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          if (!list.length && day !== board.today) return null;
+          const [, m, d] = day.split('-').map(Number), dow = new Date(day + 'T12:00:00').getDay();
+          const groups = [null, ...board.teams].map((tm) => ({ tm, items: list.filter((t) => (teamOf(t)?.id || null) === (tm?.id || null)) })).filter((g) => g.items.length);
+          return <section key={day} className={'member-day' + (day === board.today ? ' today' : '')}>
+            <h4>{m}월 {d}일 <span className={dow === 0 ? 'sun' : dow === 6 ? 'sat' : ''}>{DOW_SHORT[dow]}</span>{day === board.today && <em>오늘</em>}</h4>
+            {!list.length && <p className="desc">할 일이 없어요</p>}
+            {groups.map((g) => <div key={g.tm?.id || 'none'} className="member-group">
+              {g.tm && <div className="member-team"><i style={{ background: g.tm.color }} />{g.tm.name}</div>}
+              {g.items.map((t) => <div key={t.id + day} className={'member-todo' + (t.status === 'done' ? ' done' : '')}>
+                <span className="member-check" aria-label={t.status === 'done' ? '완료' : '할 일'}>{t.status === 'done' ? '✓' : ''}</span>
+                <span className="member-title">{t.title}{t.span && <small> ({t.span.n}일차)</small>}</span>
+                {(t.startTime || t.span?.allDay) && <time>{t.span?.allDay ? '종일' : t.startTime}{t.endTime ? '~' + t.endTime : ''}</time>}
+              </div>)}
+            </div>)}
+          </section>;
+        })}
+      </div>
+      {board && !phone && <WindowPet pet={board.pet} />}
+    </section>
+  </div>, document.body);
+}
+
 function Members({ team }) {
-  const w = useWork(), me = w.state.me, [emails, setEmails] = useState(''), [note, setNote] = useState(''), [error, setError] = useState('');
+  const w = useWork(), me = w.state.me, [emails, setEmails] = useState(''), [note, setNote] = useState(''), [error, setError] = useState(''), [peek, setPeek] = useState(null);
   const send = async (e) => {
     e.preventDefault(); setError(''); setNote('');
     try {
@@ -66,11 +144,15 @@ function Members({ team }) {
   const sorted = [...team.members].sort((a, b) => (b.online - a.online) || (a.status === 'invited') - (b.status === 'invited'));
   return <section className="work-card work-members" aria-label="팀원">
     <h3>팀원 <small>{team.members.filter((m) => m.online).length}명 온라인</small></h3>
-    <ul>{sorted.map((m) => <li key={m.email} className={'work-member ' + (m.status === 'invited' ? 'invited' : m.online ? 'online' : 'offline')}>
+    <ul>{sorted.map((m) => <li key={m.email} className={'work-member ' + (m.status === 'invited' ? 'invited' : m.online ? 'online' : 'offline') + (m.status === 'active' && m.id !== me.id ? ' peekable' : '')}
+      title={m.status === 'active' && m.id !== me.id ? m.name + '의 할 일 보기' : undefined}
+      onClick={(e) => { if (m.status === 'active' && m.id !== me.id && !e.target.closest('button')) setPeek(m); }}>
       <Avatar person={m} /><span className="work-member-name"><b>{m.name}{m.id === me.id && <em> (나)</em>}</b><small>{m.email}</small></span>
       <span className="work-status"><i />{statusOf(m)}</span>
       {team.mine && m.id !== me.id && <button className="icon-btn work-remove" aria-label={m.name + ' 내보내기'} title="내보내기" onClick={() => remove(m)}>✕</button>}
     </li>)}</ul>
+    {peek && <MemberWindow team={team} member={peek} onClose={() => setPeek(null)} />}
+    <p className="desc work-peek-hint">팀원을 누르면 그 사람의 할 일을 볼 수 있어요. 👁로 숨긴 할 일은 보이지 않아요.</p>
     {team.mine && <form className="work-row work-invite-form" onSubmit={send}><input value={emails} placeholder="초대할 이메일 (쉼표로 여러 명)" aria-label="초대할 이메일" onChange={(e) => setEmails(e.target.value)} /><button className="ghost" disabled={!emails.trim()}>초대</button></form>}
     {note && <p className="desc">{note}</p>}
     {error && <p className="work-error" role="alert">{error}</p>}
@@ -213,14 +295,18 @@ export default function Team({ checkerTeams = [] }) {
 }
 
 // The important one: someone picked you for a dive. Stays until you join or answer (or the dive ends).
-export function IncomingDive({ focus, onSeen }) {
+// Like a phone call: it rings (src/work/ring.js) while it is new, and clicking the dive's notification answers it
+// (answer: that dive's id — joined as soon as the card for it is there).
+export function IncomingDive({ focus, onSeen, answer, onAnswered }) {
   const w = useWork(), [gone, setGone] = useState(() => new Set()), [error, setError] = useState('');
-  const d = incomingDive(w.state);
-  useEffect(() => { if (focus && d?.id === focus) onSeen?.(); }, [focus, d?.id]);
-  if (!d || w.call || gone.has(d.id)) return null;
-  const team = w.state.teams.find((t) => t.id === d.team), by = team?.members.find((m) => m.id === d.by);
+  const d = incomingDive(w.state), showing = !!d && !w.call && !gone.has(d.id);
   const go = (f) => f().then(() => setGone((g) => new Set(g).add(d.id)), (e) => setError(e.message));
-  return <section className="dive-incoming" role="alertdialog" aria-label="다이브 요청">
+  useEffect(() => { if (focus && d?.id === focus) onSeen?.(); }, [focus, d?.id]);
+  useEffect(() => { if (showing && answer === d.id) { onAnswered?.(); go(() => w.joinDive(d.id)); } }, [showing, answer, d?.id]);
+  useEffect(() => { if (!showing || answer === d.id || Date.now() - Date.parse(d.createdAt) > 60_000) return undefined; return ring(); }, [showing, d?.id]);
+  if (!showing) return null;
+  const team = w.state.teams.find((t) => t.id === d.team), by = team?.members.find((m) => m.id === d.by);
+  return <section className="dive-incoming ringing" role="alertdialog" aria-label="다이브 요청">
     <div className="dive-incoming-head"><DiveIcon size={40} /><div><small>{team?.name} · 다이브 요청</small><b>{by?.name || '팀원'}님이 불러요</b></div></div>
     <p className="dive-incoming-agenda">{d.agenda}</p>
     <div className="dive-incoming-actions">

@@ -13,6 +13,15 @@ import { cycleTeam } from '../../../shared/todo-drop.js';
 import { CHAR_MS, ERASE_MS, rewriteAt, TICK_MS, CHIP_MS, CARET_MS, STRIKE_MS, FOLD_MS } from '../import-typing.js';
 import repeatEngine from '../../../shared/repeat.cjs';
 import { toggleDayPatch } from '../../../shared/multi-day.js';
+import Svg, { Path, Circle } from 'react-native-svg';
+// 👁: whether teammates (Work → Team) can see this to-do. Open eye = shown (the default), crossed out = private.
+function EyeIcon({ off = false, size = 15, color }) {
+  return <Svg width={size} height={size} viewBox="0 0 20 20">
+    <Path d="M1.8 10C3.7 6.4 6.6 4.5 10 4.5s6.3 1.9 8.2 5.5c-1.9 3.6-4.8 5.5-8.2 5.5S3.7 13.6 1.8 10Z" fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
+    <Circle cx={10} cy={10} r={2.6} fill={color} />
+    {off && <Path d="M3 17 17 3" stroke={color} strokeWidth={1.8} strokeLinecap="round" />}
+  </Svg>;
+}
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const teamOf = (todo, db) => { const p = db.projects.find((x) => x.id === todo.projectId); return (p && p.teamId) || todo.teamId || null; };
 // A project tied to another team would override the new team, so the link is dropped.
@@ -161,6 +170,8 @@ export function TaskLine({ todo, db, api, previous, next, editing, caret, onEdit
     {!!typed?.chip && (typed.mode==='write' || typed.mode==='glow') && <MoveChip key={typed.key} text={typed.chip} d={d} />}
     <View style={{ flex:1,alignSelf:'stretch',minWidth:28 }} />
     {(!!face.startTime || !!todo.span?.allDay) && <Pressable accessibilityRole="button" accessibilityLabel={todo.title+' 날짜·시간 정하기'} hitSlop={6} onPress={() => onDate(todo)}><Text style={{ fontSize:12,color:d.muted,fontVariant:['tabular-nums'],opacity:typed?.mode==='wait' ? 0 : 1 }}>{todo.span?.allDay ? '종일' : face.startTime}{face.endTime?`~${face.endTime}`:''}</Text></Pressable>}
+    {editing ? <Pressable accessibilityRole="button" accessibilityLabel={todo.private ? '팀원에게 보이기' : '팀원에게 숨기기'} accessibilityState={{ selected:!!todo.private }} hitSlop={8} onPress={() => api.updateTodo(todo.id,{ private:!todo.private })}><EyeIcon off={!!todo.private} color={todo.private?d.accent:d.muted} /></Pressable>
+      : !!todo.private && <View accessibilityLabel="팀원에게 숨긴 할 일"><EyeIcon off size={13} color={d.muted} /></View>}
     {editing ? <Pressable accessibilityRole="button" accessibilityLabel={todo.title+' 반복'+(todo.repeat?' · '+repeatEngine.describe(todo.repeat):'')} hitSlop={8} onPress={() => onRepeat?.(todo)}><Icon name="repeat" size={15} color={todo.repeat?d.accent:d.muted} /></Pressable>
       : !!todo.repeat && <View accessibilityLabel={repeatEngine.describe(todo.repeat)+' 반복'}><Icon name="repeat" size={13} color={d.muted} /></View>}
     <Pressable onLayout={e => { box.current.calX = e.nativeEvent.layout.x; }} accessibilityLabel={todo.title+' 날짜'} hitSlop={8} onPress={() => onDate(todo)}><Icon name="calendar" size={15} color={d.muted} /></Pressable>
