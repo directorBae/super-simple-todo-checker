@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
+import { requireNativeModule } from 'expo';
 import { reminders } from '../../shared/reminders.js';
 
 // Reminders on the phone are scheduled on the device itself (no server push needed), so they arrive even
@@ -39,19 +40,40 @@ export async function notificationPermission(ask = true) {
 // Signed in on an iPhone build with push: the server sends the reminders (Edge Function /push), written from the to-dos
 // as they are at that moment — a change made on the desktop counts even if this phone was never opened. The device's own
 // schedule then stays empty. Without push (a demo build, Android, offline at start) the phone schedules them itself.
-let pushToken = null, pushError = '';
-// For 설정 → 알림: whether this phone is registered for pushes, and why not.
-export const pushState = () => ({ registered: !!pushToken, error: pushError });
-export async function startPush(tools) {
+let pushToken = null, pushError = '', pushStep = '';
+// For 설정 → 알림 and the Team screen: whether this phone is registered for pushes, the step under way, and why not.
+export const pushState = () => ({ registered: !!pushToken, error: pushError, step: pushStep });
+const TOKEN_MS = 20_000, NET_MS = 15_000;
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(what)), ms))]);
+// The device's own address, straight from the native module. expo-notifications' getDevicePushTokenAsync() keeps one
+// request in flight and hands every later call that same one — when APNs did not answer (a Wi‑Fi that blocks it, a
+// slow first registration), the first attempt sat there for good and every retry waited on it: nothing ever changed,
+// no error either. The native call drops the old request and asks APNs afresh, and it gives up after TOKEN_MS.
+function deviceToken() {
+  const native = requireNativeModule('ExpoPushTokenManager');
+  return withTimeout(native.getDevicePushTokenAsync(), TOKEN_MS, 'APNs(애플 푸시 서버)가 20초 동안 답하지 않았어요. 이 Wi‑Fi가 푸시를 막고 있을 수 있어요 — 셀룰러 데이터로 한 번 더 눌러 보세요.');
+}
+let registering = null;
+export function startPush(tools) {
+  if (!registering) registering = register(tools).finally(() => { registering = null; });
+  return registering;
+}
+async function register(tools) {
   if (!tools || Platform.OS !== 'ios') return false;
-  if (!allowed(await Notifications.getPermissionsAsync())) { pushError = '알림이 허용되지 않았어요. ' + permissionNote(); return false; }
+  const status = await Notifications.getPermissionsAsync(); lastStatus = status;
+  if (!allowed(status)) { pushError = '알림이 허용되지 않았어요. ' + permissionNote(); return false; }
   try {
-    const { data } = await Notifications.getExpoPushTokenAsync({ projectId: Constants.expoConfig?.extra?.eas?.projectId });
-    await tools.registerPush(data, Platform.OS);
-    pushToken = data; scheduled = ''; pushError = '';
+    pushStep = 'APNs 주소 받는 중';
+    const data = await deviceToken();
+    pushStep = 'Expo 주소 받는 중';
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+    const { data: token } = await withTimeout(Notifications.getExpoPushTokenAsync({ projectId, devicePushToken: { type: 'ios', data } }), NET_MS, 'Expo 푸시 서버가 15초 동안 답하지 않았어요.');
+    pushStep = '할 일 서버에 등록하는 중';
+    await withTimeout(tools.registerPush(token, Platform.OS), NET_MS, '할 일 서버가 15초 동안 답하지 않았어요.');
+    pushToken = token; scheduled = ''; pushError = ''; pushStep = '';
     await Notifications.cancelAllScheduledNotificationsAsync();
     return true;
-  } catch (e) { pushError = '푸시 등록 실패: ' + (e?.message || String(e)); console.warn(pushError); return false; }
+  } catch (e) { pushError = `푸시 등록 실패 (${pushStep}): ` + (e?.message || String(e)); pushStep = ''; console.warn(pushError); return false; }
 }
 // Asking only once at start was not enough: iOS drops a permission request made while the app is not yet fully in
 // front (or while another system alert is up), and nothing asked again — so no permission, no push address, no dive
@@ -59,7 +81,7 @@ export async function startPush(tools) {
 export function keepPush(tools, after) {
   let busy = false;
   const run = async () => {
-    if (busy || AppState.currentState !== 'active') return;
+    if (busy) return;
     busy = true;
     try { await notificationPermission(true); if (!pushToken) await startPush(tools); await after?.(); }
     catch (e) { pushError = e?.message || String(e); }

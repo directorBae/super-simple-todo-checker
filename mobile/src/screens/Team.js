@@ -212,7 +212,7 @@ function TeamSettings({ team, onClose }) {
 
 // Without notifications a dive cannot ring this phone: say so on the Team screen, with the way to turn them on.
 function AlertsOff() {
-  const d = useDesign(), [state, setState] = useState(null);
+  const d = useDesign(), [state, setState] = useState(null), [busy, setBusy] = useState(false);
   const look = () => notificationPermission(false).then((p) => setState(p === 'granted' ? (pushState().registered ? 'ok' : 'unregistered') : p)).catch(() => {});
   useEffect(() => { look(); const sub = AppState.addEventListener('change', (s) => s === 'active' && setTimeout(look, 1200)); return () => sub.remove(); }, []);
   if (state === 'ok' && quietly()) return <Pressable accessibilityRole="button" onPress={() => Linking.openSettings()} style={{ marginBottom: 12, padding: 12, borderRadius: 16, backgroundColor: '#fff7e6cc', gap: 2 }}><Text style={{ color: '#9a5b00', fontWeight: '700' }}>🔔 알림이 '조용히 전달'로 되어 있어요</Text><Text style={{ color: d.text, fontSize: 13 }}>다이브가 화면에 뜨려면 눌러서 아이폰 설정 > Work > 알림에서 잠금 화면·배너를 켜 주세요.</Text></Pressable>;
@@ -221,11 +221,13 @@ function AlertsOff() {
     if (state === 'denied') return Linking.openSettings();
     const p = state === 'default' ? await notificationPermission(true).catch(() => 'default') : 'granted';
     if (p !== 'granted') return Linking.openSettings(); // the prompt did not come up or was refused: turn it on there
-    await startPush(tools); look();
+    setBusy(true);
+    try { await startPush(tools); } finally { setBusy(false); look(); }
   };
-  return <Pressable accessibilityRole="button" onPress={fix} style={{ marginBottom: 12, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e5484d59', backgroundColor: '#fff1f1cc', gap: 4 }}>
+  return <Pressable accessibilityRole="button" disabled={busy} onPress={fix} style={{ marginBottom: 12, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#e5484d59', backgroundColor: '#fff1f1cc', gap: 4, opacity: busy ? 0.7 : 1 }}>
     <Text style={{ color: '#c4262e', fontWeight: '700' }}>🔕 다이브 알림을 받을 수 없어요</Text>
-    <Text style={{ color: d.text, fontSize: 13 }}>{state === 'denied' ? '눌러서 아이폰 설정 > Work > 알림 > 알림 허용을 켜 주세요.' : state === 'default' ? '눌러서 알림을 허용해 주세요. 창이 안 뜨면 아이폰 설정이 열려요.' : '눌러서 이 휴대폰을 알림에 다시 등록해 주세요. ' + (pushState().error || '')}</Text>
+    <Text style={{ color: d.text, fontSize: 13 }}>{busy ? (pushState().step || '등록하는 중') + '…' : state === 'denied' ? '눌러서 아이폰 설정 > Work > 알림 > 알림 허용을 켜 주세요.' : state === 'default' ? '눌러서 알림을 허용해 주세요. 창이 안 뜨면 아이폰 설정이 열려요.' : '눌러서 이 휴대폰을 알림에 다시 등록해 주세요.'}</Text>
+    {!busy && state === 'unregistered' && !!pushState().error && <Text style={{ color: '#c4262e', fontSize: 12 }}>{pushState().error}</Text>}
     <Text style={{ color: d.muted, fontSize: 11 }}>{permissionNote()}</Text>
   </Pressable>;
 }

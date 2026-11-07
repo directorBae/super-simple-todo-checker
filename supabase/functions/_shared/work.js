@@ -7,7 +7,7 @@ import { db, eq } from './db.js';
 
 export const ONLINE_MS = 45_000, DIVE_TTL_MS = 3 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
 export const ANSWERS = ['kakao', 'busy'];
-const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send', EXPO_RECEIPTS = 'https://exp.host/--/api/v2/push/getReceipts';
 
 const clean = (s, max) => Array.from(String(s ?? '').replace(/\s+/g, ' ').trim()).slice(0, max).join('');
 const emailOf = (s) => { const e = String(s || '').trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 200 ? e : null; };
@@ -41,7 +41,27 @@ async function push(env, store, userIds, message) {
   const out = res && (await res.json().catch(() => null));
   if (out?.errors) console.error('푸시 거절', JSON.stringify(out.errors));
   (out?.data || []).forEach((t, i) => t?.status === 'error' && console.error('푸시 거절', messages[i]?.to?.slice(0, 30), t.details?.error || '', t.message || ''));
-  return { sent: messages.length, reached: !!res?.ok, errors: out?.errors || null, tickets: (out?.data || []).map((t) => ({ ok: t?.status === 'ok', error: t?.details?.error || t?.message || null })) };
+  const tickets = (out?.data || []).map((t, i) => ({ id: t?.id || null, to: messages[i]?.to, ok: t?.status === 'ok', error: t?.details?.error || t?.message || null }));
+  // A few seconds on, what APNs said (Expo's receipts) goes to the log; a dead address is switched off.
+  env.waitUntil?.((async () => { await env.sleep(8000); await receipts(env, store, tickets); })().catch((e) => console.error('푸시 영수증을 읽지 못했어요', e.message)));
+  return { sent: messages.length, reached: !!res?.ok, errors: out?.errors || null, tickets };
+}
+// Expo's receipts for sent pushes: {id: {ok, error, message}} for the ones that are in already. The only place a wrong
+// push key (InvalidCredentials) or an address that no longer exists (DeviceNotRegistered — switched off here) shows up.
+async function receipts(env, store, tickets) {
+  const ids = tickets.map((t) => t.id).filter(Boolean);
+  if (!ids.length) return {};
+  const res = await env.fetch(EXPO_RECEIPTS, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ ids }) }).catch(() => null);
+  const data = (res && (await res.json().catch(() => null)))?.data || {};
+  const out = {};
+  for (const t of tickets) {
+    const r = t.id && data[t.id];
+    if (!r) continue;
+    out[t.id] = { ok: r.status === 'ok', error: r.details?.error || null, message: r.message || null };
+    if (r.status !== 'ok') console.error('푸시 전달 실패', t.to?.slice(0, 30), r.details?.error || '', r.message || '');
+    if (r.details?.error === 'DeviceNotRegistered') await store.update('push_devices', `token=${eq(t.to)}`, { disabled_at: iso(env.now()) }).catch(() => {});
+  }
+  return out;
 }
 
 // "나에게 테스트 알림" (phone settings): a push to the caller's own registered phones, and what Expo said about it —
@@ -49,7 +69,10 @@ async function push(env, store, userIds, message) {
 export async function testPush(env, user) {
   const store = db(env);
   const r = await push(env, store, [user.id], () => ({ title: '🔔 테스트 알림', body: '이 알림이 보이면 다이브 알림도 와요.', sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'test' } }));
-  return { devices: r.sent, ...r };
+  // The receipts, waited for here (up to ~10 s) so the phone can show them.
+  let got = {};
+  for (let i = 0; i < 3 && r.tickets.some((t) => t.id && !got[t.id]); i++) { await env.sleep(i ? 3000 : 4000); got = { ...got, ...(await receipts(env, store, r.tickets)) }; }
+  return { devices: r.sent, ...r, receipts: r.tickets.map((t) => got[t.id] || null).filter(Boolean) };
 }
 
 // ---------- reading ----------

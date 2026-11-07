@@ -10,7 +10,7 @@ const KEYS = { work_members: ['team_id', 'email'], work_presence: ['user_id'], w
 
 function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {}) {
   const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
-  const pushes = [];
+  const pushes = [], receipts = {}; let ticketNo = 0;
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
@@ -27,7 +27,8 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {
   const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
   async function fetch(url, init = {}) {
     const u = new URL(url), method = init.method || 'GET';
-    if (u.hostname === 'exp.host') { pushes.push(...JSON.parse(init.body)); return reply({ data: [] }); }
+    if (u.hostname === 'exp.host' && u.pathname.endsWith('/getReceipts')) return reply({ data: Object.fromEntries(JSON.parse(init.body).ids.map((id) => [id, receipts[id] || { status: 'ok' }])) });
+    if (u.hostname === 'exp.host') { const msgs = JSON.parse(init.body); const tickets = msgs.map(() => ({ status: 'ok', id: 'ticket-' + ++ticketNo })); pushes.push(...msgs.map((m, i) => ({ ...m, ticket: tickets[i].id }))); return reply({ data: tickets }); }
     if (u.pathname === '/auth/v1/user') { const who = USERS[init.headers.Authorization.replace('Bearer ', '')]; return who ? reply(who) : reply({}, 401); }
     if (u.pathname === '/rest/v1/rpc/work_user_ids') {
       const { emails } = JSON.parse(init.body);
@@ -54,7 +55,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
   };
-  return { tables, pushes, a: as('a'), b: as('b'), c: as('c') };
+  return { tables, pushes, receipts, a: as('a'), b: as('b'), c: as('c') };
 }
 
 test('work: make a team, invite by email, accept, and see who is online', async () => {
@@ -82,18 +83,24 @@ test('work: make a team, invite by email, accept, and see who is online', async 
 });
 
 test('work: 나에게 테스트 알림 goes to the caller\'s own phones and says how many there are', async () => {
-  const w = world();
+  const w = world({ sleep: () => Promise.resolve() });
   const r = await w.b('/ping');
   assert.equal(r.devices, 1); assert.equal(r.reached, true);
   assert.deepEqual(w.pushes.map((p) => p.to), ['ExponentPushToken[b]']);
-  w.tables.push_devices = w.tables.push_devices.filter((d) => !d.token.includes('[b]'));
+  assert.deepEqual(r.receipts, [{ ok: true, error: null, message: null }], 'Expo\'s receipt comes back with the answer');
+  // APNs says the address is dead: the receipt says so, and the phone is switched off for pushes.
+  w.receipts['ticket-2'] = { status: 'error', message: 'not registered', details: { error: 'DeviceNotRegistered' } };
+  const dead = await w.b('/ping');
+  assert.deepEqual(dead.receipts, [{ ok: false, error: 'DeviceNotRegistered', message: 'not registered' }]);
+  assert.ok(w.tables.push_devices.find((d) => d.token.includes('[b]')).disabled_at, 'switched off');
   assert.equal((await w.b('/ping')).devices, 0);
 });
 
 test('work: a dive rings the picked people again (20 s, 40 s) until they answer, like a call', async () => {
   const later = [], waits = [];
   let go = null;
-  const w = world({ sleep: (ms) => { waits.push(ms); return new Promise((r) => { go = r; }); }, waitUntil: (p) => later.push(p) });
+  // Only the ring's own waits count (the receipts check sleeps too, and never wakes here).
+  const w = world({ sleep: (ms) => { if (ms !== 20_000) return new Promise(() => {}); waits.push(ms); return new Promise((r) => { go = r; }); }, waitUntil: (p) => later.push(p) });
   const { team } = await w.a('/team', { name: 'Studio' });
   await w.a('/invite', { team: team.id, emails: ['b@x.com', 'c@x.com'] });
   await w.b('/invite/accept', { team: team.id }); await w.c('/invite/accept', { team: team.id });
@@ -105,7 +112,7 @@ test('work: a dive rings the picked people again (20 s, 40 s) until they answer,
   for (let i = 0; i < 20 && !waits[1]; i++) await new Promise((r) => setTimeout(r, 0));
   assert.equal(rings(), 'bc');
   await w.c('/dive/reply', { dive: dive.id, answer: 'busy' });
-  w.pushes.length = 0; go(); await later[0];
+  w.pushes.length = 0; go(); await Promise.race(later); // the ring task ends; the receipts checks never wake here
   assert.equal(rings(), 'b');
   assert.deepEqual(waits, [20_000, 20_000]);
 });
