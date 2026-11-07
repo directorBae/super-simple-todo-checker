@@ -7,7 +7,7 @@ import { useDb } from '../store.js';
 import { useDesign, WALLPAPERS, wallpaperSource } from '../design.js';
 import Integrations from './Integrations.js';
 import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
-import { notificationPermission, pushState, startPush } from '../notifications.js';
+import { notificationPermission, pushState, startPush, permissionNote } from '../notifications.js';
 import { Linking } from 'react-native';
 import { tools } from '../store.js';
 
@@ -22,10 +22,10 @@ function Reminders() {
     setTesting(true); setTest('');
     try {
       const p = await notificationPermission(true); setPermission(p);
-      if (p !== 'granted') { setTest('알림이 허용되지 않았어요. 휴대폰 설정 > Work > 알림에서 켜 주세요.'); return; }
+      if (p !== 'granted') { setTest('알림이 허용되지 않았어요. 아이폰 설정 > Work > 알림에서 켜 주세요. ' + permissionNote()); Linking.openSettings(); return; }
       if (!pushState().registered) await startPush(tools);
       const s = pushState();
-      if (!s.registered) { setTest(s.error || '이 휴대폰을 푸시에 등록하지 못했어요.'); return; }
+      if (!s.registered) { setTest((s.error || '이 휴대폰을 푸시에 등록하지 못했어요.') + ' · ' + permissionNote()); return; }
       const r = await tools.work('/ping');
       const bad = (r.tickets || []).filter((t) => !t.ok).map((t) => t.error);
       setTest(!r.devices ? '서버에 등록된 휴대폰이 없어요.' : !r.reached ? '푸시 서버(Expo)에 닿지 못했어요.' : r.errors ? '푸시 거절: ' + JSON.stringify(r.errors) : bad.length ? `등록된 휴대폰 ${r.devices}대 중 ${bad.length}대 거절: ${bad.join(', ')}` : `보냈어요 (등록된 휴대폰 ${r.devices}대). 몇 초 안에 알림이 와야 해요.`);
