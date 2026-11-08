@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { tools } from './store.js';
 import { incomingDive } from '../../shared/work-alerts.mjs';
+import { available as voipAvailable, watchVoip, callState, answerCall, endCall, onCall } from './voip.js';
 
 /*
  * 팀버전 (Work) on the phone: the team state (looked at every 8 s while the app is open — that also shows the person
@@ -42,10 +43,20 @@ export function WorkProvider({ onOpen, children }) {
   const tags = useRef(new Map()), saving = useRef(new Map());
   const same = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
   const overlay = (r) => (!r?.teams || !tags.current.size ? r : { ...r, teams: r.teams.map((t) => (tags.current.has(t.id) ? { ...t, links: tags.current.get(t.id), link: tags.current.get(t.id)[0] || null } : t)) });
+  // The call screen (CallKit) rings for a dive: hang it up when the dive is no longer waiting for this person —
+  // answered on another device (elsewhere) or over.
+  const hangUpIfGone = (r) => {
+    if (!voipAvailable) return;
+    const cs = callState();
+    if (!cs.uuid || cs.test || cs.answered || incomingDive(r)?.id === cs.dive) return;
+    const d = (r.dives || []).find((x) => x.id === cs.dive);
+    endCall(cs.uuid, d && d.replies?.some((x) => x.id === r.me?.id) ? 'elsewhere' : 'remote');
+  };
   const refresh = async () => {
     if (!tools) return null;
     try {
       const r = await tools.work('/state');
+      hangUpIfGone(r);
       for (const t of r.teams || []) if (tags.current.has(t.id) && !saving.current.has(t.id) && same(t.links, tags.current.get(t.id))) tags.current.delete(t.id);
       setState(overlay({ ok: true, ...r })); setError(''); return r;
     } catch (e) { setError(e.message); return null; }
@@ -74,6 +85,28 @@ export function WorkProvider({ onOpen, children }) {
     Notifications.getLastNotificationResponseAsync().then(take).catch(() => {});
     const sub = Notifications.addNotificationResponseReceivedListener(take);
     return () => sub.remove();
+  }, []);
+
+  // 다이브를 전화처럼 (iPhone, CallKit — src/voip.js): answer → join; decline → "지금 연락 불가"; mute from the call
+  // screen; a test call just hangs up. The regular look (hangUpIfGone) ends the screen when the dive moved on.
+  useEffect(() => {
+    if (!voipAvailable) return undefined;
+    const stop = watchVoip();
+    const subs = [
+      onCall('onIncomingCall', () => refresh()),
+      onCall('onAnswerCall', ({ uuid, dive, test }) => {
+        if (test) { setTimeout(() => endCall(uuid, 'remote'), 1500); return; }
+        openRef.current?.('dive:' + dive);
+        actionsRef.current.join(dive).catch((e) => { setError(e.message); endCall(uuid, 'remote'); });
+      }),
+      onCall('onEndCall', ({ dive, test, reason }) => {
+        if (test) return;
+        if (reason === 'declined') actionsRef.current.reply(dive, 'busy').catch(() => {});
+        else if (reason === 'hangup') actionsRef.current.leaveDive(false);
+      }),
+      onCall('onMute', ({ muted }) => actionsRef.current.setMuted(muted)),
+    ];
+    return () => { stop(); subs.forEach((s) => s.remove()); };
   }, []);
 
   const act = async (path, body = {}) => { const r = await tools.work(path, body); refresh(); return r; };
@@ -106,9 +139,17 @@ export function WorkProvider({ onOpen, children }) {
     removeMember: (team, email) => act('/member/remove', { team, email }),
     reply: (dive, answer) => act('/dive/reply', { dive, answer }),
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
-    joinDive: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
-    leaveDive: async (end = false) => { const dive = call?.dive; live.current?.leave(); live.current = null; setCall(null); if (dive) await act('/dive/leave', { dive, end }).catch(() => {}); },
+    join: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
+    // Joining while the call screen still rings for this dive: answer it there (the answer comes back as onAnswerCall
+    // and joins), so the system knows the call is on.
+    joinDive: async (dive) => { const cs = voipAvailable ? callState() : null; if (cs?.uuid && cs.dive === dive && !cs.answered) { await answerCall(cs.uuid); return; } await actions.join(dive); },
+    leaveDive: async (end = false) => {
+      const dive = call?.dive; live.current?.leave(); live.current = null; setCall(null);
+      if (voipAvailable) { const cs = callState(); if (cs.uuid && cs.dive === dive) endCall(cs.uuid, 'local'); }
+      if (dive) await act('/dive/leave', { dive, end }).catch(() => {});
+    },
     mute: async () => { if (!live.current || !call) return; const muted = !call.muted; await live.current.mute(muted); setCall((c) => c && { ...c, muted }); },
+    setMuted: async (muted) => { if (!live.current || !call) return; await live.current.mute(muted); setCall((c) => c && { ...c, muted }); },
   };
   actionsRef.current = actions;
   useEffect(() => { if (call?.ended) actions.leaveDive(); }, [call?.ended]);

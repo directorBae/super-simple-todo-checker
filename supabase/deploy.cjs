@@ -5,7 +5,9 @@
 //   3. the `integrations` Edge Function
 // Needs in server/.env: SUPABASE_URL, SUPABASE_KEY (secret key), SUPABASE_ACCESS_TOKEN (dashboard → Account → Access Tokens),
 // OPENAI_API_KEY, GOOGLE_CLIENT_ID/SECRET, NOTION_CLIENT_ID/SECRET (Notion may be filled in later — run again),
-// and for the team version's calls LIVEKIT_URL (wss://…livekit.cloud), LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+// and for the team version's calls LIVEKIT_URL (wss://…livekit.cloud), LIVEKIT_API_KEY, LIVEKIT_API_SECRET;
+// for dives that ring the iPhone like a phone call, APNS_KEY_PATH (the .p8 from developer.apple.com → Keys → APNs)
+// and APNS_KEY_ID (the team id and topic are read from mobile/eas.json and mobile/app.json).
 //   node supabase/deploy.cjs                 deploy
 //   node supabase/deploy.cjs --notion-token  show the Notion webhook verification token (after Notion sent it)
 const fs = require('node:fs');
@@ -54,7 +56,13 @@ async function main() {
   await sql(fs.readFileSync(path.join(__dirname, 'work.sql'), 'utf8'));
 
   console.log('2/3 함수 비밀값 …');
+  // 다이브를 전화처럼: the APNs key for VoIP pushes, read from the file APNS_KEY_PATH names (or APNS_KEY itself).
+  const apnsKey = env.APNS_KEY_PATH ? fs.readFileSync(path.resolve(root, env.APNS_KEY_PATH), 'utf8') : env.APNS_KEY;
+  const readJson = (p) => { try { return JSON.parse(fs.readFileSync(path.join(root, 'mobile', p), 'utf8')); } catch { return {}; } };
+  const appleTeamId = env.APNS_TEAM_ID || readJson('eas.json').submit?.production?.ios?.appleTeamId;
+  const apnsTopic = env.APNS_TOPIC || (readJson('app.json').expo?.ios?.bundleIdentifier ? readJson('app.json').expo.ios.bundleIdentifier + '.voip' : undefined);
   const secrets = {
+    APNS_KEY: apnsKey, APNS_KEY_ID: env.APNS_KEY_ID, APNS_TEAM_ID: appleTeamId, APNS_TOPIC: apnsTopic,
     SB_SECRET_KEY: env.SUPABASE_KEY, OPENAI_API_KEY: env.OPENAI_API_KEY, OPENAI_MODEL: env.INTEGRATIONS_MODEL || 'gpt-6.1-terra',
     GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
     NOTION_CLIENT_ID: env.NOTION_CLIENT_ID, NOTION_CLIENT_SECRET: env.NOTION_CLIENT_SECRET,

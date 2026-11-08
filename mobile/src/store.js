@@ -327,6 +327,7 @@ export function DbProvider({ children }) {
         await self.supabaseNow().catch(() => {}); // the first may have been one already running
         authGen.current += 1;
         await stopPush(tools); // while still signed in, so the server forgets this phone
+        await require('./voip.js').stopVoip().catch(() => {}); // and its VoIP address (다이브를 전화처럼)
         await keeper.signOut();
         const empty = wipe();
         setAccount(null);

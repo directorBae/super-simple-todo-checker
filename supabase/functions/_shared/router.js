@@ -194,7 +194,7 @@ async function workRoute(env, user, route, b) {
   switch (route) {
     case '/work/state': return work.workState(env, user, b);
     case '/work/member': return work.memberBoard(env, user, b.team, b.member);
-    case '/work/ping': return work.testPush(env, user);
+    case '/work/ping': return work.testPush(env, user, b);
     case '/work/name': return work.setName(env, user, b.name);
     case '/work/team': return work.createTeam(env, user, b.name);
     case '/work/team/delete': return work.deleteTeam(env, user, b.team);
@@ -253,6 +253,7 @@ export function environment(get, extra = {}) {
     GOOGLE_CLIENT_ID: get('GOOGLE_CLIENT_ID'), GOOGLE_CLIENT_SECRET: get('GOOGLE_CLIENT_SECRET'),
     OPENAI_API_KEY: get('OPENAI_API_KEY'), OPENAI_MODEL: get('OPENAI_MODEL') || 'gpt-6.1-terra',
     LIVEKIT_URL: get('LIVEKIT_URL'), LIVEKIT_API_KEY: get('LIVEKIT_API_KEY'), LIVEKIT_API_SECRET: get('LIVEKIT_API_SECRET'),
+    APNS_KEY: get('APNS_KEY'), APNS_KEY_ID: get('APNS_KEY_ID'), APNS_TEAM_ID: get('APNS_TEAM_ID'), APNS_TOPIC: get('APNS_TOPIC'), APNS_SANDBOX: get('APNS_SANDBOX'),
     STATE_SECRET: get('STATE_SECRET'), HOOK_SECRET: get('HOOK_SECRET'), TIME_ZONE: get('TIME_ZONE') || 'Asia/Seoul',
     base, redirect: (p) => `${base}/oauth/callback/${p}`, webhook: (p) => `${base}/webhook/${p}`,
     fetch: globalThis.fetch.bind(globalThis), now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)), waitUntil: (p) => p, ...extra,

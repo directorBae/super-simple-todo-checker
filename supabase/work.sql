@@ -75,3 +75,25 @@ returns table (email text, id uuid) language sql security definer set search_pat
 $$;
 revoke all on function public.work_user_ids(text[]) from public, anon, authenticated;
 grant execute on function public.work_user_ids(text[]) to service_role;
+
+-- 다이브를 전화처럼: the phone's VoIP push address (PushKit). A dive that picks the person is sent there and the
+-- iPhone rings like a phone call. The phone writes its own (an upsert, so table-wide grants); the function reads.
+create table if not exists public.voip_devices (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  token text not null,
+  platform text,
+  disabled_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, token)
+);
+alter table public.voip_devices enable row level security;
+drop policy if exists "own read" on public.voip_devices;
+drop policy if exists "own write" on public.voip_devices;
+drop policy if exists "own change" on public.voip_devices;
+drop policy if exists "own remove" on public.voip_devices;
+create policy "own read" on public.voip_devices for select to authenticated using (user_id = auth.uid());
+create policy "own write" on public.voip_devices for insert to authenticated with check (user_id = auth.uid());
+create policy "own change" on public.voip_devices for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "own remove" on public.voip_devices for delete to authenticated using (user_id = auth.uid());
+revoke all on public.voip_devices from anon, authenticated;
+grant select, insert, update, delete on public.voip_devices to authenticated;

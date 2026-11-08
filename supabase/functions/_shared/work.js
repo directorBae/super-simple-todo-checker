@@ -4,6 +4,7 @@
 // Only this function touches the work_* tables (service key); each request is checked against the person's membership.
 import { HttpError, localDate, addDays } from './http.js';
 import { db, eq } from './db.js';
+import { apnsReady, voipPush } from './apns.js';
 
 export const ONLINE_MS = 45_000, DIVE_TTL_MS = 3 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
 export const ANSWERS = ['kakao', 'busy'];
@@ -36,7 +37,8 @@ async function push(env, store, userIds, message) {
   if (!userIds.length) return { sent: 0, tickets: [] };
   const devices = await store.select('push_devices', `user_id=${list(userIds)}&disabled_at=is.null&select=user_id,token`);
   if (!devices.length) return { sent: 0, tickets: [] };
-  const messages = devices.map((d) => ({ to: d.token, sound: 'default', ...message(d.user_id) }));
+  const messages = devices.map((d) => { const m = message(d.user_id); return m && { to: d.token, sound: 'default', ...m }; }).filter(Boolean);
+  if (!messages.length) return { sent: 0, tickets: [] };
   const res = await env.fetch(EXPO_PUSH, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(messages) }).catch((e) => (console.error('푸시를 보내지 못했어요', e.message), null));
   const out = res && (await res.json().catch(() => null));
   if (out?.errors) console.error('푸시 거절', JSON.stringify(out.errors));
@@ -64,10 +66,33 @@ async function receipts(env, store, tickets) {
   return out;
 }
 
+// 다이브를 전화처럼: people with a VoIP address (iPhone, PushKit — voip_devices) get the dive as a phone call, a VoIP
+// push straight to Apple that makes CallKit ring, app open or not. Returns who was reached that way (they get no
+// Expo push on top). An address Apple no longer knows is switched off; the person then gets the push instead.
+async function ringPhones(env, store, userIds, payload) {
+  if (!apnsReady(env) || !userIds.length) return new Set();
+  const devices = await store.select('voip_devices', `user_id=${list(userIds)}&disabled_at=is.null&select=user_id,token`);
+  const reached = new Set();
+  await Promise.all(devices.map(async (d) => {
+    const r = await voipPush(env, d.token, payload);
+    if (r.ok) reached.add(d.user_id);
+    else console.error('VoIP 푸시 실패', d.token.slice(0, 12), r.status, r.reason || '');
+    if (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered') await store.update('voip_devices', `token=${eq(d.token)}`, { disabled_at: iso(env.now()) }).catch(() => {});
+  }));
+  return reached;
+}
+
 // "나에게 테스트 알림" (phone settings): a push to the caller's own registered phones, and what Expo said about it —
-// how many phones this account has, and the reason when one is refused.
-export async function testPush(env, user) {
+// how many phones this account has, and the reason when one is refused. { voip: true }: "나에게 테스트 전화" — a VoIP
+// push to the caller's own iPhones instead, with Apple's answer for each.
+export async function testPush(env, user, { voip = false } = {}) {
   const store = db(env);
+  if (voip) {
+    if (!apnsReady(env)) return { voip: { configured: false, devices: 0, results: [] } };
+    const devices = await store.select('voip_devices', `user_id=${eq(user.id)}&disabled_at=is.null&select=token`);
+    const results = await Promise.all(devices.map((d) => voipPush(env, d.token, { aps: {}, kind: 'test', test: true, dive: 'test', uuid: crypto.randomUUID(), caller: 'Work', agenda: '테스트 전화예요. 끊으면 돼요.' })));
+    return { voip: { configured: true, devices: devices.length, results } };
+  }
   const r = await push(env, store, [user.id], () => ({ title: '🔔 테스트 알림', body: '이 알림이 보이면 다이브 알림도 와요.', sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'test' } }));
   // The receipts, waited for here (up to ~10 s) so the phone can show them.
   let got = {};
@@ -272,10 +297,13 @@ export async function startDive(env, user, { team, targets, agenda }) {
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=name`), who = nameOf(mine, user.email);
   // Picked people: important (time-sensitive — shows through Focus on iPhone). The rest of the team: an ordinary one.
   const ring = { title: `🌊 ${who}님이 다이브를 요청했어요`, body: text, sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: true } };
-  await push(env, store, ids.filter((id) => id !== user.id), (to) => picked.includes(to)
+  // iPhones with a VoIP address ring as a phone call (CallKit keeps ringing on its own — no push, no ringing again).
+  const rang = await ringPhones(env, store, picked, { aps: {}, kind: 'dive', dive: dive.id, uuid: dive.id, team: me.team_id, caller: who, agenda: text });
+  const byPush = picked.filter((id) => !rang.has(id));
+  await push(env, store, ids.filter((id) => id !== user.id), (to) => byPush.includes(to)
     ? ring
-    : { title: `${who}님의 다이브가 열렸어요`, body: text, data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: false } });
-  env.waitUntil?.(ringAgain(env, dive.id, picked, ring).catch((e) => console.error('다시 울리지 못했어요', e.message)));
+    : rang.has(to) ? null : { title: `${who}님의 다이브가 열렸어요`, body: text, data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: false } });
+  if (byPush.length) env.waitUntil?.(ringAgain(env, dive.id, byPush, ring).catch((e) => console.error('다시 울리지 못했어요', e.message)));
   return { dive: { id: dive.id }, call: await livekitToken(env, { room: dive.room, identity: user.id, name: who }) };
 }
 

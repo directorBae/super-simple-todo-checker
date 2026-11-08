@@ -7,6 +7,7 @@ import { useWork } from '../work.js';
 import { useDb } from '../store.js';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
 import { notificationPermission, pushState, startPush, permissionNote, quietly } from '../notifications.js';
+import { available as voipAvailable, callState } from '../voip.js';
 import { Linking, AppState } from 'react-native';
 import { tools } from '../store.js';
 import { todosOn, addDay } from '../../../shared/multi-day.js';
@@ -310,7 +311,8 @@ export function IncomingDive() {
   if (!showing) return null;
   const team = w.state.teams.find((t) => t.id === x.team), by = team?.members.find((m) => m.id === x.by);
   const go = (f) => f().then(() => setGone((g) => new Set(g).add(x.id)), (e) => setError(e.message));
-  if (ringing === x.id) return <Ringing x={x} team={team} by={by} go={go} w={w} error={error} />;
+  // On an iPhone the system call screen (CallKit) rings for it; the in-app one is for when that could not.
+  if (ringing === x.id && !(voipAvailable && callState().dive === x.id)) return <Ringing x={x} team={team} by={by} go={go} w={w} error={error} />;
   return <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: 28, zIndex: 90 }}>
     <Surface native style={{ borderColor: d.accent, borderWidth: 1.5, backgroundColor: '#eef2ffe6' }} contentStyle={{ padding: 16, gap: 10 }}>
       <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}><DiveIcon size={40} /><View style={{ flex: 1 }}><Text style={{ color: d.muted, fontSize: 12 }}>{team?.name} · 다이브 요청</Text><Text style={{ color: d.text, fontWeight: '700', fontSize: 15 }}>{by?.name || '팀원'}님이 불러요</Text></View></View>

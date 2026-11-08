@@ -74,6 +74,12 @@ function createToolsClient({ url, key, fetch: request = globalThis.fetch, token 
       body: JSON.stringify({ token, platform, disabled_at: null, updated_at: new Date().toISOString() }),
     }),
     unregisterPush: (token) => call('/rest/v1/push_devices?token=eq.' + encodeURIComponent(token), { method: 'DELETE', headers: { Prefer: 'return=minimal' } }),
+    // 다이브를 전화처럼: the phone's VoIP address (iPhone, PushKit), so a dive rings it like a phone call.
+    registerVoip: (token) => call('/rest/v1/voip_devices?on_conflict=user_id,token', {
+      method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ token, platform: 'ios', disabled_at: null, updated_at: new Date().toISOString() }),
+    }),
+    unregisterVoip: (token) => call('/rest/v1/voip_devices?token=eq.' + encodeURIComponent(token), { method: 'DELETE', headers: { Prefer: 'return=minimal' } }),
     // 팀버전 (Work): teams, invites, online state and dives — one function route each (supabase/functions/_shared/work.js).
     work: (path, body = {}) => fn('/work' + path, body),
     // The morning alert time, so the Monday/Thursday check-up runs just before it (or at 9:00 when it is off).

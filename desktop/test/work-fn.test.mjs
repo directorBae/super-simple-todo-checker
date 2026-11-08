@@ -6,11 +6,16 @@ import { handle, environment } from '../../supabase/functions/_shared/router.js'
 
 let NOW = Date.parse('2026-11-06T03:00:00Z');
 const USERS = { 'tok-a': { id: '00000000-0000-4000-8000-00000000000a', email: 'a@x.com' }, 'tok-b': { id: '00000000-0000-4000-8000-00000000000b', email: 'B@x.com' }, 'tok-c': { id: '00000000-0000-4000-8000-00000000000c', email: 'c@x.com' } };
-const KEYS = { work_members: ['team_id', 'email'], work_presence: ['user_id'], work_replies: ['dive_id', 'user_id'] };
+const KEYS = { work_members: ['team_id', 'email'], work_presence: ['user_id'], work_replies: ['dive_id', 'user_id'], voip_devices: ['user_id', 'token'] };
+// An APNs key for the tests (a P-256 key in a .p8, as Apple hands it out).
+async function apnsKey() {
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  return `-----BEGIN PRIVATE KEY-----\n${Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey)).toString('base64')}\n-----END PRIVATE KEY-----\n`;
+}
 
-function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {}) {
-  const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
-  const pushes = [], receipts = {}; let ticketNo = 0;
+function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env: extraEnv = {} } = {}) {
+  const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], voip_devices: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
+  const pushes = [], receipts = {}, voips = [], apns = {}; let ticketNo = 0;
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
@@ -27,6 +32,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {
   const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
   async function fetch(url, init = {}) {
     const u = new URL(url), method = init.method || 'GET';
+    if (u.hostname === 'api.push.apple.com') { const token = u.pathname.split('/').pop(), a = apns[token] || { status: 200, body: '' }; voips.push({ token, headers: init.headers, body: JSON.parse(init.body) }); return { ok: a.status < 400, status: a.status, text: async () => a.body }; }
     if (u.hostname === 'exp.host' && u.pathname.endsWith('/getReceipts')) return reply({ data: Object.fromEntries(JSON.parse(init.body).ids.map((id) => [id, receipts[id] || { status: 'ok' }])) });
     if (u.hostname === 'exp.host') { const msgs = JSON.parse(init.body); const tickets = msgs.map(() => ({ status: 'ok', id: 'ticket-' + ++ticketNo })); pushes.push(...msgs.map((m, i) => ({ ...m, ticket: tickets[i].id }))); return reply({ data: tickets }); }
     if (u.pathname === '/auth/v1/user') { const who = USERS[init.headers.Authorization.replace('Bearer ', '')]; return who ? reply(who) : reply({}, 401); }
@@ -50,12 +56,12 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p } = {
     if (method === 'PATCH') { const r = rows(table, u.search); r.forEach((x) => Object.assign(x, JSON.parse(init.body))); return reply(r.map((x) => structuredClone(x))); }
     if (method === 'DELETE') { const gone = new Set(rows(table, u.search)); tables[table] = tables[table].filter((x) => !gone.has(x)); if (table === 'work_teams') tables.work_members = tables.work_members.filter((m) => !([...gone].some((t) => t.id === m.team_id))); return reply(undefined, 204); }
   }
-  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret' })[k], { fetch, now: () => NOW, sleep, waitUntil });
+  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret', ...extraEnv })[k], { fetch, now: () => NOW, sleep, waitUntil });
   const as = (who) => async (path, body = {}) => {
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
   };
-  return { tables, pushes, receipts, a: as('a'), b: as('b'), c: as('c') };
+  return { tables, pushes, receipts, voips, apns, a: as('a'), b: as('b'), c: as('c') };
 }
 
 test('work: make a team, invite by email, accept, and see who is online', async () => {
@@ -94,6 +100,38 @@ test('work: 나에게 테스트 알림 goes to the caller\'s own phones and says
   assert.deepEqual(dead.receipts, [{ ok: false, error: 'DeviceNotRegistered', message: 'not registered' }]);
   assert.ok(w.tables.push_devices.find((d) => d.token.includes('[b]')).disabled_at, 'switched off');
   assert.equal((await w.b('/ping')).devices, 0);
+});
+
+test('work: a picked iPhone with a VoIP address gets the dive as a phone call (APNs), the others the push; a dead address falls back', async () => {
+  const w = world({ env: { APNS_KEY: await apnsKey(), APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T' } });
+  w.tables.voip_devices.push({ user_id: USERS['tok-b'].id, token: 'voip-b', disabled_at: null });
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com', 'c@x.com'] });
+  await w.b('/invite/accept', { team: team.id }); await w.c('/invite/accept', { team: team.id });
+  w.pushes.length = 0;
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id, USERS['tok-c'].id], agenda: '회의' });
+  assert.equal(w.voips.length, 1); assert.equal(w.voips[0].token, 'voip-b');
+  assert.equal(w.voips[0].headers['apns-push-type'], 'voip'); assert.equal(w.voips[0].headers['apns-topic'], 'com.todochecker.app.voip');
+  assert.deepEqual(w.voips[0].body, { aps: {}, kind: 'dive', dive: dive.id, uuid: dive.id, team: team.id, caller: 'a', agenda: '회의' });
+  assert.ok(!w.pushes.some((p) => p.to.includes('[b]')), 'B rings as a call: no push on top');
+  assert.equal(w.pushes.find((p) => p.to.includes('[c]')).data.picked, true, 'C (no VoIP address) gets the push');
+  // 나에게 테스트 전화: Apple's answer per phone.
+  assert.deepEqual((await w.b('/ping', { voip: true })).voip, { configured: true, devices: 1, results: [{ ok: true, status: 200, reason: null }] });
+  assert.equal(w.voips[1].body.test, true);
+  assert.deepEqual((await w.c('/ping', { voip: true })).voip, { configured: true, devices: 0, results: [] });
+  // Apple says the address is gone: it is switched off and B gets the push instead.
+  w.apns['voip-b'] = { status: 410, body: '{"reason":"Unregistered"}' };
+  w.pushes.length = 0;
+  await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '다시' });
+  assert.ok(w.tables.voip_devices[0].disabled_at, 'switched off');
+  assert.equal(w.pushes.find((p) => p.to.includes('[b]')).data.picked, true);
+  // Without an APNs key on the server: everyone gets the push, the test call says it is not set up.
+  const plain = world(); plain.tables.voip_devices.push({ user_id: USERS['tok-b'].id, token: 'voip-b', disabled_at: null });
+  const t2 = (await plain.a('/team', { name: 'S2' })).team;
+  await plain.a('/invite', { team: t2.id, emails: ['b@x.com'] }); await plain.b('/invite/accept', { team: t2.id }); plain.pushes.length = 0;
+  await plain.a('/dive', { team: t2.id, targets: [USERS['tok-b'].id], agenda: '회의' });
+  assert.equal(plain.voips.length, 0); assert.equal(plain.pushes.find((p) => p.to.includes('[b]')).data.picked, true);
+  assert.deepEqual((await plain.b('/ping', { voip: true })).voip, { configured: false, devices: 0, results: [] });
 });
 
 test('work: a dive rings the picked people again (20 s, 40 s) until they answer, like a call', async () => {

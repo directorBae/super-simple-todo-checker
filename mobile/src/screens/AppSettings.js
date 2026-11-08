@@ -8,6 +8,7 @@ import { useDesign, WALLPAPERS, wallpaperSource } from '../design.js';
 import Integrations from './Integrations.js';
 import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
 import { notificationPermission, pushState, startPush, permissionNote } from '../notifications.js';
+import { available as voipAvailable, registerVoip } from '../voip.js';
 import { Linking } from 'react-native';
 import { tools } from '../store.js';
 
@@ -18,6 +19,14 @@ const EXPO_ERR = {
   MismatchSenderId: '푸시 키가 다른 앱의 것이에요.',
   MessageTooBig: '알림이 너무 커요.',
   MessageRateExceeded: '알림을 너무 자주 보냈어요. 잠시 뒤에 다시 해 보세요.',
+};
+
+// What Apple can say about a VoIP push (다이브를 전화처럼), in plain words.
+const APNS_ERR = {
+  BadDeviceToken: 'VoIP 주소가 이 서버의 것이 아니에요 (TestFlight·앱스토어 빌드는 production, 개발 빌드는 APNS_SANDBOX=1).',
+  Unregistered: '주소가 더 이상 유효하지 않아요. 앱을 껐다 켜면 새로 등록해요.',
+  InvalidProviderToken: 'APNs 키(.p8)·키 ID·팀 ID가 맞지 않아요.', MissingProviderToken: 'APNs 키가 서버에 없어요.', ExpiredProviderToken: 'APNs 토큰이 만료됐어요. 다시 눌러 보세요.',
+  TopicDisallowed: '토픽이 맞지 않아요 (번들 ID.voip).', DeviceTokenNotForTopic: 'VoIP 주소가 이 앱 것이 아니에요.',
 };
 
 // Same switches as the desktop settings; reminders are scheduled on this phone.
@@ -46,10 +55,23 @@ function Reminders() {
     } catch (e) { setTest('실패: ' + (e.message || e)); }
     finally { setTesting(false); }
   };
+  // 나에게 테스트 전화: a VoIP push to this phone — the iPhone rings like a phone call, the way a dive will.
+  const [calling, setCalling] = useState(false), [callNote, setCallNote] = useState('');
+  const testCall = async () => {
+    setCalling(true); setCallNote('');
+    try {
+      if (!(await registerVoip())) { setCallNote('이 휴대폰의 VoIP 주소를 아직 못 받았어요. 잠시 뒤 다시 눌러 보세요.'); return; }
+      const r = await tools.work('/ping', { voip: true }), v = r.voip || {};
+      const why = (x) => (x.reason || '').startsWith('BadKey') ? 'APNs 키 파일이 올바르지 않아요.' : APNS_ERR[x.reason] || `${x.status} ${x.reason || ''}`.trim();
+      setCallNote(!v.configured ? '서버에 APNs 키가 아직 없어요 (server/.env에 APNS_KEY_PATH·APNS_KEY_ID를 넣고 deploy).' : !v.devices ? '서버에 등록된 VoIP 주소가 없어요.' : v.results.every((x) => x.ok) ? '전화를 걸었어요. 지금 울려야 해요.' : 'Apple이 거절했어요: ' + v.results.filter((x) => !x.ok).map(why).join(' / '));
+    } catch (e) { setCallNote('실패: ' + (e.message || e)); }
+    finally { setCalling(false); }
+  };
   const rows = [['notifyBefore', '시작 30분 전 알림 (시간이 있는 할 일)'], ['notifyStart', '시작 시간 알림'], ['notifyEnd', '마무리 시간 알림'], ['dailySummary', `아침 요약 (${s.dailySummaryTime}, 오늘 할 일 개수)`], ['dailyWrapup', `하루 마무리 (${s.dailyWrapupTime}, 완료·남은 일)`]];
   return <View style={{ gap: 12 }}>
     {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => { if (permission === 'denied') return Linking.openSettings(); const p = await notificationPermission(true).catch(() => 'default'); setPermission(p); if (p !== 'granted') Linking.openSettings(); }} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 눌러서 휴대폰 설정 > Work > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
     {Platform.OS === 'ios' && !!tools && <Pressable accessibilityRole="button" disabled={testing} onPress={sendTest} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input, opacity: testing ? 0.6 : 1 }}><Text style={{ color: d.accent, fontWeight: '700' }}>{testing ? '보내는 중…' : '🔔 나에게 테스트 알림'}</Text>{test ? <Text style={{ color: d.muted, fontSize: 12, marginTop: 6 }}>{test}</Text> : null}<Text style={{ color: d.muted, fontSize: 11, marginTop: 4 }}>{permissionNote()}{pushState().registered ? ' · 이 휴대폰 등록됨' : pushState().step ? ' · ' + pushState().step + '…' : pushState().error ? ' · ' + pushState().error : ''}</Text></Pressable>}
+    {Platform.OS === 'ios' && !!tools && voipAvailable && <Pressable accessibilityRole="button" disabled={calling} onPress={testCall} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input, opacity: calling ? 0.6 : 1 }}><Text style={{ color: d.accent, fontWeight: '700' }}>{calling ? '거는 중…' : '📞 나에게 테스트 전화'}</Text><Text style={{ color: d.muted, fontSize: 11, marginTop: 4 }}>다이브가 오면 이렇게 전화처럼 울려요. 잠금 화면에선 전체 화면, 쓰는 중엔 위쪽 띠로.</Text>{callNote ? <Text style={{ color: d.muted, fontSize: 12, marginTop: 6 }}>{callNote}</Text> : null}</Pressable>}
     {rows.map(([key, label]) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><Text style={{ color: d.text, fontSize: 14, flexShrink: 1 }}>{label}</Text><Switch accessibilityLabel={label} value={!!s[key]} onValueChange={(v) => api.updateSettings({ [key]: v })} /></View>)}
   </View>;
 }
