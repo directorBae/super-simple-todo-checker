@@ -2,8 +2,8 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { tools } from './store.js';
-import { incomingDive } from '../../shared/work-alerts.mjs';
-import { available as voipAvailable, watchVoip, callState, answerCall, endCall, onCall } from './voip.js';
+import { incomingDive, ringbackWanted } from '../../shared/work-alerts.mjs';
+import { available as voipAvailable, watchVoip, callState, answerCall, endCall, onCall, ringback } from './voip.js';
 
 /*
  * 팀버전 (Work) on the phone: the team state (looked at every 8 s while the app is open — that also shows the person
@@ -154,5 +154,14 @@ export function WorkProvider({ onOpen, children }) {
   };
   actionsRef.current = actions;
   useEffect(() => { if (call?.ended) actions.leaveDive(); }, [call?.ended]);
+  // 연결음 for the caller while nobody has come into the room yet (the rule is shared: work-alerts.mjs).
+  const remote = (call?.people || []).filter((p) => !p.me).length;
+  useEffect(() => {
+    if (!voipAvailable) return undefined;
+    const d = state?.dives?.find((x) => x.id === call?.dive);
+    if (!ringbackWanted(call, d, state?.me?.id)) { ringback(false); return undefined; }
+    ringback(true);
+    return () => ringback(false);
+  }, [call?.dive, call?.state, remote, state?.dives, state?.me?.id]);
   return <WorkContext.Provider value={{ state, error, call, available: !!tools, ...actions }}>{children}</WorkContext.Provider>;
 }

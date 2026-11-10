@@ -33,3 +33,31 @@ export function ring() {
   end = setTimeout(stop, RING_MS);
   return stop;
 }
+
+// The caller's ringback tone (연결음): two soft tones (440 + 480 Hz), 1 s on / 2 s off, while nobody has come in.
+// Starts ringing; returns stop(). Stops by itself after RINGBACK_MS.
+export const RINGBACK_MS = 60_000;
+export function ringback() {
+  const AC = typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext);
+  if (!AC) return () => {};
+  let ctx = null;
+  try { ctx = new AC(); } catch { return () => {}; }
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  gain.connect(ctx.destination);
+  const oscs = [440, 480].map((f) => { const o = ctx.createOscillator(); o.frequency.value = f; o.connect(gain); o.start(); return o; });
+  const burst = () => {
+    try {
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      const t = ctx.currentTime;
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setValueAtTime(0, t); gain.gain.linearRampToValueAtTime(0.07, t + 0.02);
+      gain.gain.setValueAtTime(0.07, t + 0.98); gain.gain.linearRampToValueAtTime(0, t + 1);
+    } catch { /* no sound */ }
+  };
+  burst();
+  const timer = setInterval(burst, 3000);
+  const stop = () => { clearInterval(timer); clearTimeout(end); try { oscs.forEach((o) => o.stop()); } catch { /* already */ } ctx?.close().catch(() => {}); ctx = null; };
+  const end = setTimeout(stop, RINGBACK_MS);
+  return stop;
+}

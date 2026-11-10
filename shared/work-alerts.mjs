@@ -35,3 +35,14 @@ export function incomingDive(state) {
   const me = state?.me?.id;
   return (state?.dives || []).find((d) => d.by !== me && d.targets.includes(me) && !d.replies.some((r) => r.id === me)) || null;
 }
+
+// 연결음: the one who opened a room and called people hears a ringback tone while nobody has come in yet — from the
+// moment the call is connected until someone joins, everyone called has answered (카톡 가능 / 지금 연락 불가), or the
+// ring is over (RINGBACK_MS, the time the phones ring).
+export const RINGBACK_MS = 60_000;
+export function ringbackWanted(call, dive, meId, now = Date.now()) {
+  if (!call || call.state !== 'connected' || !dive || dive.id !== call.dive || dive.by !== meId) return false;
+  if ((call.people || []).some((p) => !p.me)) return false;
+  if (now - Date.parse(dive.createdAt) > RINGBACK_MS) return false;
+  return dive.targets.some((id) => !dive.replies.some((r) => r.id === id));
+}

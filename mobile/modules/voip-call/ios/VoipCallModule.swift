@@ -37,6 +37,14 @@ public class VoipCallModule: Module {
       CallCenter.shared.clearLog()
     }
 
+    AsyncFunction("ringback") { (on: Bool) in
+      if on {
+        CallCenter.shared.playRingback()
+      } else {
+        CallCenter.shared.stopRingback()
+      }
+    }.runOnQueue(.main)
+
     AsyncFunction("answerCall") { (uuid: String) in
       if let u = UUID(uuidString: uuid) {
         CallCenter.shared.answer(uuid: u)

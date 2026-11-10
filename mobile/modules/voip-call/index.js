@@ -11,6 +11,8 @@ export const answerCall = (uuid) => (native ? native.answerCall(uuid) : Promise.
 // reason: local (hung up in the app) · unanswered · elsewhere (answered on another device) · remote (the dive is over).
 export const endCall = (uuid, reason = 'remote') => (native ? native.endCall(uuid, reason) : Promise.resolve());
 export const on = (name, fn) => (native ? native.addListener(name, fn) : { remove() {} });
+// 연결음 on / off (the caller, while nobody has come in). Older builds have no player.
+export const ringback = (on) => native?.ringback?.(on);
 // What happened on the device, newest last (also while the app was closed). Older builds have no log.
 export const log = () => (native?.log ? native.log() : []);
 export const clearLog = () => native?.clearLog?.();

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { workAlerts } from '../../../shared/work-alerts.mjs';
+import { workAlerts, ringbackWanted } from '../../../shared/work-alerts.mjs';
+import { ringback } from './ring.js';
 
 /*
  * 팀버전 (Work) in the window: the team state (teams, invites, who is online, open dives), the actions, and the dive
@@ -133,5 +134,12 @@ export function WorkProvider({ children, onOpen, pet }) {
   };
   // Left by the server (or the network): tidy up once.
   useEffect(() => { if (call?.ended) actions.leaveDive(); }, [call?.ended]);
+  // 연결음 for the caller while nobody has come into the room yet (the rule is shared: work-alerts.mjs).
+  const remote = (call?.people || []).filter((p) => !p.me).length;
+  useEffect(() => {
+    const d = state?.dives?.find((x) => x.id === call?.dive);
+    if (!ringbackWanted(call, d, state?.me?.id)) return undefined;
+    return ringback();
+  }, [call?.dive, call?.state, remote, state?.dives, state?.me?.id]);
   return <WorkContext.Provider value={{ state, error, call, ...actions }}>{children}</WorkContext.Provider>;
 }

@@ -75,7 +75,8 @@
           "color": "#7c3aed",
           "mode": "production",
           "sounds": [
-            "./assets/dive-ring.wav"
+            "./assets/dive-ring.wav",
+            "./assets/dive-ringback.wav"
           ]
         }
       ],

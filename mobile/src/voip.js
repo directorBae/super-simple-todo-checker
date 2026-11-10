@@ -6,7 +6,7 @@ import { tools } from './store.js';
 // provider (work.js) joins on answer, answers "지금 연락 불가" on decline, and hangs up the call screen when the dive
 // is over or was answered on another device.
 export const available = voip.available;
-export const callState = voip.state, answerCall = voip.answerCall, endCall = voip.endCall, onCall = voip.on;
+export const callState = voip.state, answerCall = voip.answerCall, endCall = voip.endCall, onCall = voip.on, ringback = voip.ringback;
 
 let registered = null;
 export async function registerVoip() {

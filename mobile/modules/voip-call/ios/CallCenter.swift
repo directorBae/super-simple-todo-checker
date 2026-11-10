@@ -31,6 +31,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
   private(set) var voipToken: String?
   private var current: Call?
   private var timeout: DispatchWorkItem?
+  private var ringback: AVAudioPlayer?
   // Events for JS — kept until JS listens (the push may have just woken the app).
   private var sink: ((String, [String: Any?]) -> Void)?
   private var pending: [(String, [String: Any?])] = []
@@ -157,6 +158,28 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     let e = error as NSError
     let words: [Int: String] = [1: "알 수 없음", 2: "권한 없음(unentitled)", 3: "같은 통화가 이미 있음", 4: "집중 모드(방해금지)가 걸러냄", 5: "차단 목록이 걸러냄", 6: "통화 그룹 가득 참"]
     return (words[e.code] ?? e.localizedDescription) + " [\(e.domain) \(e.code)]"
+  }
+
+  // MARK: - 연결음 (the caller, while nobody has come into the room): a looped soft tone through the call's own
+  // audio route; the session itself is left to the call.
+
+  func playRingback() {
+    guard ringback == nil, let url = Bundle.main.url(forResource: "dive-ringback", withExtension: "wav") else { return }
+    do {
+      let p = try AVAudioPlayer(contentsOf: url)
+      p.numberOfLoops = -1
+      p.volume = 0.7
+      p.prepareToPlay()
+      p.play()
+      ringback = p
+    } catch {
+      note("연결음 실패: \(error.localizedDescription)")
+    }
+  }
+
+  func stopRingback() {
+    ringback?.stop()
+    ringback = nil
   }
 
   // MARK: - from JS
