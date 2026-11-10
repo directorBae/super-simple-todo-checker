@@ -18,6 +18,15 @@ import { todosOn, addDay } from '../../../shared/multi-day.js';
  */
 const AGENDA_MAX = 50;
 const ANSWER = { join: '참여', left: '나감', kakao: '카톡 가능', busy: '지금 연락 불가' };
+// A room's second line: who is in it, or how long until an empty one goes away (6 hours after the last one left).
+const ROOM_IDLE_MS = 6 * 3600_000;
+function roomNote(d, nameOf) {
+  const inside = d.replies.filter((r) => r.answer === 'join').map((r) => nameOf(r.id));
+  if (inside.length) return `안에 ${inside.length}명: ${inside.join(', ')}`;
+  if (!d.emptySince) return '비어 있어요';
+  const left = Math.max(0, Date.parse(d.emptySince) + ROOM_IDLE_MS - Date.now()), h = Math.floor(left / 3600_000), m = Math.ceil((left % 3600_000) / 60_000);
+  return `비어 있어요 · ${h ? h + '시간 ' : ''}${m}분 뒤 사라져요`;
+}
 const ANSWER_COLOR = { join: '#30a46c', left: '#4f5670', kakao: '#d69e0b', busy: '#e5484d' };
 const HUES = [222, 262, 192, 152, 32, 340, 12, 282];
 const hueOf = (id = '') => HUES[[...String(id)].reduce((n, c) => n + c.charCodeAt(0), 0) % HUES.length];
@@ -132,16 +141,16 @@ function DiveComposer({ team, onClose }) {
   const [picked, setPicked] = useState([]), [agenda, setAgenda] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const start = async () => { setBusy(true); setError(''); try { await w.startDive(team.id, picked, agenda); onClose(); } catch (e) { setError(e.message); setBusy(false); } };
-  return <Sheet title="다이브" onClose={onClose}>
-    <Text style={{ color: d.muted, fontSize: 13, lineHeight: 19 }}>함께할 팀원을 고르고 안건을 적으세요. 고른 사람에게는 중요한 알림으로, 나머지 팀원에게는 일반 알림으로 가요.</Text>
+  return <Sheet title="새 방" onClose={onClose}>
+    <Text style={{ color: d.muted, fontSize: 13, lineHeight: 19 }}>안건이 방 이름이에요. 고른 팀원에게는 전화처럼 울리고, 나머지에겐 방이 열렸다고 알려요. 방은 아무도 없는 채 6시간이 지나면 저절로 사라져요.</Text>
     {people.map((m) => { const on = picked.includes(m.id); return <Pressable key={m.id} accessibilityRole="checkbox" accessibilityState={{ checked: on }} onPress={() => toggle(m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 14, borderWidth: 1, borderColor: on ? d.accent : 'transparent', backgroundColor: on ? '#6366f11a' : 'transparent' }}>
       <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: on ? d.accent : d.muted, backgroundColor: on ? d.accent : 'transparent', alignItems: 'center', justifyContent: 'center' }}>{on && <Text style={{ color: '#fff', fontSize: 13, fontWeight: '800' }}>✓</Text>}</View>
       <Avatar person={m} size={30} /><Text style={{ flex: 1, color: d.text, fontWeight: '600' }}>{m.name}</Text><Text style={{ color: d.muted, fontSize: 12 }}>{statusOf(m)}</Text>
     </Pressable>; })}
     {!people.length && <Text style={{ color: d.muted }}>아직 함께할 팀원이 없어요. 먼저 팀원을 초대해 주세요.</Text>}
-    <View style={{ gap: 4 }}><Field value={agenda} onChangeText={setAgenda} placeholder="안건 (예: 내일 발표 자료 5분만 맞춰봐요)" maxLength={AGENDA_MAX} /><Text style={{ alignSelf: 'flex-end', color: d.muted, fontSize: 12 }}>{Array.from(agenda).length}/{AGENDA_MAX}</Text></View>
+    <View style={{ gap: 4 }}><Field value={agenda} onChangeText={setAgenda} placeholder="안건 = 방 이름 (예: 내일 발표 자료 5분만 맞춰봐요)" maxLength={AGENDA_MAX} /><Text style={{ alignSelf: 'flex-end', color: d.muted, fontSize: 12 }}>{Array.from(agenda).length}/{AGENDA_MAX}</Text></View>
     <ErrorText>{error}</ErrorText>
-    <Button primary title={busy ? '여는 중…' : `다이브 시작 (${picked.length}명)`} disabled={busy || !picked.length || !agenda.trim()} onPress={start} />
+    <Button primary title={busy ? '여는 중…' : `방 만들기 (${picked.length}명 부르기)`} disabled={busy || !picked.length || !agenda.trim()} onPress={start} />
   </Sheet>;
 }
 
@@ -150,15 +159,18 @@ function Dives({ team }) {
   const dives = w.state.dives.filter((x) => x.team === team.id);
   if (!dives.length) return null;
   const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
-  return <Card><Title>열린 다이브</Title>
-    {dives.map((x) => { const mine = x.replies.find((r) => r.id === me.id), inIt = w.call?.dive === x.id, picked = x.targets.includes(me.id);
-      return <View key={x.id} style={{ gap: 8, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: picked ? d.accent : d.edge, backgroundColor: '#ffffff0d' }}>
-        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><DiveIcon size={26} /><View style={{ flex: 1 }}><Text style={{ color: d.text, fontWeight: '700' }}>{x.agenda}</Text><Text style={{ color: d.muted, fontSize: 12 }}>{nameOf(x.by)} · {ago(x.createdAt)} · {x.targets.map(nameOf).join(', ')}</Text></View></View>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{x.replies.map((r) => <Text key={r.id} style={{ fontSize: 12, color: d.muted }}>{nameOf(r.id)} <Text style={{ fontWeight: '700', color: ANSWER_COLOR[r.answer] }}>{ANSWER[r.answer]}</Text></Text>)}</View>
+  const remove = (x) => Alert.alert(`'${x.agenda}' 방을 없앨까요?`, '안에 있는 사람도 나가게 돼요.', [{ text: '취소', style: 'cancel' }, { text: '없애기', style: 'destructive', onPress: () => run(setError, () => w.deleteDive(x.id)) }]);
+  return <Card><Title note={`${dives.length}개`}>열린 방</Title>
+    {dives.map((x) => { const mine = x.replies.find((r) => r.id === me.id), inIt = w.call?.dive === x.id, picked = x.targets.includes(me.id), opened = x.by === me.id;
+      const answers = x.replies.filter((r) => r.answer === 'kakao' || r.answer === 'busy');
+      return <View key={x.id} style={{ gap: 8, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: picked || inIt ? d.accent : d.edge, backgroundColor: '#ffffff0d' }}>
+        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}><DiveIcon size={26} /><View style={{ flex: 1 }}><Text style={{ color: d.text, fontWeight: '700' }}>{x.agenda}</Text><Text style={{ color: d.muted, fontSize: 12 }}>{nameOf(x.by)}님이 엶 · {ago(x.createdAt)}{x.targets.length ? ' · ' + x.targets.map(nameOf).join(', ') + ' 부름' : ''}</Text><Text style={{ color: d.accent, fontSize: 12 }}>{roomNote(x, nameOf)}</Text></View></View>
+        {answers.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{answers.map((r) => <Text key={r.id} style={{ fontSize: 12, color: d.muted }}>{nameOf(r.id)} <Text style={{ fontWeight: '700', color: ANSWER_COLOR[r.answer] }}>{ANSWER[r.answer]}</Text></Text>)}</View>}
         {inIt ? <Text style={{ color: d.muted, fontSize: 13 }}>통화 중</Text> : <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          <Button primary title="참여" onPress={() => run(setError, () => w.joinDive(x.id))} />
-          {x.by !== me.id && mine?.answer !== 'kakao' && <Button title="카톡 가능" onPress={() => run(setError, () => w.reply(x.id, 'kakao'))} />}
-          {x.by !== me.id && mine?.answer !== 'busy' && <Button title="지금 연락 불가" onPress={() => run(setError, () => w.reply(x.id, 'busy'))} />}
+          <Button primary title="들어가기" onPress={() => run(setError, () => w.joinDive(x.id))} />
+          {picked && !opened && mine?.answer !== 'kakao' && <Button title="카톡 가능" onPress={() => run(setError, () => w.reply(x.id, 'kakao'))} />}
+          {picked && !opened && mine?.answer !== 'busy' && <Button title="지금 연락 불가" onPress={() => run(setError, () => w.reply(x.id, 'busy'))} />}
+          {opened && <Button title="방 삭제" onPress={() => remove(x)} />}
         </View>}
       </View>; })}
     <ErrorText>{error}</ErrorText>
@@ -256,7 +268,7 @@ export default function TeamScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="다이브 시작" disabled={!others.length || !!w.call} onPress={() => setComposer(true)} style={({ pressed }) => ({ alignItems: 'center', gap: 6, paddingVertical: 14, opacity: !others.length || w.call ? 0.45 : pressed ? 0.7 : 1 })}>
           <PulsingDive size={104} /><Text style={{ fontSize: 20, fontWeight: '800', color: d.accent, letterSpacing: 1 }}>Dive</Text>
         </Pressable>
-        <Text style={{ textAlign: 'center', color: d.muted, fontSize: 13 }}>{w.call ? '지금 다이브 중이에요.' : others.length ? '팀원을 골라 안건과 함께 바로 그룹 통화를 열어요.' : '팀원을 초대하면 다이브할 수 있어요.'}</Text>
+        <Text style={{ textAlign: 'center', color: d.muted, fontSize: 13 }}>{w.call ? '지금 다이브 중이에요.' : others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</Text>
       </Card>
       <Dives team={team} />
       <Members team={team} />
@@ -343,7 +355,7 @@ export function CallPanel() {
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <Button style={{ flex: 1 }} title={c.muted ? '🔇 음소거 중' : '🎤 마이크 켜짐'} onPress={() => w.mute()} />
         <Button style={{ flex: 1 }} title="나가기" onPress={() => w.leaveDive(false)} />
-        {x?.by === w.state?.me.id && <Button title="모두 종료" onPress={() => w.leaveDive(true)} />}
+        {x?.by === w.state?.me.id && <Button title="방 삭제" onPress={() => Alert.alert('방을 없앨까요?', '모두 나가게 돼요.', [{ text: '취소', style: 'cancel' }, { text: '없애기', style: 'destructive', onPress: () => w.leaveDive(true) }])} />}
       </View>
     </Surface>
   </View>;

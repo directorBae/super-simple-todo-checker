@@ -140,6 +140,7 @@ export function WorkProvider({ onOpen, children }) {
     reply: (dive, answer) => act('/dive/reply', { dive, answer }),
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
     join: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
+    deleteDive: (dive) => act('/dive/delete', { dive }),
     // Joining while the call screen still rings for this dive: answer it there (the answer comes back as onAnswerCall
     // and joins), so the system knows the call is on.
     joinDive: async (dive) => { const cs = voipAvailable ? callState() : null; if (cs?.uuid && cs.dive === dive && !cs.answered) { await answerCall(cs.uuid); return; } await actions.join(dive); },

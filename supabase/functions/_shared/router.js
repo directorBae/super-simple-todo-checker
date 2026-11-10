@@ -207,6 +207,7 @@ async function workRoute(env, user, route, b) {
     case '/work/dive': return work.startDive(env, user, b);
     case '/work/dive/join': return work.joinDive(env, user, b.dive);
     case '/work/dive/reply': return work.replyDive(env, user, b.dive, b.answer);
+    case '/work/dive/delete': return work.leaveDive(env, user, b.dive, true);
     case '/work/dive/leave': return work.leaveDive(env, user, b.dive, !!b.end);
     default: throw new HttpError('요청을 찾을 수 없어요.', 404);
   }

@@ -124,6 +124,7 @@ export function WorkProvider({ children, onOpen, pet }) {
     memberBoard: async (team, member) => { const r = await window.api.tools('work', { path: '/member', body: { team, member } }); if (!r?.ok) throw new Error(r?.error || '불러오지 못했어요.'); return r; },
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
     joinDive: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
+    deleteDive: (dive) => act('/dive/delete', { dive }),
     leaveDive: async (end = false) => {
       const dive = call?.dive; live.current?.leave(); live.current = null; setCall(null);
       if (dive) await act('/dive/leave', { dive, end }).catch(() => {});

@@ -35,7 +35,7 @@ export async function voipPush(env, token, payload) {
     method: 'POST',
     headers: {
       authorization: 'bearer ' + jwt, 'apns-topic': env.APNS_TOPIC || DEFAULT_TOPIC, 'apns-push-type': 'voip',
-      'apns-priority': '10', 'apns-expiration': '0', 'content-type': 'application/json',
+      'apns-priority': '10', 'apns-expiration': String(Math.floor(env.now() / 1000) + 30), 'content-type': 'application/json',
     },
     body: JSON.stringify(payload),
   }).catch((e) => ({ ok: false, status: 0, text: async () => e.message || String(e) }));

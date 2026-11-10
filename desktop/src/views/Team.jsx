@@ -13,6 +13,15 @@ import { PetSprite, DEFAULT_PET } from '../focus/Pet.jsx';
  */
 const AGENDA_MAX = 50;
 const ANSWER = { join: '참여', left: '나감', kakao: '카톡 가능', busy: '지금 연락 불가' };
+// A room's second line: who is in it, or how long until an empty one goes away (6 hours after the last one left).
+const ROOM_IDLE_MS = 6 * 3600_000;
+function roomNote(d, nameOf) {
+  const inside = d.replies.filter((r) => r.answer === 'join').map((r) => nameOf(r.id));
+  if (inside.length) return `안에 ${inside.length}명: ${inside.join(', ')}`;
+  if (!d.emptySince) return '비어 있어요';
+  const left = Math.max(0, d.emptySince ? Date.parse(d.emptySince) + ROOM_IDLE_MS - Date.now() : 0), h = Math.floor(left / 3600_000), m = Math.ceil((left % 3600_000) / 60_000);
+  return `비어 있어요 · ${h ? h + '시간 ' : ''}${m}분 뒤 사라져요`;
+}
 const HUES = [222, 262, 192, 152, 32, 340, 12, 282];
 const hueOf = (id = '') => HUES[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % HUES.length];
 const ago = (iso) => { const m = Math.floor((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : `${Math.floor(m / 60)}시간 전`; };
@@ -170,16 +179,16 @@ export function DiveComposer({ team, onClose }) {
     try { await w.startDive(team.id, picked, agenda); onClose(); } catch (x) { setError(x.message); setBusy(false); }
   };
   return <div className="popup-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <form className="popup-panel dive-composer" role="dialog" aria-modal="true" aria-label="다이브 시작" onSubmit={start}>
-      <div className="popup-head"><h2><DiveIcon size={22} /> 다이브</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}>✕</button></div>
+    <form className="popup-panel dive-composer" role="dialog" aria-modal="true" aria-label="새 방" onSubmit={start}>
+      <div className="popup-head"><h2><DiveIcon size={22} /> 새 방</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={onClose}>✕</button></div>
       <div className="popup-body">
-        <p className="desc">함께할 팀원을 고르고 안건을 적으세요. 고른 사람에게는 중요한 알림으로, 나머지 팀원에게는 일반 알림으로 가요.</p>
+        <p className="desc">안건이 방 이름이에요. 고른 팀원에게는 전화처럼 울리고, 나머지에겐 방이 열렸다고 알려요. 방은 아무도 없는 채 6시간이 지나면 저절로 사라져요.</p>
         {people.length ? <ul className="dive-pick">{people.map((m) => <li key={m.id}><label className={(picked.includes(m.id) ? 'on' : '') + (m.online ? ' online' : '')}>
           <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)} /><Avatar person={m} size={30} /><span className="dive-pick-name">{m.name}</span><span className="work-status"><i />{statusOf(m)}</span>
         </label></li>)}</ul> : <p className="desc">아직 함께할 팀원이 없어요. 먼저 팀원을 초대해 주세요.</p>}
-        <label className="dive-agenda"><span>안건</span><input value={agenda} maxLength={AGENDA_MAX} placeholder="예: 내일 발표 자료 5분만 맞춰봐요" onChange={(e) => setAgenda(e.target.value)} autoFocus /><small>{length}/{AGENDA_MAX}</small></label>
+        <label className="dive-agenda"><span>안건</span><input value={agenda} maxLength={AGENDA_MAX} placeholder="방 이름이 돼요 · 예: 내일 발표 자료 5분만 맞춰봐요" onChange={(e) => setAgenda(e.target.value)} autoFocus /><small>{length}/{AGENDA_MAX}</small></label>
         {error && <p className="work-error" role="alert">{error}</p>}
-        <div className="dive-actions"><button type="button" className="ghost" onClick={onClose}>취소</button><button className="primary" disabled={busy || !picked.length || !agenda.trim()}>{busy ? '여는 중…' : `다이브 시작 (${picked.length}명)`}</button></div>
+        <div className="dive-actions"><button type="button" className="ghost" onClick={onClose}>취소</button><button className="primary" disabled={busy || !picked.length || !agenda.trim()}>{busy ? '여는 중…' : `방 만들기 (${picked.length}명 부르기)`}</button></div>
       </div>
     </form>
   </div>;
@@ -191,17 +200,19 @@ function Dives({ team }) {
   if (!dives.length) return null;
   const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
   const go = (f) => f().catch((e) => setError(e.message));
-  return <section className="work-card work-dives" aria-label="열린 다이브">
-    <h3>열린 다이브</h3>
+  return <section className="work-card work-dives" aria-label="열린 방">
+    <h3>열린 방 <small>{dives.length}</small></h3>
     {dives.map((d) => {
-      const mine = d.replies.find((r) => r.id === me.id), inIt = w.call?.dive === d.id, picked = d.targets.includes(me.id);
-      return <article key={d.id} className={'work-dive' + (picked ? ' picked' : '')}>
-        <div className="work-dive-head"><DiveIcon size={26} /><div><b>{d.agenda}</b><small>{nameOf(d.by)} · {ago(d.createdAt)} · {d.targets.map(nameOf).join(', ')}</small></div></div>
-        <ul className="work-replies">{d.replies.map((r) => <li key={r.id} className={'answer-' + r.answer}>{nameOf(r.id)} <span>{ANSWER[r.answer]}</span></li>)}</ul>
+      const mine = d.replies.find((r) => r.id === me.id), inIt = w.call?.dive === d.id, picked = d.targets.includes(me.id), opened = d.by === me.id;
+      const answers = d.replies.filter((r) => r.answer === 'kakao' || r.answer === 'busy');
+      return <article key={d.id} className={'work-dive' + (picked ? ' picked' : '') + (inIt ? ' in' : '')}>
+        <div className="work-dive-head"><DiveIcon size={26} /><div><b>{d.agenda}</b><small>{nameOf(d.by)}님이 엶 · {ago(d.createdAt)}{d.targets.length ? ' · ' + d.targets.map(nameOf).join(', ') + ' 부름' : ''}</small><small className="room-note">{roomNote(d, nameOf)}</small></div></div>
+        {answers.length > 0 && <ul className="work-replies">{answers.map((r) => <li key={r.id} className={'answer-' + r.answer}>{nameOf(r.id)} <span>{ANSWER[r.answer]}</span></li>)}</ul>}
         <div className="work-row">
-          {inIt ? <span className="desc">통화 중</span> : <button className="primary" onClick={() => go(() => w.joinDive(d.id))}>참여</button>}
-          {!inIt && d.by !== me.id && mine?.answer !== 'kakao' && <button className="ghost" onClick={() => go(() => w.reply(d.id, 'kakao'))}>카톡 가능</button>}
-          {!inIt && d.by !== me.id && mine?.answer !== 'busy' && <button className="ghost" onClick={() => go(() => w.reply(d.id, 'busy'))}>지금 연락 불가</button>}
+          {inIt ? <span className="desc">통화 중</span> : <button className="primary" onClick={() => go(() => w.joinDive(d.id))}>들어가기</button>}
+          {!inIt && picked && !opened && mine?.answer !== 'kakao' && <button className="ghost" onClick={() => go(() => w.reply(d.id, 'kakao'))}>카톡 가능</button>}
+          {!inIt && picked && !opened && mine?.answer !== 'busy' && <button className="ghost" onClick={() => go(() => w.reply(d.id, 'busy'))}>지금 연락 불가</button>}
+          {opened && !inIt && <button className="ghost danger" onClick={() => { if (confirm(`'${d.agenda}' 방을 없앨까요? 안에 있는 사람도 나가게 돼요.`)) go(() => w.deleteDive(d.id)); }}>방 삭제</button>}
         </div>
       </article>;
     })}
@@ -285,7 +296,7 @@ export default function Team({ checkerTeams = [] }) {
         <button className="dive-button" disabled={!others.length || !!w.call} onClick={() => setComposer(true)} aria-label="다이브 시작">
           <DiveIcon size={96} /><span>Dive</span>
         </button>
-        <p className="desc">{w.call ? '지금 다이브 중이에요.' : others.length ? '팀원을 골라 안건과 함께 바로 그룹 통화를 열어요.' : '팀원을 초대하면 다이브할 수 있어요.'}</p>
+        <p className="desc">{w.call ? '지금 다이브 중이에요.' : others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</p>
       </section>
       <Dives team={team} />
     </div>}
@@ -333,7 +344,7 @@ export function CallPanel() {
     <div className="dive-call-actions">
       <button className={'ghost' + (c.muted ? ' on' : '')} aria-pressed={c.muted} onClick={() => w.mute()}>{c.muted ? '🔇 음소거 중' : '🎤 마이크 켜짐'}</button>
       <button className="ghost danger" onClick={() => w.leaveDive(false)}>나가기</button>
-      {d?.by === w.state?.me.id && <button className="ghost" onClick={() => w.leaveDive(true)}>모두 종료</button>}
+      {d?.by === w.state?.me.id && <button className="ghost" onClick={() => { if (confirm('방을 없앨까요? 모두 나가게 돼요.')) w.leaveDive(true); }}>방 삭제</button>}
     </div>
   </section>;
 }

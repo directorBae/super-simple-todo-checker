@@ -9,6 +9,7 @@ import Integrations from './Integrations.js';
 import { REMINDER_DEFAULTS } from '../../../shared/reminders.js';
 import { notificationPermission, pushState, startPush, permissionNote } from '../notifications.js';
 import { available as voipAvailable, registerVoip } from '../voip.js';
+import { log as voipLog } from '../../modules/voip-call/index.js';
 import { Linking } from 'react-native';
 import { tools } from '../store.js';
 
@@ -56,7 +57,7 @@ function Reminders() {
     finally { setTesting(false); }
   };
   // 나에게 테스트 전화: a VoIP push to this phone — the iPhone rings like a phone call, the way a dive will.
-  const [calling, setCalling] = useState(false), [callNote, setCallNote] = useState('');
+  const [calling, setCalling] = useState(false), [callNote, setCallNote] = useState(''), [showLog, setShowLog] = useState(false);
   const testCall = async () => {
     setCalling(true); setCallNote('');
     try {
@@ -72,6 +73,7 @@ function Reminders() {
     {permission !== 'granted' && <Pressable accessibilityRole="button" onPress={async () => { if (permission === 'denied') return Linking.openSettings(); const p = await notificationPermission(true).catch(() => 'default'); setPermission(p); if (p !== 'granted') Linking.openSettings(); }} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input }}><Text style={{ color: d.accent, fontWeight: '700' }}>{permission === 'denied' ? '알림이 꺼져 있어요 · 눌러서 휴대폰 설정 > Work > 알림에서 켜 주세요' : '알림 허용하기'}</Text></Pressable>}
     {Platform.OS === 'ios' && !!tools && <Pressable accessibilityRole="button" disabled={testing} onPress={sendTest} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input, opacity: testing ? 0.6 : 1 }}><Text style={{ color: d.accent, fontWeight: '700' }}>{testing ? '보내는 중…' : '🔔 나에게 테스트 알림'}</Text>{test ? <Text style={{ color: d.muted, fontSize: 12, marginTop: 6 }}>{test}</Text> : null}<Text style={{ color: d.muted, fontSize: 11, marginTop: 4 }}>{permissionNote()}{pushState().registered ? ' · 이 휴대폰 등록됨' : pushState().step ? ' · ' + pushState().step + '…' : pushState().error ? ' · ' + pushState().error : ''}</Text></Pressable>}
     {Platform.OS === 'ios' && !!tools && voipAvailable && <Pressable accessibilityRole="button" disabled={calling} onPress={testCall} style={{ padding: 12, borderRadius: 14, backgroundColor: d.input, opacity: calling ? 0.6 : 1 }}><Text style={{ color: d.accent, fontWeight: '700' }}>{calling ? '거는 중…' : '📞 나에게 테스트 전화'}</Text><Text style={{ color: d.muted, fontSize: 11, marginTop: 4 }}>다이브가 오면 이렇게 전화처럼 울려요. 잠금 화면에선 전체 화면, 쓰는 중엔 위쪽 띠로.</Text>{callNote ? <Text style={{ color: d.muted, fontSize: 12, marginTop: 6 }}>{callNote}</Text> : null}</Pressable>}
+    {Platform.OS === 'ios' && voipAvailable && <Pressable accessibilityRole="button" onPress={() => setShowLog(!showLog)} style={{ paddingHorizontal: 12, paddingVertical: 8 }}><Text style={{ color: d.muted, fontSize: 12, fontWeight: '600' }}>📋 전화 기록 {showLog ? '숨기기' : '보기'} (앱이 꺼져 있을 때 온 전화도 남아요)</Text>{showLog && (voipLog().length ? voipLog().slice().reverse().map((l, i) => <Text key={i} style={{ color: d.text, fontSize: 11, fontVariant: ['tabular-nums'], marginTop: 3 }}>{l}</Text>) : <Text style={{ color: d.muted, fontSize: 11, marginTop: 4 }}>아직 기록이 없어요 (이 빌드부터 남아요).</Text>)}</Pressable>}
     {rows.map(([key, label]) => <View key={key} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}><Text style={{ color: d.text, fontSize: 14, flexShrink: 1 }}>{label}</Text><Switch accessibilityLabel={label} value={!!s[key]} onValueChange={(v) => api.updateSettings({ [key]: v })} /></View>)}
   </View>;
 }

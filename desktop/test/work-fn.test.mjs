@@ -15,7 +15,7 @@ async function apnsKey() {
 
 function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env: extraEnv = {} } = {}) {
   const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], voip_devices: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
-  const pushes = [], receipts = {}, voips = [], apns = {}; let ticketNo = 0;
+  const pushes = [], receipts = {}, voips = [], apns = {}, clock = { now: null }; let ticketNo = 0; // clock.now: a test's own time; otherwise NOW (which some tests move)
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
@@ -24,6 +24,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
     if (op === 'is') return v === null || v === undefined;
     if (op === 'in') return arg.slice(1, -1).split(',').includes(String(v));
     if (op === 'gte') return v != null && v >= arg;
+    if (op === 'lt') return v != null && v < arg;
     if (op === 'lte') return v != null && v <= arg;
     if (op === 'neq') return String(v) !== arg;
     throw new Error('filter ' + op);
@@ -56,12 +57,12 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
     if (method === 'PATCH') { const r = rows(table, u.search); r.forEach((x) => Object.assign(x, JSON.parse(init.body))); return reply(r.map((x) => structuredClone(x))); }
     if (method === 'DELETE') { const gone = new Set(rows(table, u.search)); tables[table] = tables[table].filter((x) => !gone.has(x)); if (table === 'work_teams') tables.work_members = tables.work_members.filter((m) => !([...gone].some((t) => t.id === m.team_id))); return reply(undefined, 204); }
   }
-  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret', ...extraEnv })[k], { fetch, now: () => NOW, sleep, waitUntil });
+  const env = environment((k) => ({ SUPABASE_URL: 'https://x.supabase.co', SB_SECRET_KEY: 'svc', SUPABASE_ANON_KEY: 'pub', STATE_SECRET: 's', HOOK_SECRET: 'h', LIVEKIT_URL: 'wss://work.livekit.cloud', LIVEKIT_API_KEY: 'APIkey', LIVEKIT_API_SECRET: 'secret', ...extraEnv })[k], { fetch, now: () => clock.now ?? NOW, sleep, waitUntil });
   const as = (who) => async (path, body = {}) => {
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
   };
-  return { tables, pushes, receipts, voips, apns, a: as('a'), b: as('b'), c: as('c') };
+  return { tables, pushes, receipts, voips, apns, clock, a: as('a'), b: as('b'), c: as('c') };
 }
 
 test('work: make a team, invite by email, accept, and see who is online', async () => {
@@ -103,7 +104,7 @@ test('work: 나에게 테스트 알림 goes to the caller\'s own phones and says
 });
 
 test('work: a picked iPhone with a VoIP address gets the dive as a phone call (APNs), the others the push; a dead address falls back', async () => {
-  const w = world({ env: { APNS_KEY: await apnsKey(), APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T' } });
+  const w = world({ env: { APNS_KEY: await apnsKey(), APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T' }, waitUntil: () => {} });
   w.tables.voip_devices.push({ user_id: USERS['tok-b'].id, token: 'voip-b', disabled_at: null });
   const { team } = await w.a('/team', { name: 'Studio' });
   await w.a('/invite', { team: team.id, emails: ['b@x.com', 'c@x.com'] });
@@ -188,11 +189,61 @@ test('work: a dive picks teammates and an agenda, pushes them first, and anyone 
   assert.equal(s.teams[0].members.find((m) => m.email === 'c@x.com').inDive, dive.id);
   // Someone outside the team can't see or join it.
   await assert.rejects(world().b('/dive/join', { dive: dive.id }), /찾을 수 없어요|팀원이 아니에요/);
-  // When the last one in the call leaves, the dive is over.
+  // The dive is a room: leaving does not close it. Empty, it says so and goes away by itself 6 hours later.
   await w.a('/dive/leave', { dive: dive.id });
-  assert.equal((await w.a('/state')).dives.length, 1, 'C is still in it');
+  let st = await w.a('/state'); assert.equal(st.dives.length, 1, 'C is still in it'); assert.equal(st.dives[0].emptySince, null);
   await w.c('/dive/leave', { dive: dive.id });
+  st = await w.a('/state'); assert.equal(st.dives.length, 1, 'the room stays'); assert.equal(st.dives[0].emptySince, new Date(NOW).toISOString());
+  assert.equal(st.teams[0].members.find((m) => m.email === 'c@x.com').inDive, null);
+  // Someone comes back in: not empty any more; out again: empty from now.
+  w.clock.now = NOW + 3600_000;
+  await w.c('/dive/join', { dive: dive.id }); assert.equal((await w.a('/state')).dives[0].emptySince, null);
+  await w.c('/dive/leave', { dive: dive.id }); assert.equal((await w.a('/state')).dives[0].emptySince, new Date(NOW + 3600_000).toISOString());
+  // Only the one who opened the room can delete it; everyone else just leaves.
+  await assert.rejects(w.c('/dive/delete', { dive: dive.id }), /방을 연 사람만/);
+  // 6 hours empty: gone (and a late join finds no room).
+  w.clock.now = NOW + 3600_000 + 6 * 3600_000 + 1;
   assert.equal((await w.a('/state')).dives.length, 0);
+  await assert.rejects(w.c('/dive/join', { dive: dive.id }), /사라진 방/);
+});
+
+test('work: the one who opened a room deletes it — from inside the call or from the list — and everyone in it is out', async () => {
+  const w = world();
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '회의' });
+  await w.b('/dive/join', { dive: dive.id });
+  // A leaves; the room stays with B in it. Then A deletes it from the list.
+  await w.a('/dive/leave', { dive: dive.id });
+  assert.equal((await w.b('/state')).dives.length, 1);
+  await w.a('/dive/delete', { dive: dive.id });
+  const st = await w.b('/state');
+  assert.equal(st.dives.length, 0);
+  assert.equal(st.teams[0].members.find((m) => m.email === 'B@x.com'.toLowerCase()).inDive, null, 'B is out too');
+  // From inside: end = true on leave does the same.
+  const { dive: d2 } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '둘' });
+  await w.a('/dive/leave', { dive: d2.id, end: true });
+  assert.equal((await w.a('/state')).dives.length, 0);
+});
+
+test('work: a VoIP-rung iPhone that does not answer gets a missed-call push 70 s on, while the room is still open', async () => {
+  const later = [], waits = [];
+  const w = world({ env: { APNS_KEY: await apnsKey(), APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T' }, sleep: (ms) => { waits.push(ms); return Promise.resolve(); }, waitUntil: (p) => later.push(p) });
+  w.tables.voip_devices.push({ user_id: USERS['tok-b'].id, token: 'voip-b', disabled_at: null });
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  w.pushes.length = 0;
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '회의' });
+  await Promise.all(later);
+  assert.ok(waits.includes(70_000));
+  const missed = w.pushes.find((p) => p.to.includes('[b]'));
+  assert.match(missed.title, /부재중/); assert.equal(missed.data.dive, dive.id);
+  // Answered (or declined) in time: nothing.
+  later.length = 0; w.pushes.length = 0;
+  const { dive: d2 } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '둘' });
+  await w.b('/dive/reply', { dive: d2.id, answer: 'busy' }); w.pushes.length = 0;
+  await Promise.all(later);
+  assert.equal(w.pushes.filter((p) => p.to.includes('[b]')).length, 0);
 });
 
 test('work: without LiveKit settings a dive says the call server is not set up', async () => {

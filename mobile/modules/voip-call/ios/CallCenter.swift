@@ -3,15 +3,20 @@ import CallKit
 import Foundation
 import PushKit
 import UIKit
+import UserNotifications
 
 // 다이브를 전화처럼. A dive that picked this phone rings like a phone call: a VoIP push (PushKit) wakes the app — closed
 // or not — and the call is reported to CallKit right here, before anything else (iOS ends the app otherwise). The
 // system call screen rings with the dive's ringtone — full screen on the lock screen, a banner while the phone is in
 // use. Answer / decline / mute come back here and go on to JS, which joins (or leaves) the LiveKit room.
+// Every step is written to a small log (설정 → 알림 → 전화 기록) — the only window into what happened while the app
+// was closed. When CallKit will not take the call (a Focus mode, a block list), a time-sensitive notification goes
+// out instead, so the dive is not lost.
 final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
   static let shared = CallCenter()
   // Rings this long at most; then it is a missed call.
   static let ringSeconds = 60.0
+  private static let logKey = "VoipCall.log", logMax = 40
 
   struct Call {
     let uuid: UUID
@@ -50,6 +55,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     r.delegate = self
     r.desiredPushTypes = [.voIP]
     registry = r
+    note("PushKit 시작")
   }
 
   // MARK: - PushKit
@@ -58,12 +64,14 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     guard type == .voIP else { return }
     let token = credentials.token.map { String(format: "%02hhx", $0) }.joined()
     voipToken = token
+    note("VoIP 주소 받음 \(token.prefix(8))…")
     emit("onVoipToken", ["token": token])
   }
 
   func pushRegistry(_ registry: PKPushRegistry, didInvalidatePushTokenFor type: PKPushType) {
     guard type == .voIP else { return }
     voipToken = nil
+    note("VoIP 주소 무효화됨")
     emit("onVoipToken", ["token": ""])
   }
 
@@ -75,10 +83,12 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     let p = payload.dictionaryPayload
     let dive = p["dive"] as? String ?? ""
     let uuid = UUID(uuidString: p["uuid"] as? String ?? dive) ?? UUID()
+    let caller = p["caller"] as? String ?? "팀원"
+    note("VoIP 푸시 받음 — \(caller), 방 \(dive.prefix(8))")
     report(
       uuid: uuid,
       dive: dive,
-      caller: p["caller"] as? String ?? "팀원",
+      caller: caller,
       agenda: p["agenda"] as? String ?? "",
       team: p["team"] as? String ?? "",
       test: p["test"] as? Bool ?? false,
@@ -101,18 +111,52 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     update.supportsDTMF = false
     current = Call(uuid: uuid, dive: dive, test: test, answered: false)
     provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
-      if error != nil, self?.current?.uuid == uuid {
-        self?.current = nil
+      guard let self = self else {
+        completion()
+        return
+      }
+      if let error = error {
+        self.note("CallKit 거절: \(CallCenter.describe(error))")
+        if self.current?.uuid == uuid {
+          self.current = nil
+        }
+        if !test {
+          self.fallbackNotification(dive: dive, team: team, caller: caller, agenda: agenda)
+        }
+      } else {
+        self.note("전화 화면 울림")
       }
       completion()
     }
     emit("onIncomingCall", ["uuid": uuid.uuidString, "dive": dive, "team": team, "caller": caller, "agenda": agenda, "test": test])
     timeout?.cancel()
     let t = DispatchWorkItem { [weak self] in
+      self?.note("60초 — 부재중")
       self?.end(uuid: uuid, reason: "unanswered")
     }
     timeout = t
     DispatchQueue.main.asyncAfter(deadline: .now() + CallCenter.ringSeconds, execute: t)
+  }
+
+  // CallKit would not take the call: a time-sensitive notification with the ringtone (it gets through a Focus mode),
+  // so the person still knows. Tapping it opens the app on the dive.
+  private func fallbackNotification(dive: String, team: String, caller: String, agenda: String) {
+    let content = UNMutableNotificationContent()
+    content.title = "🌊 \(caller)님이 다이브를 요청했어요"
+    content.body = agenda
+    content.sound = UNNotificationSound(named: UNNotificationSoundName("dive-ring.wav"))
+    content.interruptionLevel = .timeSensitive
+    let data: [String: Any] = ["kind": "dive", "dive": dive, "team": team, "picked": true]
+    content.userInfo = ["body": data, "kind": "dive", "dive": dive, "team": team, "picked": true]
+    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "dive-" + dive, content: content, trigger: nil)) { [weak self] error in
+      self?.note(error == nil ? "대신 알림으로 보냄" : "알림도 실패: \(error!.localizedDescription)")
+    }
+  }
+
+  private static func describe(_ error: Error) -> String {
+    let e = error as NSError
+    let words: [Int: String] = [1: "알 수 없음", 2: "권한 없음(unentitled)", 3: "같은 통화가 이미 있음", 4: "집중 모드(방해금지)가 걸러냄", 5: "차단 목록이 걸러냄", 6: "통화 그룹 가득 참"]
+    return (words[e.code] ?? e.localizedDescription) + " [\(e.domain) \(e.code)]"
   }
 
   // MARK: - from JS
@@ -136,6 +180,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     let why: CXCallEndedReason = reason == "unanswered" ? .unanswered : reason == "elsewhere" ? .answeredElsewhere : .remoteEnded
     provider.reportCall(with: uuid, endedAt: nil, reason: why)
     current = nil
+    note("끝 (\(reason))")
     emit("onEndCall", ["uuid": uuid.uuidString, "dive": c.dive, "test": c.test, "answered": c.answered, "reason": reason])
   }
 
@@ -155,6 +200,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
   func providerDidReset(_ provider: CXProvider) {
     timeout?.cancel()
     current = nil
+    note("CallKit 초기화됨")
   }
 
   func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
@@ -165,6 +211,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     timeout?.cancel()
     c.answered = true
     current = c
+    note("받음")
     emit("onAnswerCall", ["uuid": c.uuid.uuidString, "dive": c.dive, "test": c.test])
     action.fulfill()
   }
@@ -173,6 +220,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     timeout?.cancel()
     if let c = current, c.uuid == action.callUUID {
       current = nil
+      note(c.answered ? "끊음" : "거절")
       emit("onEndCall", ["uuid": c.uuid.uuidString, "dive": c.dive, "test": c.test, "answered": c.answered, "reason": c.answered ? "hangup" : "declined"])
     }
     action.fulfill()
@@ -212,5 +260,37 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
 
   func detach() {
     sink = nil
+  }
+
+  // MARK: - the log (kept on the device, newest last)
+
+  private func note(_ text: String) {
+    let f = DateFormatter()
+    f.dateFormat = "MM-dd HH:mm:ss"
+    var state = "?"
+    if Thread.isMainThread {
+      switch UIApplication.shared.applicationState {
+      case .active: state = "앞"
+      case .inactive: state = "전환"
+      case .background: state = "뒤"
+      @unknown default: state = "?"
+      }
+    }
+    let line = "\(f.string(from: Date())) [\(state)] \(text)"
+    let d = UserDefaults.standard
+    var lines = d.stringArray(forKey: CallCenter.logKey) ?? []
+    lines.append(line)
+    if lines.count > CallCenter.logMax {
+      lines.removeFirst(lines.count - CallCenter.logMax)
+    }
+    d.set(lines, forKey: CallCenter.logKey)
+  }
+
+  func log() -> [String] {
+    return UserDefaults.standard.stringArray(forKey: CallCenter.logKey) ?? []
+  }
+
+  func clearLog() {
+    UserDefaults.standard.removeObject(forKey: CallCenter.logKey)
   }
 }

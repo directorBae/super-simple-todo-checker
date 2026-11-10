@@ -6,7 +6,9 @@ import { HttpError, localDate, addDays } from './http.js';
 import { db, eq } from './db.js';
 import { apnsReady, voipPush } from './apns.js';
 
-export const ONLINE_MS = 45_000, DIVE_TTL_MS = 3 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
+// A dive is a room named by its agenda: it stays open until the one who opened it deletes it, or until it has been
+// empty (nobody in the call) for ROOM_IDLE_MS.
+export const ONLINE_MS = 45_000, ROOM_IDLE_MS = 6 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
 export const ANSWERS = ['kakao', 'busy'];
 const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send', EXPO_RECEIPTS = 'https://exp.host/--/api/v2/push/getReceipts';
 
@@ -140,7 +142,9 @@ export async function workState(env, user, body = {}) {
   const members = activeIds.length ? await store.select('work_members', `team_id=${list(activeIds)}&select=team_id,email,user_id,role,status,joined_at,created_at&order=created_at.asc`) : [];
   const people = [...new Set([...members.map((m) => m.user_id), ...invited.map((r) => r.invited_by)].filter(Boolean))];
   const presence = new Map((people.length ? await store.select('work_presence', `user_id=${list(people)}&select=*`) : []).map((p) => [p.user_id, p]));
-  const dives = activeIds.length ? await store.select('work_dives', `team_id=${list(activeIds)}&ended_at=is.null&created_at=gte.${iso(now - DIVE_TTL_MS)}&select=*&order=created_at.desc`) : [];
+  // Rooms empty for 6 hours go away by themselves (every look does the sweep; it is cheap and idempotent).
+  await store.update('work_dives', `ended_at=is.null&empty_since=lt.${iso(now - ROOM_IDLE_MS)}`, { ended_at: iso(now) }).catch(() => {});
+  const dives = activeIds.length ? await store.select('work_dives', `team_id=${list(activeIds)}&ended_at=is.null&select=*&order=created_at.desc`) : [];
   const replies = dives.length ? await store.select('work_replies', `dive_id=${list(dives.map((d) => d.id))}&select=*`) : [];
   const online = (id) => { const p = presence.get(id); return !!p && now - Date.parse(p.last_seen) < ONLINE_MS; };
   return {
@@ -156,7 +160,7 @@ export async function workState(env, user, body = {}) {
     })),
     invites: invited.map((r) => ({ team: r.team_id, name: teams.find((t) => t.id === r.team_id)?.name || '팀', from: nameOf(presence.get(r.invited_by), '') })),
     dives: dives.map((d) => ({
-      id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, targets: d.targets || [], createdAt: d.created_at,
+      id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, targets: d.targets || [], createdAt: d.created_at, emptySince: d.empty_since || null,
       replies: replies.filter((r) => r.dive_id === d.id).map((r) => ({ id: r.user_id, answer: r.answer, at: r.at })),
     })),
   };
@@ -270,7 +274,16 @@ export async function removeMember(env, user, teamId, email) {
 // Dive: the caller picks teammates and writes the agenda; the room opens with the caller in it.
 // Like a phone call, the picked people's push has its own ringtone (mobile/assets/dive-ring.wav, ~28 s; a build
 // without it plays the usual sound) and rings again after 20 s and 40 s for whoever has not answered by then.
-export const RING_SOUND = 'dive-ring.wav', RING_AGAIN_MS = [20_000, 40_000];
+export const RING_SOUND = 'dive-ring.wav', RING_AGAIN_MS = [20_000, 40_000], MISSED_MS = 70_000;
+async function missedCall(env, diveId, rang, who, text, teamId) {
+  await env.sleep(MISSED_MS);
+  const store = db(env);
+  const [dive] = await store.select('work_dives', `id=${eq(diveId)}&select=id,ended_at`);
+  if (!dive || dive.ended_at) return;
+  const replies = await store.select('work_replies', `dive_id=${eq(diveId)}&select=user_id`);
+  const left = [...rang].filter((id) => !replies.some((r) => r.user_id === id));
+  if (left.length) await push(env, store, left, () => ({ title: `📵 부재중 다이브 — ${who}`, body: `${text} · 방은 열려 있어요`, data: { kind: 'dive', dive: diveId, team: teamId, picked: true } }));
+}
 async function ringAgain(env, diveId, picked, message) {
   let waited = 0;
   for (const at of RING_AGAIN_MS) {
@@ -302,16 +315,18 @@ export async function startDive(env, user, { team, targets, agenda }) {
   const byPush = picked.filter((id) => !rang.has(id));
   await push(env, store, ids.filter((id) => id !== user.id), (to) => byPush.includes(to)
     ? ring
-    : rang.has(to) ? null : { title: `${who}님의 다이브가 열렸어요`, body: text, data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: false } });
+    : rang.has(to) ? null : { title: `${who}님이 방을 열었어요`, body: text, data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: false } });
   if (byPush.length) env.waitUntil?.(ringAgain(env, dive.id, byPush, ring).catch((e) => console.error('다시 울리지 못했어요', e.message)));
+  if (rang.size) env.waitUntil?.(missedCall(env, dive.id, rang, who, text, me.team_id).catch((e) => console.error('부재중 알림 실패', e.message)));
   return { dive: { id: dive.id }, call: await livekitToken(env, { room: dive.room, identity: user.id, name: who }) };
 }
 
 export async function joinDive(env, user, diveId) {
   const store = db(env), dive = await diveFor(store, user, diveId);
-  if (dive.ended_at) throw new HttpError('이미 끝난 다이브예요.', 410);
+  if (dive.ended_at) throw new HttpError('사라진 방이에요.', 410);
   await store.insert('work_replies', [{ dive_id: dive.id, user_id: user.id, answer: 'join', at: iso(env.now()) }], { upsert: true, onConflict: 'dive_id,user_id' });
   await store.update('work_presence', `user_id=${eq(user.id)}`, { in_dive: dive.id });
+  if (dive.empty_since) await store.update('work_dives', `id=${eq(dive.id)}`, { empty_since: null });
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=name`);
   return { dive: { id: dive.id }, call: await livekitToken(env, { room: dive.room, identity: user.id, name: nameOf(mine, user.email) }) };
 }
@@ -328,12 +343,19 @@ export async function replyDive(env, user, diveId, answer) {
   return { ok: true };
 }
 
-// Leaving the call; when nobody is left in it the dive is over (the caller can also end it for everyone).
+// Leaving the call: the room stays open for anyone to come (back) in; empty, it goes away after ROOM_IDLE_MS.
+// end: delete the room for everyone — only the one who opened it (also from outside the call, as /dive/delete).
 export async function leaveDive(env, user, diveId, end = false) {
   const store = db(env), dive = await diveFor(store, user, diveId), now = iso(env.now());
+  if (end && dive.created_by !== user.id) throw new HttpError('방을 연 사람만 없앨 수 있어요.', 403);
   await store.update('work_replies', `dive_id=${eq(dive.id)}&user_id=${eq(user.id)}&answer=eq.join`, { answer: 'left', at: now });
   await store.update('work_presence', `user_id=${eq(user.id)}&in_dive=${eq(dive.id)}`, { in_dive: null });
+  if (end) {
+    await store.update('work_dives', `id=${eq(dive.id)}&ended_at=is.null`, { ended_at: now });
+    await store.update('work_presence', `in_dive=${eq(dive.id)}`, { in_dive: null });
+    return { ok: true };
+  }
   const still = await store.select('work_replies', `dive_id=${eq(dive.id)}&answer=eq.join&select=user_id`);
-  if ((end && dive.created_by === user.id) || !still.length) await store.update('work_dives', `id=${eq(dive.id)}&ended_at=is.null`, { ended_at: now });
+  if (!still.length && !dive.empty_since) await store.update('work_dives', `id=${eq(dive.id)}&ended_at=is.null`, { empty_since: now });
   return { ok: true };
 }

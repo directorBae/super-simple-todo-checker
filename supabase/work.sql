@@ -97,3 +97,8 @@ create policy "own change" on public.voip_devices for update to authenticated us
 create policy "own remove" on public.voip_devices for delete to authenticated using (user_id = auth.uid());
 revoke all on public.voip_devices from anon, authenticated;
 grant select, insert, update, delete on public.voip_devices to authenticated;
+
+-- A dive is a room: empty_since is set when the last person leaves (cleared when someone comes in); a room empty
+-- for 6 hours is ended by the function. Rooms open before this column existed count as empty since they were made.
+alter table public.work_dives add column if not exists empty_since timestamptz;
+update public.work_dives set empty_since = created_at where ended_at is null and empty_since is null;

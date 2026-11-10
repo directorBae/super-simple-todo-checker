@@ -185,3 +185,8 @@ input.work-my-name { width: 140px; }
 .dive-incoming.ringing { animation: dive-ring 1.4s ease-in-out infinite; }
 @keyframes dive-ring { 0%, 100% { box-shadow: var(--glass-light), 0 0 0 0 rgba(99, 102, 241, 0.45); } 50% { box-shadow: var(--glass-light), 0 0 0 14px rgba(99, 102, 241, 0); } }
 @media (prefers-reduced-motion: reduce) { .dive-incoming.ringing { animation: none; } }
+
+/* Rooms (dives): the second line says who is inside or when an empty room goes away. */
+.work-dives h3 small { font-weight: 600; color: var(--muted); margin-left: 4px; }
+.work-dive-head .room-note { color: var(--accent); }
+.work-dive.in { border-color: var(--accent); }
