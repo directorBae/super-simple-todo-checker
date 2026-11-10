@@ -136,6 +136,31 @@ export function EyeIcon({ off = false }) {
 }
 
 /* 한 줄(할 일). 제목 클릭 → 인라인 편집 */
+// Where in the title the person clicked: the caret opens there, not at the end. Chromium's caret-from-point gives a
+// text node and an offset; the offset is counted over the whole shown title (the typed text may be in several
+// nodes, and the "(n일차)" tag is not part of it), then mapped back onto the raw title — the shown text may have
+// had whitespace collapsed or an ending cut. null: not on the text (the caret goes to the end as before).
+function caretAt(e, titleEl, raw) {
+  const x = e.clientX, y = e.clientY;
+  if (typeof x !== 'number' || (x === 0 && y === 0)) return null;
+  const pos = document.caretPositionFromPoint?.(x, y), range = pos ? null : document.caretRangeFromPoint?.(x, y);
+  const node = pos ? pos.offsetNode : range?.startContainer, off = pos ? pos.offset : range?.startOffset;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !titleEl.contains(node) || node.parentElement?.closest('.span-day')) return null;
+  let shown = 0, found = false;
+  const walker = document.createTreeWalker(titleEl, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n && !found; n = walker.nextNode()) {
+    if (n.parentElement?.closest('.span-day')) break;
+    if (n === node) { shown += off; found = true; } else shown += n.nodeValue.length;
+  }
+  if (!found) return null;
+  const text = titleEl.textContent, title = String(raw || '');
+  let i = 0, j = 0;
+  while (j < shown && i < title.length) {
+    if (title[i] === text[j]) { i++; j++; } else if (/\s/.test(title[i])) i++; else break;
+  }
+  return Math.min(i, title.length);
+}
+
 function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
   const [repeatOpen, setRepeatOpen] = useState(false);
@@ -253,7 +278,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
             }}
           />
         ) : (
-          <span className="memo-title" title={todo.title} onClick={onStartEdit}>
+          <span className="memo-title" title={todo.title} onClick={(e) => onStartEdit(caretAt(e, e.currentTarget, todo.title))}>
             <Typed id={todo.id} text={compactTitle(todo.title)} />{todo.span && <span className="span-day">({todo.span.n}일차)</span>}
           </span>
         )}
@@ -696,7 +721,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
       indent={indent}
       editing={editingId === t.id}
       caret={editingId === t.id ? caretRef.current : null}
-      onStartEdit={() => editLine(t.id)}
+      onStartEdit={(caret) => editLine(t.id, typeof caret === 'number' ? caret : null)}
       onEndEdit={() => setEditingId((id) => (id === t.id ? null : id))}
       onEnter={continueFrom}
       onEscape={() => focusDay(date)}

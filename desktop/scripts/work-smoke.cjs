@@ -39,6 +39,13 @@ app.whenReady().then(async () => {
   const must = (text, where, what) => { if (!text.includes(what)) throw Error(`${where}: missing "${what}" in: ${text.slice(0, 400)}`); };
   try {
     await win.loadFile(path.join(__dirname, '../dist/index.html')); await pause(1500);
+    // ---- the caret opens where the title was clicked ----
+    await js('document.querySelector(".cal-cell.today").click()'); await pause(500);
+    const hit = await js(`(()=>{const el=document.querySelector('.memo-line[data-todo-id="a"] .memo-title');const tn=document.createTreeWalker(el,NodeFilter.SHOW_TEXT).nextNode();const r=document.createRange();r.setStart(tn,7);r.setEnd(tn,8);const b=r.getBoundingClientRect();el.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:b.left+1,clientY:b.top+b.height/2}));return {x:b.left+1,y:b.top+b.height/2};})()`);
+    await pause(250);
+    const sel = await js('(()=>{const a=document.activeElement;return a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")?{start:a.selectionStart,end:a.selectionEnd,value:a.value}:null})()');
+    if (!sel || sel.start !== 7 || sel.end !== 7) throw Error('the caret should open at the 8th character of "Design review" (click at ' + JSON.stringify(hit) + '), got ' + JSON.stringify(sel));
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); await pause(200);
     // ---- rooms ----
     await js('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Team").click()'); await pause(900);
     let text = await js('document.querySelector(".work-dives")?.innerText || ""');
@@ -59,7 +66,7 @@ app.whenReady().then(async () => {
     await pause(700); // the debounced save
     if (!saved.length || !saved.at(-1).every((x) => x.title && !/^https/.test(x.title))) throw Error('titles not saved: ' + JSON.stringify(saved.at(-1)));
     await snap('music-titles');
-    console.log('work smoke passed: 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
+    console.log('work smoke passed: 클릭한 자리에 커서, 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
   } catch (e) { console.error(e.message); process.exitCode = 1; }
   app.quit();
 });
