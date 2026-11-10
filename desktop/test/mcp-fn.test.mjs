@@ -95,6 +95,16 @@ test('mcp: ChatGPT adds a plan, lists it, finishes, moves and deletes to-dos —
   assert.ok(plan.updated_at > NOW - 1 && plan.completed_at === NOW);
   assert.equal((await call('update_todo', { id: plan.id })).isError, true, 'nothing to change');
   assert.deepEqual(w.tables.pet_jobs.slice(1).map((j) => [j.state, j.summary]), [['done', 'ChatGPT가 "기획서 초안 쓰기" 고침']], 'a bad request leaves no job hanging');
+  // The team is the person's own filing: ChatGPT may move a to-do to an existing team, but null / '' / an unknown
+  // name never clears it (a review pass once untagged a whole team).
+  const teamBefore = plan.team_id;
+  assert.ok(teamBefore, 'the plan is filed under Studio');
+  assert.equal((await call('update_todo', { id: plan.id, team: null })).isError, true, 'team: null alone is nothing to change');
+  assert.equal(plan.team_id, teamBefore);
+  await call('update_todo', { id: plan.id, team: '', date: '2026-11-04' });
+  assert.equal(plan.team_id, teamBefore, "'' leaves the team");
+  assert.equal((await call('update_todo', { id: plan.id, team: '없는팀' })).isError, true, 'an unknown team is refused, nothing changes');
+  assert.equal(plan.team_id, teamBefore);
 
   await call('delete_todo', { id: plan.id });
   assert.equal(plan.deleted_at, NOW, 'deleted the way the apps sync deletions');

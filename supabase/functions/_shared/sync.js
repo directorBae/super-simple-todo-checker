@@ -84,8 +84,9 @@ export async function syncSubscription(env, subId, { quiet = false, onlyIfPendin
     await step('writing');
     const stamp = env.now();
     if (create.length) await store.insert('todos', create.map((d) => newRow(env, sub, d, stamp)));
-    for (const { todo, patch, remote } of update) {
-      const row = { updated_at: stamp, origin: { ...todo.origin, remote, url: urls.get(todo.origin.id) || todo.origin.url } };
+    for (const { todo, patch, remote, rekey } of update) {
+      const id = rekey || todo.origin.id;
+      const row = { updated_at: stamp, origin: { ...todo.origin, id, remote, url: urls.get(id) || todo.origin.url } };
       for (const f of ['title', 'date', 'end_date', 'start_time', 'end_time']) if (f in patch) row[f] = patch[f];
       await store.update('todos', 'id=' + eq(todo.id), row);
     }

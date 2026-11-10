@@ -40,7 +40,10 @@
     "apple:register": "node scripts/eas-apple.cjs register",
     "build:demo:ios:workaround": "node scripts/eas-apple.cjs build",
     "build:demo:android": "npx eas-cli@latest build --platform android --profile demo",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "preflight": "node ../scripts/preflight.cjs",
+    "build:ios": "node ../scripts/preflight.cjs && npx eas-cli build --platform ios --profile production --non-interactive --auto-submit",
+    "update:prod": "node ../scripts/preflight.cjs && npx eas-cli update --channel production --environment production --non-interactive"
   },
   "private": true,
   "devDependencies": {

@@ -23,9 +23,9 @@ const ROOM_IDLE_MS = 6 * 3600_000;
 function roomNote(d, nameOf) {
   const inside = d.replies.filter((r) => r.answer === 'join').map((r) => nameOf(r.id));
   if (inside.length) return `안에 ${inside.length}명: ${inside.join(', ')}`;
-  if (!d.emptySince) return '비어 있어요';
+  if (!d.emptySince) return '비어 있음';
   const left = Math.max(0, Date.parse(d.emptySince) + ROOM_IDLE_MS - Date.now()), h = Math.floor(left / 3600_000), m = Math.ceil((left % 3600_000) / 60_000);
-  return `비어 있어요 · ${h ? h + '시간 ' : ''}${m}분 뒤 사라져요`;
+  return `비어 있음 · ${h ? h + '시간 ' : ''}${m}분 후 삭제`;
 }
 const ANSWER_COLOR = { join: '#30a46c', left: '#4f5670', kakao: '#d69e0b', busy: '#e5484d' };
 const HUES = [222, 262, 192, 152, 32, 340, 12, 282];
@@ -337,26 +337,35 @@ export function IncomingDive() {
 }
 
 // In a dive: who is in it (a ring while they speak), answers, mute, leave, and end for everyone (caller).
+// In a dive: a small bar at the bottom (the screen stays usable — the Team tab, the to-dos, everything). Tapping
+// it shows who is in, who answered what, the mic error, and for the one who opened the room, 방 삭제.
 export function CallPanel() {
-  const w = useWork(), d = useDesign(), c = w.call;
+  const w = useWork(), d = useDesign(), c = w.call, [open, setOpen] = useState(false);
   if (!c) return null;
   const x = w.state?.dives.find((v) => v.id === c.dive), team = w.state?.teams.find((t) => t.id === x?.team);
   const nameOf = (id) => team?.members.find((m) => m.id === id)?.name || '팀원';
   const away = (x?.replies || []).filter((r) => r.answer === 'kakao' || r.answer === 'busy');
-  return <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, top: 8, zIndex: 95 }}>
-    <Surface native style={{ backgroundColor: '#eef2ffe6' }} contentStyle={{ padding: 14, gap: 10 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><DiveIcon size={24} /><Text numberOfLines={1} style={{ flex: 1, color: d.text, fontWeight: '700' }}>{x?.agenda || '다이브'}</Text><Text style={{ color: d.muted, fontSize: 12 }}>{c.state === 'connected' ? `${c.people.length}명` : '연결 중…'}</Text></View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{c.people.map((p) => <View key={p.id} style={{ alignItems: 'center', gap: 4 }}>
-        <View style={{ borderRadius: 99, padding: 2, borderWidth: 2, borderColor: p.speaking ? '#30c48d' : 'transparent' }}><Avatar person={{ id: p.id, name: p.name }} size={34} /></View>
-        <Text style={{ fontSize: 11, color: p.muted ? d.muted : d.text }}>{p.me ? '나' : p.name}{p.muted ? ' 🔇' : ''}</Text>
-      </View>)}</View>
-      {away.length > 0 && <Text style={{ fontSize: 12, color: d.muted }}>{away.map((r) => `${nameOf(r.id)} ${ANSWER[r.answer]}`).join(' · ')}</Text>}
-      {c.micError ? <ErrorText>{c.micError}</ErrorText> : null}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Button style={{ flex: 1 }} title={c.muted ? '🔇 음소거 중' : '🎤 마이크 켜짐'} onPress={() => w.mute()} />
-        <Button style={{ flex: 1 }} title="나가기" onPress={() => w.leaveDive(false)} />
-        {x?.by === w.state?.me.id && <Button title="방 삭제" onPress={() => Alert.alert('방을 없앨까요?', '모두 나가게 돼요.', [{ text: '취소', style: 'cancel' }, { text: '없애기', style: 'destructive', onPress: () => w.leaveDive(true) }])} />}
+  const others = c.people.filter((p) => !p.me);
+  const summary = c.state !== 'connected' ? '연결 중…' : others.length ? `${others.length}명과 통화 중` : '아직 혼자예요';
+  return <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: 28, zIndex: 95 }}>
+    <Surface native style={{ backgroundColor: '#eef2ffee' }} contentStyle={{ padding: 10, gap: 10 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Pressable accessibilityRole="button" accessibilityLabel={open ? '통화 정보 접기' : '통화 정보 펼치기'} onPress={() => setOpen(!open)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <DiveIcon size={22} />
+          <View style={{ flex: 1 }}><Text numberOfLines={1} style={{ color: d.text, fontWeight: '700', fontSize: 13 }}>{x?.agenda || '다이브'}</Text><Text numberOfLines={1} style={{ color: d.muted, fontSize: 11 }}>{summary}{c.muted ? ' · 음소거' : ''}</Text></View>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={c.muted ? '음소거 해제' : '음소거'} hitSlop={6} onPress={() => w.mute()} style={{ padding: 6 }}><Text style={{ fontSize: 17 }}>{c.muted ? '🔇' : '🎤'}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="나가기" hitSlop={6} onPress={() => w.leaveDive(false)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, backgroundColor: '#e5484d' }}><Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>나가기</Text></Pressable>
       </View>
+      {open && <>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{c.people.map((p) => <View key={p.id} style={{ alignItems: 'center', gap: 4 }}>
+          <View style={{ borderRadius: 99, padding: 2, borderWidth: 2, borderColor: p.speaking ? '#30c48d' : 'transparent' }}><Avatar person={{ id: p.id, name: p.name }} size={34} /></View>
+          <Text style={{ fontSize: 11, color: p.muted ? d.muted : d.text }}>{p.me ? '나' : p.name}{p.muted ? ' 🔇' : ''}</Text>
+        </View>)}</View>
+        {away.length > 0 && <Text style={{ fontSize: 12, color: d.muted }}>{away.map((r) => `${nameOf(r.id)} ${ANSWER[r.answer]}`).join(' · ')}</Text>}
+        {c.micError ? <ErrorText>{c.micError}</ErrorText> : null}
+        {x?.by === w.state?.me.id && <Button title="방 삭제" onPress={() => Alert.alert('방을 없앨까요?', '모두 나가게 돼요.', [{ text: '취소', style: 'cancel' }, { text: '없애기', style: 'destructive', onPress: () => w.leaveDive(true) }])} />}
+      </>}
     </Surface>
   </View>;
 }

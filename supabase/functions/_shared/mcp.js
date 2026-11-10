@@ -59,7 +59,7 @@ export const TOOLS = [
   },
   {
     name: 'update_todo', title: '할 일 고치기',
-    description: 'Change one to-do (id from list_todos): title, day, times, team, or mark it done / not done. Send only what changes; null clears a time or the team.',
+    description: 'Change one to-do (id from list_todos): title, day, times, team, or mark it done / not done. Send only the fields the person asked to change; null clears a time. `team` moves the to-do to another existing team (a name from list_teams) and is never cleared — leave it out unless the person asked for that team.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, title: { type: 'string' }, date: dateArg, start_time: { type: ['string', 'null'] }, end_time: { type: ['string', 'null'] }, team: { type: ['string', 'null'] }, done: { type: 'boolean' } } },
     annotations: CHANGE,
   },
@@ -153,7 +153,8 @@ async function callTool(env, user, name, args = {}) {
     if ('start_time' in args) patch.start_time = time(args.start_time, 'start_time');
     if ('end_time' in args) patch.end_time = time(args.end_time, 'end_time');
     if ('start_time' in patch && !patch.start_time) patch.end_time = null;
-    if ('team' in args) patch.team_id = teamId(args.team);
+    // The team is the person's own filing: it moves only to a team that exists, named on purpose. null or '' leaves it.
+    if ('team' in args && args.team !== null && args.team !== undefined && String(args.team).trim() !== '') patch.team_id = teamId(args.team);
     if ('done' in args) { patch.status = args.done ? 'done' : 'todo'; patch.completed_at = args.done ? now : null; }
     if (!Object.keys(patch).length) bad('바꿀 내용이 없어요.');
     const finish = play ? await petJob(store, user, `ChatGPT가 "${t.title}" 고치는 중`) : null;

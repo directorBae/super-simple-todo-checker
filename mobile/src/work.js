@@ -39,6 +39,7 @@ export function WorkProvider({ onOpen, children }) {
   const [state, setState] = useState(null), [error, setError] = useState(''), [call, setCall] = useState(null), live = useRef(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
   const actionsRef = useRef(null);
+  const callRef = useRef(null);
   // Tags tapped but not yet confirmed: shown at once, kept over older answers until the server says the same.
   const tags = useRef(new Map()), saving = useRef(new Map());
   const same = (a = [], b = []) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -66,7 +67,9 @@ export function WorkProvider({ onOpen, children }) {
     let timer = null;
     const run = () => { clearInterval(timer); refresh(); timer = setInterval(refresh, EVERY_MS); };
     run();
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') run(); else clearInterval(timer); });
+    // In a call the looks go on in the background too (the call keeps the app alive): the server counts a quiet
+    // app as having left the room.
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') run(); else if (!callRef.current) clearInterval(timer); });
     return () => { clearInterval(timer); sub.remove(); };
   }, []);
   // A tapped dive / invite push opens the Team screen (on that dive).
@@ -153,6 +156,7 @@ export function WorkProvider({ onOpen, children }) {
     setMuted: async (muted) => { if (!live.current || !call) return; await live.current.mute(muted); setCall((c) => c && { ...c, muted }); },
   };
   actionsRef.current = actions;
+  callRef.current = call;
   useEffect(() => { if (call?.ended) actions.leaveDive(); }, [call?.ended]);
   // 연결음 for the caller while nobody has come into the room yet (the rule is shared: work-alerts.mjs).
   const remote = (call?.people || []).filter((p) => !p.me).length;

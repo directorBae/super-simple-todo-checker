@@ -1,0 +1,10 @@
+{
+  "name": "todo-checklist",
+  "private": true,
+  "description": "할 일 체커 / Work — PC·웹(desktop), 아이폰(mobile), 서버(supabase). 빌드 전에는 반드시 npm run preflight.",
+  "scripts": {
+    "preflight": "node scripts/preflight.cjs",
+    "preflight:quick": "node scripts/preflight.cjs --quick",
+    "test": "node scripts/preflight.cjs --quick"
+  }
+}

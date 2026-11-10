@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { entryFromLink, cleanList, localList, addEntry, removeEntry, moveEntry, setTitle, queueOf, nextIndex, rowLabel } from './playlist.mjs';
+import { entryFromLink, cleanList, localList, addEntry, removeEntry, moveEntry, setTitle, queueOf, nextIndex, rowLabel, hasTitle, untitled } from './playlist.mjs';
 
 // The YouTube IFrame API is loaded once and shared.
 let youtubeApi;
@@ -44,6 +44,16 @@ export default function MusicPlayer({ db, open, onNowPlaying, controls }) {
       s.timer = setTimeout(() => s.flush?.(), 500);
     } else { s.localWrites++; Promise.resolve(window.api.updateSettings({ music: next })).finally(() => { s.localWrites--; }); }
   };
+  // Rows whose title never arrived (YouTube did not answer when they were added, or they came from the phone with
+  // the bare link): asked again when the panel opens, a few at a time, each once per session.
+  const asked = useRef(new Set());
+  const fillTitles = () => {
+    for (const x of untitled(state.current.list).filter((x) => !asked.current.has(x.id)).slice(0, 6)) {
+      asked.current.add(x.id);
+      Promise.resolve(window.api.tools?.('musicTitle', { url: x.url })).then((r) => { if (r?.ok && r.title) commit(setTitle(state.current.list, x.id, r.title)); }, () => {});
+    }
+  };
+  useEffect(() => { if (open) fillTitles(); }, [open, list]);
   const load = async () => {
     const s = sync.current;
     if (s.pending) return;
@@ -92,7 +102,7 @@ export default function MusicPlayer({ db, open, onNowPlaying, controls }) {
             if (e.data === YT.PlayerState.PLAYING) {
               // Remember the real title the first time a row plays (when oEmbed couldn't tell).
               const title = e.target.getVideoData?.().title, item = state.current.list.find((x) => x.id === state.current.playingId);
-              if (title && item && !item.title && !item.listId) commit(setTitle(state.current.list, item.id, title));
+              if (title && item && !hasTitle(item) && !item.listId) commit(setTitle(state.current.list, item.id, title));
             }
             // Always plays on: the rest of a YouTube playlist, then the next row, wrapping to the top.
             if (e.data === YT.PlayerState.ENDED) {

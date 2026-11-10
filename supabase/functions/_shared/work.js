@@ -8,7 +8,8 @@ import { apnsReady, voipPush } from './apns.js';
 
 // A dive is a room named by its agenda: it stays open until the one who opened it deletes it, or until it has been
 // empty (nobody in the call) for ROOM_IDLE_MS.
-export const ONLINE_MS = 45_000, ROOM_IDLE_MS = 6 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
+// CALL_STALE_MS: a 'join' whose app has not been heard from this long counts as left (a phone closed mid-call).
+export const ONLINE_MS = 45_000, CALL_STALE_MS = 120_000, ROOM_IDLE_MS = 6 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
 export const ANSWERS = ['kakao', 'busy'];
 const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send', EXPO_RECEIPTS = 'https://exp.host/--/api/v2/push/getReceipts';
 
@@ -32,6 +33,19 @@ export async function livekitToken(env, { room, identity, name }) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.LIVEKIT_API_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
   return { url: env.LIVEKIT_URL, token: `${body}.${b64url(sig)}`, room };
+}
+// Closes the LiveKit room — everyone still in the call is dropped (a deleted or expired room). The server API over
+// HTTPS, with a token allowed to manage rooms. Best effort: false when LiveKit is not set up or did not answer.
+export async function livekitDeleteRoom(env, room) {
+  if (!room || !env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) return false;
+  const now = Math.floor(env.now() / 1000);
+  const body = `${b64json({ alg: 'HS256', typ: 'JWT' })}.${b64json({ iss: env.LIVEKIT_API_KEY, sub: 'work-server', nbf: now - 10, exp: now + 600, video: { roomCreate: true, roomAdmin: true, room } })}`;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.LIVEKIT_API_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body)));
+  const url = env.LIVEKIT_URL.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/+$/, '') + '/twirp/livekit.RoomService/DeleteRoom';
+  const res = await env.fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${body}.${b64url(sig)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ room }) }).catch(() => null);
+  if (!res?.ok) console.error('LiveKit 방을 닫지 못했어요', room, res?.status ?? '');
+  return !!res?.ok;
 }
 
 // ---------- pushes ----------
@@ -143,9 +157,26 @@ export async function workState(env, user, body = {}) {
   const people = [...new Set([...members.map((m) => m.user_id), ...invited.map((r) => r.invited_by)].filter(Boolean))];
   const presence = new Map((people.length ? await store.select('work_presence', `user_id=${list(people)}&select=*`) : []).map((p) => [p.user_id, p]));
   // Rooms empty for 6 hours go away by themselves (every look does the sweep; it is cheap and idempotent).
-  await store.update('work_dives', `ended_at=is.null&empty_since=lt.${iso(now - ROOM_IDLE_MS)}`, { ended_at: iso(now) }).catch(() => {});
+  const expired = await store.select('work_dives', `ended_at=is.null&empty_since=lt.${iso(now - ROOM_IDLE_MS)}&select=id,room`).catch(() => []);
+  if (expired.length) {
+    await store.update('work_dives', `id=${list(expired.map((d) => d.id))}&ended_at=is.null`, { ended_at: iso(now) }).catch(() => {});
+    for (const d of expired) env.waitUntil?.(livekitDeleteRoom(env, d.room).catch(() => false));
+  }
   const dives = activeIds.length ? await store.select('work_dives', `team_id=${list(activeIds)}&ended_at=is.null&select=*&order=created_at.desc`) : [];
   const replies = dives.length ? await store.select('work_replies', `dive_id=${list(dives.map((d) => d.id))}&select=*`) : [];
+  // A 'join' that is no longer real — the person's app has gone quiet (closed, offline) or they are in another
+  // call — counts as left, and is written so: a room never shows someone who is gone, and it can empty out.
+  const there = (r) => { const p = presence.get(r.user_id); return !!p && now - Date.parse(p.last_seen) < CALL_STALE_MS && p.in_dive === r.dive_id; };
+  for (const r of replies) if (r.answer === 'join' && !there(r)) {
+    r.answer = 'left'; r.at = iso(now);
+    await store.update('work_replies', `dive_id=${eq(r.dive_id)}&user_id=${eq(r.user_id)}&answer=eq.join`, { answer: 'left', at: r.at }).catch(() => {});
+  }
+  for (const d of dives) if (!d.empty_since && !replies.some((r) => r.dive_id === d.id && r.answer === 'join')) {
+    d.empty_since = iso(now);
+    await store.update('work_dives', `id=${eq(d.id)}&ended_at=is.null`, { empty_since: d.empty_since }).catch(() => {});
+  }
+  // "다이브 중": in an open room, as one of its joins (presence alone can be stale).
+  const inDiveOf = (id) => { const p = presence.get(id); return p?.in_dive && dives.some((d) => d.id === p.in_dive) && replies.some((r) => r.dive_id === p.in_dive && r.user_id === id && r.answer === 'join') ? p.in_dive : null; };
   const online = (id) => { const p = presence.get(id); return !!p && now - Date.parse(p.last_seen) < ONLINE_MS; };
   return {
     me: { id: user.id, email: user.email, name: nameOf(mine, user.email) },
@@ -155,7 +186,7 @@ export async function workState(env, user, body = {}) {
       ...linksOf(active.find((r) => r.team_id === t.id)),
       members: members.filter((m) => m.team_id === t.id).map((m) => ({
         id: m.user_id, email: m.email, role: m.role, status: m.status, name: m.user_id ? nameOf(presence.get(m.user_id), m.email) : m.email,
-        online: m.user_id ? online(m.user_id) : false, inDive: m.user_id && online(m.user_id) ? presence.get(m.user_id)?.in_dive || null : null,
+        online: m.user_id ? online(m.user_id) : false, inDive: m.user_id ? inDiveOf(m.user_id) : null,
       })),
     })),
     invites: invited.map((r) => ({ team: r.team_id, name: teams.find((t) => t.id === r.team_id)?.name || '팀', from: nameOf(presence.get(r.invited_by), '') })),
@@ -306,7 +337,7 @@ export async function startDive(env, user, { team, targets, agenda }) {
   if (!picked.length) throw new HttpError('함께할 팀원을 한 명 이상 골라 주세요.');
   const [dive] = await store.insert('work_dives', [{ team_id: me.team_id, created_by: user.id, agenda: text, targets: picked, room: 'dive-' + crypto.randomUUID() }]);
   await store.insert('work_replies', [{ dive_id: dive.id, user_id: user.id, answer: 'join', at: iso(env.now()) }], { upsert: true, onConflict: 'dive_id,user_id' });
-  await store.update('work_presence', `user_id=${eq(user.id)}`, { in_dive: dive.id });
+  await store.insert('work_presence', [{ user_id: user.id, in_dive: dive.id, last_seen: iso(env.now()) }], { upsert: true, onConflict: 'user_id' });
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=name`), who = nameOf(mine, user.email);
   // Picked people: important (time-sensitive — shows through Focus on iPhone). The rest of the team: an ordinary one.
   const ring = { title: `🌊 ${who}님이 다이브를 요청했어요`, body: text, sound: RING_SOUND, priority: 'high', interruptionLevel: 'time-sensitive', data: { kind: 'dive', dive: dive.id, team: me.team_id, picked: true } };
@@ -325,7 +356,7 @@ export async function joinDive(env, user, diveId) {
   const store = db(env), dive = await diveFor(store, user, diveId);
   if (dive.ended_at) throw new HttpError('사라진 방이에요.', 410);
   await store.insert('work_replies', [{ dive_id: dive.id, user_id: user.id, answer: 'join', at: iso(env.now()) }], { upsert: true, onConflict: 'dive_id,user_id' });
-  await store.update('work_presence', `user_id=${eq(user.id)}`, { in_dive: dive.id });
+  await store.insert('work_presence', [{ user_id: user.id, in_dive: dive.id, last_seen: iso(env.now()) }], { upsert: true, onConflict: 'user_id' });
   if (dive.empty_since) await store.update('work_dives', `id=${eq(dive.id)}`, { empty_since: null });
   const [mine] = await store.select('work_presence', `user_id=${eq(user.id)}&select=name`);
   return { dive: { id: dive.id }, call: await livekitToken(env, { room: dive.room, identity: user.id, name: nameOf(mine, user.email) }) };
@@ -353,6 +384,7 @@ export async function leaveDive(env, user, diveId, end = false) {
   if (end) {
     await store.update('work_dives', `id=${eq(dive.id)}&ended_at=is.null`, { ended_at: now });
     await store.update('work_presence', `in_dive=${eq(dive.id)}`, { in_dive: null });
+    await livekitDeleteRoom(env, dive.room).catch(() => false);
     return { ok: true };
   }
   const still = await store.select('work_replies', `dive_id=${eq(dive.id)}&answer=eq.join&select=user_id`);

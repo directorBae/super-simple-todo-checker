@@ -50,6 +50,16 @@ export default function MusicPanel({ visible, onClose, onNowPlaying, controls, p
   const lastIndex = useRef(-1), loaded = useRef(false);
   const latest = useRef(null); latest.current = { queue, list, playingId, volume, playlist };
   useEffect(() => { if (visible) playlist.reload(); }, [visible]);
+  // Rows still showing their link (YouTube did not answer when they were added, or they came from the PC without a
+  // title): asked again when the music opens, a few at a time, each once per session.
+  const asked = useRef(new Set());
+  useEffect(() => {
+    if (!visible) return;
+    for (const x of list.filter((x) => (!x.title || x.title === x.url || /^https?:\/\//.test(x.title)) && !asked.current.has(x.id)).slice(0, 6)) {
+      asked.current.add(x.id);
+      fetchTitle(x.url).then((title) => { if (title) latest.current.playlist.set((l) => l.map((y) => (y.id === x.id && (!y.title || y.title === y.url) ? { ...y, title } : y))); });
+    }
+  }, [visible, list]);
   const send = (command) => web.current?.injectJavaScript(`window.cmd(${JSON.stringify(command)});true;`);
   const start = (i) => { const item = latest.current.queue[i]; if (!item) return; lastIndex.current = i; loaded.current = true; latest.current.playingId = item.id; setPlayingId(item.id); setError(''); send({ type: 'load', videoId: item.videoId, listId: item.listId }); };
   const next = () => { const { queue: q, playingId: id } = latest.current; const i = nextIndex(q, id, lastIndex.current); if (i >= 0) start(i); };

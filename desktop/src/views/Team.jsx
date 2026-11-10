@@ -18,9 +18,9 @@ const ROOM_IDLE_MS = 6 * 3600_000;
 function roomNote(d, nameOf) {
   const inside = d.replies.filter((r) => r.answer === 'join').map((r) => nameOf(r.id));
   if (inside.length) return `안에 ${inside.length}명: ${inside.join(', ')}`;
-  if (!d.emptySince) return '비어 있어요';
+  if (!d.emptySince) return '비어 있음';
   const left = Math.max(0, d.emptySince ? Date.parse(d.emptySince) + ROOM_IDLE_MS - Date.now() : 0), h = Math.floor(left / 3600_000), m = Math.ceil((left % 3600_000) / 60_000);
-  return `비어 있어요 · ${h ? h + '시간 ' : ''}${m}분 뒤 사라져요`;
+  return `비어 있음 · ${h ? h + '시간 ' : ''}${m}분 후 삭제`;
 }
 const HUES = [222, 262, 192, 152, 32, 340, 12, 282];
 const hueOf = (id = '') => HUES[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % HUES.length];

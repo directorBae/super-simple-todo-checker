@@ -100,8 +100,9 @@ function ChatGptCard({ busy, run }) {
   const [links, setLinks] = useState(null), [grants, setGrants] = useState([]), [fresh, setFresh] = useState(null), [copied, setCopied] = useState(false);
   const load = async () => {
     const [r, g] = await Promise.all([toolAction('mcpLinks'), toolAction('oauthGrants')]);
-    if (r.ok) setLinks(r.links);
-    if (g.ok) setGrants(g.grants);
+    // An answer without the lists (an older server, an error page) must not take the settings down with it.
+    if (r.ok) setLinks(r.links || []);
+    if (g.ok) setGrants(g.grants || []);
   };
   useEffect(() => { load(); }, []);
   const make = async () => { const r = await run('createMcpLink', { label: 'ChatGPT' }); if (r.ok) { setFresh(r.link); setCopied(false); load(); } };

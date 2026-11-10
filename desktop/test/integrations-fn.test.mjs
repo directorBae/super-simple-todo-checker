@@ -108,6 +108,11 @@ test('planner: GPT output is checked (ids from the source, dates in range, times
   assert.deepEqual(d.create.map((x) => x.external_id), ['c']);
   assert.deepEqual(d.update[0].patch, { date: '2026-10-29' }, 'only what the source changed — the title edited in the app stays');
   assert.deepEqual(d.remove.map((t) => t.id), ['t2']);
+  // The same item under a new source id: the person's to-do (team, notes, check) is kept and re-keyed, not remade.
+  const d2 = diff(items, [...existing, { id: 't3', title: '보고서', date: '2026-10-30', team_id: 'uranus', origin: { id: 'old-c', remote: { title: '보고서', date: '2026-10-30' } } }], ids);
+  assert.deepEqual(d2.create.map((x) => x.external_id), [], 'not created again');
+  assert.equal(d2.update.find((u) => u.todo.id === 't3')?.rekey, 'c');
+  assert.ok(!d2.remove.some((t) => t.id === 't3'), 'not removed');
   assert.deepEqual(fallbackPlan({ provider: 'notion', resource_type: 'page' }, [{ id: 'x', type: 'to_do', text: '할 일', checked: false }, { id: 'y', type: 'paragraph', text: '메모' }], window, 'Asia/Seoul').map((x) => x.external_id), ['x']);
 });
 

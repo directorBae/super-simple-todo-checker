@@ -15,7 +15,7 @@ async function apnsKey() {
 
 function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env: extraEnv = {} } = {}) {
   const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], voip_devices: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
-  const pushes = [], receipts = {}, voips = [], apns = {}, clock = { now: null }; let ticketNo = 0; // clock.now: a test's own time; otherwise NOW (which some tests move)
+  const pushes = [], receipts = {}, voips = [], apns = {}, livekit = [], clock = { now: null }; let ticketNo = 0; // clock.now: a test's own time; otherwise NOW (which some tests move)
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
@@ -33,6 +33,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
   const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
   async function fetch(url, init = {}) {
     const u = new URL(url), method = init.method || 'GET';
+    if (u.hostname === 'work.livekit.cloud') { livekit.push({ path: u.pathname, body: JSON.parse(init.body), auth: init.headers.Authorization }); return reply({}); }
     if (u.hostname === 'api.push.apple.com') { const token = u.pathname.split('/').pop(), a = apns[token] || { status: 200, body: '' }; voips.push({ token, headers: init.headers, body: JSON.parse(init.body) }); return { ok: a.status < 400, status: a.status, text: async () => a.body }; }
     if (u.hostname === 'exp.host' && u.pathname.endsWith('/getReceipts')) return reply({ data: Object.fromEntries(JSON.parse(init.body).ids.map((id) => [id, receipts[id] || { status: 'ok' }])) });
     if (u.hostname === 'exp.host') { const msgs = JSON.parse(init.body); const tickets = msgs.map(() => ({ status: 'ok', id: 'ticket-' + ++ticketNo })); pushes.push(...msgs.map((m, i) => ({ ...m, ticket: tickets[i].id }))); return reply({ data: tickets }); }
@@ -62,7 +63,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
   };
-  return { tables, pushes, receipts, voips, apns, clock, a: as('a'), b: as('b'), c: as('c') };
+  return { tables, pushes, receipts, voips, apns, livekit, clock, a: as('a'), b: as('b'), c: as('c') };
 }
 
 test('work: make a team, invite by email, accept, and see who is online', async () => {
@@ -205,6 +206,33 @@ test('work: a dive picks teammates and an agenda, pushes them first, and anyone 
   w.clock.now = NOW + 3600_000 + 6 * 3600_000 + 1;
   assert.equal((await w.a('/state')).dives.length, 0);
   await assert.rejects(w.c('/dive/join', { dive: dive.id }), /사라진 방/);
+});
+
+test('work: someone whose app went quiet is no longer in the room (so it can empty out); deleting a room closes the call for everyone', async () => {
+  const w = world(), B = USERS['tok-b'].id;
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  const { dive } = await w.a('/dive', { team: team.id, targets: [B], agenda: '회의' });
+  await w.b('/dive/join', { dive: dive.id });
+  let s = await w.a('/state');
+  assert.deepEqual(s.dives[0].replies.filter((r) => r.answer === 'join').map((r) => r.id.slice(-1)).sort(), ['a', 'b']);
+  assert.equal(s.teams[0].members.find((m) => m.email === 'b@x.com').inDive, dive.id, 'B shows as 다이브 중');
+  // B's phone is closed mid-call (no leave, no more looks): two minutes on, B is out of the room.
+  w.clock.now = NOW + 130_000;
+  s = await w.a('/state');
+  assert.equal(s.dives[0].replies.find((r) => r.id === B).answer, 'left');
+  assert.equal(s.teams[0].members.find((m) => m.email === 'b@x.com').inDive, null);
+  assert.equal(s.dives[0].emptySince, null, 'A is still in (A just looked)');
+  assert.equal(w.tables.work_replies.find((r) => r.user_id === B).answer, 'left', 'written, not only shown');
+  // A leaves: the room is empty from now.
+  await w.a('/dive/leave', { dive: dive.id });
+  s = await w.a('/state'); assert.equal(s.dives[0].emptySince, new Date(NOW + 130_000).toISOString());
+  // Deleting the room closes the LiveKit room too, with a token allowed to manage it.
+  await w.a('/dive/delete', { dive: dive.id });
+  const closed = w.livekit.find((c) => c.path.endsWith('/DeleteRoom'));
+  assert.equal(closed.body.room, w.tables.work_dives[0].room);
+  const payload = JSON.parse(Buffer.from(closed.auth.replace('Bearer ', '').split('.')[1], 'base64url').toString());
+  assert.deepEqual([payload.iss, payload.video.roomAdmin, payload.video.room], ['APIkey', true, w.tables.work_dives[0].room]);
 });
 
 test('work: the one who opened a room deletes it — from inside the call or from the list — and everyone in it is out', async () => {

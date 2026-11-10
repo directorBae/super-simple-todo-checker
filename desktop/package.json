@@ -1,7 +1,7 @@
 {
   "name": "todo-checklist",
   "productName": "Work",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "팀/프로젝트 기반 메모형 할 일 체커",
   "author": "baejungwon",
   "private": true,
@@ -13,11 +13,12 @@
     "test:ui": "npm run build && node scripts/run-ui-smoke.cjs",
     "test:focus": "node --test test/focus.test.mjs && npm run build && node scripts/run-ui-smoke.cjs focus-smoke.cjs",
     "start": "npm run build && node scripts/launch-electron.cjs",
-    "dist": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win",
+    "dist": "node ../scripts/preflight.cjs && node scripts/write-supabase-config.cjs && vite build && electron-builder --win",
     "dist:demo": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win --config electron-builder.demo.cjs --publish never",
-    "dist:mac": "node scripts/write-supabase-config.cjs && vite build && electron-builder --mac",
-    "release": "node scripts/write-supabase-config.cjs && vite build && electron-builder --win --publish always",
-    "test:sync": "node --test test/supabase-sync.test.cjs"
+    "dist:mac": "node ../scripts/preflight.cjs && node scripts/write-supabase-config.cjs && vite build && electron-builder --mac",
+    "release": "node ../scripts/preflight.cjs && node scripts/write-supabase-config.cjs && vite build && electron-builder --win --publish always",
+    "test:sync": "node --test test/supabase-sync.test.cjs",
+    "preflight": "node ../scripts/preflight.cjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

@@ -43,7 +43,11 @@ export function moveEntry(list, from, to) {
   next.splice(to, 0, item);
   return next;
 }
-export const setTitle = (list, id, title) => list.map((x) => (x.id === id && title && !x.title ? { ...x, title: String(title).slice(0, 200) } : x));
+// A real title: not empty, and not the link itself (the phone keeps the link as the title until YouTube answers).
+export const hasTitle = (x) => !!x?.title && !/^https?:\/\//i.test(x.title);
+// Rows still waiting for their title.
+export const untitled = (list) => list.filter((x) => !hasTitle(x));
+export const setTitle = (list, id, title) => list.map((x) => (x.id === id && title && !hasTitle(x) ? { ...x, title: String(title).slice(0, 200) } : x));
 
 // What actually plays: the playlist, or the built-in picks when it is empty.
 export const queueOf = (list) => (list.length ? list : DEFAULT_MUSIC);
@@ -56,6 +60,6 @@ export function nextIndex(queue, playingId, lastIndex = 0, delta = 1) {
   return (((at + delta) % n) + n) % n;
 }
 // What a row shows: its title, or the link itself.
-export const rowLabel = (x) => x.title || (x.url || '').replace(/^https:\/\/(www\.)?/, '');
+export const rowLabel = (x) => (hasTitle(x) ? x.title : (x.url || '').replace(/^https:\/\/(www\.)?/, ''));
 // The oEmbed address that answers a link's title.
 export const oembedUrl = (url) => 'https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(url);

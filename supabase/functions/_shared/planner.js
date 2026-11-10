@@ -115,15 +115,27 @@ const FIELDS = ['title', 'date', 'end_date', 'start_time', 'end_time'];
 // person wrote by hand gets this source attached (`adopt`), one that already came from another tool is left alone.
 export function diff(desired, existing, ids, week = []) {
   const byId = new Map(existing.map((t) => [t.origin?.id, t])), app = new Map(week.map((t) => [t.id, t]));
-  const create = [], update = [], remove = [], adopt = [];
+  const create = [], update = [], remove = [], adopt = [], rekeyed = new Set();
   for (const d of desired) {
     const t = byId.get(d.external_id);
     if (!t && d.same_as && app.has(d.same_as)) { if (!app.get(d.same_as).origin?.provider) adopt.push({ todo: app.get(d.same_as), d }); continue; }
-    if (!t) { create.push(d); continue; }
+    if (!t) {
+      // The same item under a new source id (a block re-made, GPT naming another id): the to-do is kept — with its
+      // team, notes and check — and re-keyed, instead of being removed and made again bare.
+      const same = existing.find((x) => !ids.has(x.origin?.id) && !rekeyed.has(x.id) && x.date === d.date && (x.title === d.title || x.origin?.remote?.title === d.title));
+      if (same) {
+        rekeyed.add(same.id);
+        const before = same.origin?.remote || {}, patch = {};
+        for (const f of FIELDS) if ((d[f] ?? null) !== (before[f] ?? null)) patch[f] = d[f];
+        update.push({ todo: same, patch, remote: { ...before, ...Object.fromEntries(FIELDS.map((f) => [f, d[f] ?? null])) }, rekey: d.external_id });
+        continue;
+      }
+      create.push(d); continue;
+    }
     const before = t.origin?.remote || {}, patch = {};
     for (const f of FIELDS) if ((d[f] ?? null) !== (before[f] ?? null)) patch[f] = d[f];
     if (Object.keys(patch).length) update.push({ todo: t, patch, remote: { ...before, ...Object.fromEntries(FIELDS.map((f) => [f, d[f] ?? null])) } });
   }
-  for (const t of existing) if (!ids.has(t.origin?.id)) remove.push(t);
+  for (const t of existing) if (!ids.has(t.origin?.id) && !rekeyed.has(t.id)) remove.push(t);
   return { create, update, remove, adopt };
 }

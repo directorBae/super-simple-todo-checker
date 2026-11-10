@@ -29,6 +29,11 @@ jobs:
         working-directory: desktop
         run: npm install --no-audit --no-fund
 
+      # 빌드 전 필수 검사의 테스트 부분 (화면 점검은 PC에서, scripts/preflight.cjs).
+      - name: 단위 테스트
+        working-directory: desktop
+        run: node --test
+
       # 서명 인증서 점검: 값은 찍지 않고, 풀리는지·열리는지·맥 키체인이 받아들이는지만 알린다.
       - name: 서명 인증서 점검
         env:
