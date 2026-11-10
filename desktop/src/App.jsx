@@ -75,6 +75,6 @@ export default function App() {
   <MoveNote />
   <AiEdge on={!!(petJobs.working || typing)} />
   {!onboarding && <IncomingDive focus={focusDive} onSeen={() => setFocusDive(null)} answer={answerDive} onAnswered={() => setAnswerDive(null)} />}
-  {!onboarding && <CallPanel />}
+  {!onboarding && <CallPanel hidden={mode === 'team'} />}
  </div></WorkProvider>;
 }

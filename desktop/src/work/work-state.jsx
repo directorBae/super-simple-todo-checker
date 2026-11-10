@@ -91,6 +91,7 @@ export function WorkProvider({ children, onOpen, pet }) {
   const enter = async (dive, r) => {
     live.current?.leave();
     setCall({ dive, people: [], state: 'connecting', muted: false });
+    openRef.current?.('team'); // into the room: the Team tab shows the live call in place of the Dive button
     try {
       live.current = await connect(r.call, (patch) => setCall((c) => (c && c.dive === dive ? { ...c, ...patch } : c)));
     } catch (e) {

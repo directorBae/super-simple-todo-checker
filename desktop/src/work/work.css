@@ -190,3 +190,9 @@ input.work-my-name { width: 140px; }
 .work-dives h3 small { font-weight: 600; color: var(--muted); margin-left: 4px; }
 .work-dive-head .room-note { color: var(--accent); }
 .work-dive.in { border-color: var(--accent); }
+
+/* The live room in the Team tab's hub (the floating call panel is hidden while the Team tab is up). */
+.dive-call.inline { position: static; width: 100%; padding: 6px 0 0; border-radius: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; border: 0; animation: none; text-align: left; }
+.dive-call.inline::after { display: none; }
+.dive-call.inline .dive-call-head b { font-size: 16px; }
+.dive-call.inline .dive-people { justify-content: center; }

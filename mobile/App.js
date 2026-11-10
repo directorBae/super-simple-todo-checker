@@ -95,7 +95,7 @@ function Shell() {
    </Animated.View>}
    {!onboarding&&<ClockDrawer ref={clock} visible={room===1} camera={camera} db={db} api={api} pending={clockTodo} onAssigned={()=>setClockTodo(null)} onClose={()=>setRoom(0)}/>}
    {!onboarding && <IncomingDive />}
-   {!onboarding && <CallPanel />}
+   {!onboarding && <CallPanel hidden={mode === 'team'} />}
    <JobToast />
    {postponeDate && !onboarding && <PostponeSheet date={postponeDate} db={db} api={api} onClose={clearPostpone} />}
    {musicMounted && <MusicPanel visible={music} onClose={() => setMusic(false)} onNowPlaying={setNowPlaying} controls={musicControls} playlist={playlist} />}

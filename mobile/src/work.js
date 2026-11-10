@@ -116,6 +116,7 @@ export function WorkProvider({ onOpen, children }) {
   const enter = async (dive, r) => {
     live.current?.leave();
     setCall({ dive, people: [], state: 'connecting', muted: false });
+    openRef.current?.('dive:' + dive); // into the room: the Team tab shows the live call in place of the Dive button
     try { live.current = await connect(r.call, (patch) => setCall((c) => (c && c.dive === dive ? { ...c, ...patch } : c))); }
     catch (e) { setCall(null); live.current = null; await act('/dive/leave', { dive }).catch(() => {}); throw new Error('통화에 연결하지 못했어요: ' + (e.message || e)); }
   };

@@ -265,10 +265,12 @@ export default function TeamScreen() {
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <>
       <Card style={{ alignItems: 'stretch' }}>
         <CheckerLink team={team} />
-        <Pressable accessibilityRole="button" accessibilityLabel="다이브 시작" disabled={!others.length || !!w.call} onPress={() => setComposer(true)} style={({ pressed }) => ({ alignItems: 'center', gap: 6, paddingVertical: 14, opacity: !others.length || w.call ? 0.45 : pressed ? 0.7 : 1 })}>
-          <PulsingDive size={104} /><Text style={{ fontSize: 20, fontWeight: '800', color: d.accent, letterSpacing: 1 }}>Dive</Text>
-        </Pressable>
-        <Text style={{ textAlign: 'center', color: d.muted, fontSize: 13 }}>{w.call ? '지금 다이브 중이에요.' : others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</Text>
+        {w.call ? <CallPanel inline /> : <>
+          <Pressable accessibilityRole="button" accessibilityLabel="다이브 시작" disabled={!others.length} onPress={() => setComposer(true)} style={({ pressed }) => ({ alignItems: 'center', gap: 6, paddingVertical: 14, opacity: !others.length ? 0.45 : pressed ? 0.7 : 1 })}>
+            <PulsingDive size={104} /><Text style={{ fontSize: 20, fontWeight: '800', color: d.accent, letterSpacing: 1 }}>Dive</Text>
+          </Pressable>
+          <Text style={{ textAlign: 'center', color: d.muted, fontSize: 13 }}>{others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</Text>
+        </>}
       </Card>
       <Dives team={team} />
       <Members team={team} />
@@ -339,16 +341,17 @@ export function IncomingDive() {
 // In a dive: who is in it (a ring while they speak), answers, mute, leave, and end for everyone (caller).
 // In a dive: a small bar at the bottom (the screen stays usable — the Team tab, the to-dos, everything). Tapping
 // it shows who is in, who answered what, the mic error, and for the one who opened the room, 방 삭제.
-export function CallPanel() {
-  const w = useWork(), d = useDesign(), c = w.call, [open, setOpen] = useState(false);
-  if (!c) return null;
+// inline: in the Team tab's hub, as the room itself, opened out (the bottom bar is hidden there); hidden: not at all.
+export function CallPanel({ inline = false, hidden = false }) {
+  const w = useWork(), d = useDesign(), c = w.call, [open, setOpen] = useState(inline);
+  if (!c || hidden) return null;
   const x = w.state?.dives.find((v) => v.id === c.dive), team = w.state?.teams.find((t) => t.id === x?.team);
   const nameOf = (id) => team?.members.find((m) => m.id === id)?.name || '팀원';
   const away = (x?.replies || []).filter((r) => r.answer === 'kakao' || r.answer === 'busy');
   const others = c.people.filter((p) => !p.me);
   const summary = c.state !== 'connected' ? '연결 중…' : others.length ? `${others.length}명과 통화 중` : '아직 혼자예요';
-  return <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: 28, zIndex: 95 }}>
-    <Surface native style={{ backgroundColor: '#eef2ffee' }} contentStyle={{ padding: 10, gap: 10 }}>
+  return <View pointerEvents="box-none" style={inline ? { marginTop: 4 } : { position: 'absolute', left: 12, right: 12, bottom: 28, zIndex: 95 }}>
+    <Surface native style={{ backgroundColor: inline ? '#ffffff66' : '#eef2ffee' }} contentStyle={{ padding: 10, gap: 10 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Pressable accessibilityRole="button" accessibilityLabel={open ? '통화 정보 접기' : '통화 정보 펼치기'} onPress={() => setOpen(!open)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <DiveIcon size={22} />

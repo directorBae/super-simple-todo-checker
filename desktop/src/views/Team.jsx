@@ -293,10 +293,12 @@ export default function Team({ checkerTeams = [] }) {
       <Members team={team} />
       <section className="work-card dive-hub" aria-label="다이브">
         <CheckerLink team={team} checkerTeams={checkerTeams} />
-        <button className="dive-button" disabled={!others.length || !!w.call} onClick={() => setComposer(true)} aria-label="다이브 시작">
-          <DiveIcon size={96} /><span>Dive</span>
-        </button>
-        <p className="desc">{w.call ? '지금 다이브 중이에요.' : others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</p>
+        {w.call ? <CallPanel inline /> : <>
+          <button className="dive-button" disabled={!others.length} onClick={() => setComposer(true)} aria-label="다이브 시작">
+            <DiveIcon size={96} /><span>Dive</span>
+          </button>
+          <p className="desc">{others.length ? '안건으로 방을 열고 팀원을 불러요. 방은 비어 있는 채 6시간이 지나면 사라져요.' : '팀원을 초대하면 다이브할 수 있어요.'}</p>
+        </>}
       </section>
       <Dives team={team} />
     </div>}
@@ -330,13 +332,14 @@ export function IncomingDive({ focus, onSeen, answer, onAnswered }) {
 }
 
 // In a dive: who is in it (a ring while they speak), who answered what, mute, leave, and end for everyone (caller).
-export function CallPanel() {
+// inline: in the Team tab's hub, as the room itself (the floating one is hidden there); hidden: not at all.
+export function CallPanel({ inline = false, hidden = false }) {
   const w = useWork(), c = w.call;
-  if (!c) return null;
+  if (!c || hidden) return null;
   const d = w.state?.dives.find((x) => x.id === c.dive), team = w.state?.teams.find((t) => t.id === d?.team);
   const nameOf = (id) => team?.members.find((m) => m.id === id)?.name || '팀원';
   const away = (d?.replies || []).filter((r) => r.answer === 'kakao' || r.answer === 'busy');
-  return <section className="dive-call" aria-label="다이브 통화">
+  return <section className={'dive-call' + (inline ? ' inline' : '')} aria-label="다이브 통화">
     <div className="dive-call-head"><DiveIcon size={24} /><b>{d?.agenda || '다이브'}</b><small>{c.state === 'connected' ? `${c.people.length}명` : '연결 중…'}</small></div>
     <ul className="dive-people">{c.people.map((p) => <li key={p.id} className={(p.speaking ? 'speaking' : '') + (p.muted ? ' muted' : '')}><Avatar person={{ id: p.id, name: p.name, online: true }} size={36} /><span>{p.me ? '나' : p.name}</span>{p.muted && <i aria-label="음소거">🔇</i>}</li>)}</ul>
     {away.length > 0 && <ul className="work-replies">{away.map((r) => <li key={r.id} className={'answer-' + r.answer}>{nameOf(r.id)} <span>{ANSWER[r.answer]}</span></li>)}</ul>}

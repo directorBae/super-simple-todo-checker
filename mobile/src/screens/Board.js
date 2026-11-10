@@ -113,7 +113,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  const [focus,setFocus]=useState(null),[selection,setSelection]=useState(()=>new Set()),[dateTodo,setDateTodo]=useState(null),[repeatTodo,setRepeatTodo]=useState(null),[dragging,setDragging]=useState(null),[hover,setHover]=useState(null),[undo,setUndo]=useState(null);
  // A held line is being moved (the list stops scrolling while it is).
  const [grabbing,setGrabbing]=useState(false);
- const scroll=useRef(null),content=useRef(null),positions=useRef({}),pending=useRef(today),busy=useRef(false),rows=useRef({}),zones=useRef({}),geometry=useRef({rows:[],teams:[]}),activeInput=useRef(null),viewport=useRef(null),scrollY=useRef(0),keyboardTop=useRef(Infinity);
+ const scroll=useRef(null),content=useRef(null),positions=useRef({}),pending=useRef(today),busy=useRef(false),rows=useRef({}),zones=useRef({}),days=useRef({}),geometry=useRef({rows:[],teams:[],days:[]}),activeInput=useRef(null),viewport=useRef(null),scrollY=useRef(0),keyboardTop=useRef(Infinity);
  const dates=useMemo(()=>Array.from({length:range.end-range.start+1},(_,i)=>addDays(today,range.start+i)),[range,today]);
  const reveal=ref=>{if(ref)activeInput.current=ref;setTimeout(()=>{
   const field=activeInput.current?.current;if(!field?.isFocused())return;
@@ -128,7 +128,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  const openDay=date=>{const offset=Math.round((Date.parse(date+'T12:00:00')-Date.parse(today+'T12:00:00'))/864e5);pending.current=date;setRange(r=>({start:Math.min(r.start,offset-7),end:Math.max(r.end,offset+14)}));setView('list');};
  const goToday=()=>{if(view==='month'){const n=new Date();setYm({y:n.getFullYear(),m:n.getMonth()});}else if(view==='week')setWeekOf(today);else if(positions.current[today]!=null)scroll.current?.scrollTo({y:Math.max(0,positions.current[today]-6),animated:true});else openDay(today);};
  const onScroll=e=>{scrollY.current=e.nativeEvent.contentOffset.y;if(busy.current||pending.current||dragging)return;const {contentOffset,contentSize,layoutMeasurement}=e.nativeEvent;if(contentOffset.y+layoutMeasurement.height>contentSize.height-600){busy.current=true;setRange(r=>({...r,end:r.end+14}));}else if(contentOffset.y<200){busy.current=true;setRange(r=>({...r,start:r.start-14}));}};
- const measure=()=>{const g={rows:[],teams:[]};geometry.current=g;Object.entries(rows.current).forEach(([key,ref])=>{const span=key.startsWith('span:'),[id,day]=span?key.slice(5).split('@'):[key];if(!span&&isMultiDay(db.todos.find(t=>t.id===id)))return;ref?.measureInWindow((x,y,w,h)=>g.rows.push({id,day,x,y,w,h}));});Object.entries(zones.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.teams.push({id,x,y,w,h})));};
+ const measure=()=>{const g={rows:[],teams:[],days:[]};geometry.current=g;Object.entries(days.current).forEach(([date,ref])=>ref?.measureInWindow((x,y,w,h)=>g.days.push({date,x,y,w,h})));Object.entries(rows.current).forEach(([key,ref])=>{const span=key.startsWith('span:'),[id,day]=span?key.slice(5).split('@'):[key];if(!span&&isMultiDay(db.todos.find(t=>t.id===id)))return;ref?.measureInWindow((x,y,w,h)=>g.rows.push({id,day,x,y,w,h}));});Object.entries(zones.current).forEach(([id,ref])=>ref?.measureInWindow((x,y,w,h)=>g.teams.push({id,x,y,w,h})));};
  useEffect(()=>{if(dragging){const t=setTimeout(measure,80);return()=>clearTimeout(t);}},[dragging,db.teams]);
  const hit=(items,x,y)=>items.find(r=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h);
  const apply=patches=>patches.forEach(({id,patch})=>api.updateTodo(id,patch));
@@ -172,8 +172,11 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
   const list=carried(todo),ids=list.map(t=>t.id);
   if(clockOpen&&x>=clockLeft){onClockDrop(list,x,y);return;}
   if(hit(geometry.current.teams,x,y)){ids.forEach(id=>api.deleteTodo(id));setUndo({todos:list,action:'delete'});setSelection(new Set());return;}
-  const row=hit(geometry.current.rows,x,y);
-  if(row&&!ids.includes(row.id))apply(dropPatches(db,ids,{kind:'line',targetId:row.id,targetDay:row.day,after:y>row.y+row.h/2},lineOrder,todo.span?{[todo.id]:todo.span.day}:{}));
+  const row=hit(geometry.current.rows,x,y),from=todo.span?{[todo.id]:todo.span.day}:{};
+  if(row){if(!ids.includes(row.id))apply(dropPatches(db,ids,{kind:'line',targetId:row.id,targetDay:row.day,after:y>row.y+row.h/2},lineOrder,from));return;}
+  // Not on a line: the day under the finger takes it (a day with no lines yet, or the empty space below the lines).
+  const day=hit(geometry.current.days,x,y);
+  if(day&&!(ids.length===1&&!todo.span&&todo.date===day.date))apply(dropPatches(db,ids,{kind:'day',date:day.date},lineOrder,from));
  };
  // Dragging to the right edge slides the clock in; back to the left edge slides it away again.
  // Over the clock the dragged line is hidden under the sheet, so the clock draws it (title + the time it would get).
@@ -243,7 +246,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
    <View ref={viewport} collapsable={false} style={{flex:1}} onTouchStart={()=>{if(typing.current)typing.finishAll();}} onLayout={()=>reveal(activeInput.current)}><GestureScrollView ref={scroll} onContentSizeChange={(w,h)=>{contentH.current=h;reveal(activeInput.current);}} scrollEnabled={!dragging&&!grabbing} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" onScroll={onScroll} scrollEventThrottle={64} maintainVisibleContentPosition={{minIndexForVisible:0}} contentContainerStyle={{paddingHorizontal:16,paddingBottom:160}}>
     <View ref={content} collapsable={false}>
     <SpanTrails content={content} rows={rows} db={db} selection={selection} />
-    {dates.map((date,i)=><View key={date} onLayout={e=>{positions.current[date]=e.nativeEvent.layout.y;if(pending.current===date&&scroll.current){pending.current=null;const y=Math.max(0,e.nativeEvent.layout.y-6);requestAnimationFrame(()=>scroll.current?.scrollTo({y,animated:false}));}}}>
+    {dates.map((date,i)=><View key={date} ref={r=>{if(r)days.current[date]=r;else delete days.current[date];}} collapsable={false} onLayout={e=>{positions.current[date]=e.nativeEvent.layout.y;if(pending.current===date&&scroll.current){pending.current=null;const y=Math.max(0,e.nativeEvent.layout.y-6);requestAnimationFrame(()=>scroll.current?.scrollTo({y,animated:false}));}}}>
      {(i===0||date.endsWith('-01'))&&<Text style={{fontSize:12,fontWeight:'600',color:d.muted,paddingVertical:12}}>{dateParts(date).y}년 {dateParts(date).m}월</Text>}
      {section(date)}
     </View>)}
