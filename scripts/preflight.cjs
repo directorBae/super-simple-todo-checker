@@ -24,6 +24,7 @@ if (!quick) {
     { name: 'PC 화면 점검 — 펫·시계·게임', cmd: 'node scripts/run-ui-smoke.cjs focus-smoke.cjs', cwd: desktop },
     { name: 'PC 화면 점검 — 팀원 창·👁 비공개', cmd: 'npx electron scripts/member-probe.cjs', cwd: desktop },
     { name: 'PC 화면 점검 — 방·음악 제목', cmd: 'npx electron scripts/work-smoke.cjs', cwd: desktop },
+    { name: 'PC 화면 점검 — 일정 카드 시간 확정', cmd: 'npx electron scripts/sched-probe.cjs', cwd: desktop },
     { name: '아이폰 번들 — JS가 컴파일되는지', cmd: `npx expo export --platform ios --output-dir "${fs.mkdtempSync(path.join(os.tmpdir(), 'preflight-expo-'))}"`, cwd: mobile },
   );
 }

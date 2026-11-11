@@ -172,7 +172,12 @@ function RangeCalendar({ range, setRange }) {
 const daysLabel = (a, b) => { const n = Math.round((new Date(b) - new Date(a)) / DAY) + 1; return `${Number(a.slice(5, 7))}/${Number(a.slice(8))} – ${Number(b.slice(5, 7))}/${Number(b.slice(8))} · ${n}일`; };
 
 export default function ScheduleCard({ todo, onClose }) {
-  const [range, setRange] = useState(() => toRange(todo, todayStr()));
+  const [range, setRangeState] = useState(() => toRange(todo, todayStr()));
+  // The latest range, at once: a time popup hands its value over on the mousedown of 확정, and the click can follow
+  // in the same tick (a tap on a touch screen or trackpad) — before React has re-rendered. 확정 saves from here, so
+  // it never saves the moment before the time was typed.
+  const rangeRef = useRef(range);
+  const setRange = (next) => { const r = typeof next === 'function' ? next(rangeRef.current) : next; rangeRef.current = r; setRangeState(r); };
   const [repeat, setRepeat] = useState(false);
   const fields = useMemo(() => fromRange(range), [range]);
   const timeAt = (which) => (which === 'start' ? fields.startTime : fields.endTime === '24:00' ? '24:00' : fields.endTime);
@@ -190,7 +195,7 @@ export default function ScheduleCard({ todo, onClose }) {
     }
   };
   const untimed = () => { const s = new Date(range.start); s.setHours(0, 0, 0, 0); const e = new Date(range.end - 1); e.setHours(0, 0, 0, 0); setRange({ start: s.getTime(), end: e.getTime() + DAY, timed: false }); };
-  const save = () => { window.api.updateTodo(todo.id, spanPatch(todo, fields)); onClose?.(); };
+  const save = () => { window.api.updateTodo(todo.id, spanPatch(todo, fromRange(rangeRef.current))); onClose?.(); };
   useEffect(() => {
     const key = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose?.(); } if (e.key === 'Enter' && !e.target.closest?.('input,textarea')) { e.preventDefault(); save(); } };
     window.addEventListener('keydown', key, true);
