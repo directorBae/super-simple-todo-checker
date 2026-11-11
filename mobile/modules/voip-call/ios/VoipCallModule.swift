@@ -37,6 +37,10 @@ public class VoipCallModule: Module {
       CallCenter.shared.clearLog()
     }
 
+    Function("note") { (text: String) in
+      CallCenter.shared.noteFromJS(text)
+    }
+
     AsyncFunction("ringback") { (on: Bool) in
       if on {
         CallCenter.shared.playRingback()

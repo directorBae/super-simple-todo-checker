@@ -16,3 +16,5 @@ export const ringback = (on) => native?.ringback?.(on);
 // What happened on the device, newest last (also while the app was closed). Older builds have no log.
 export const log = () => (native?.log ? native.log() : []);
 export const clearLog = () => native?.clearLog?.();
+// A JS-side line in that log. Older builds have no such function.
+export const note = (text) => native?.note?.(String(text).slice(0, 300));

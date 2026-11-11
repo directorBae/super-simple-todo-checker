@@ -309,6 +309,11 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     d.set(lines, forKey: CallCenter.logKey)
   }
 
+  // JS writes its own lines (why a call was dropped, an audio error) into the same log.
+  func noteFromJS(_ text: String) {
+    note("JS: " + text)
+  }
+
   func log() -> [String] {
     return UserDefaults.standard.stringArray(forKey: CallCenter.logKey) ?? []
   }

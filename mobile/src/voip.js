@@ -7,6 +7,8 @@ import { tools } from './store.js';
 // is over or was answered on another device.
 export const available = voip.available;
 export const callState = voip.state, answerCall = voip.answerCall, endCall = voip.endCall, onCall = voip.on, ringback = voip.ringback;
+// A line for the device's call log (설정 → 알림 → 전화 기록) from the JS side: why a call ended, what failed.
+export const noteCall = (text) => { try { voip.note(text); } catch { /* older build */ } console.warn('[call] ' + text); };
 
 let registered = null;
 export async function registerVoip() {

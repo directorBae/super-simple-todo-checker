@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { tools } from './store.js';
 import { incomingDive, ringbackWanted } from '../../shared/work-alerts.mjs';
-import { available as voipAvailable, watchVoip, callState, answerCall, endCall, onCall, ringback } from './voip.js';
+import { available as voipAvailable, watchVoip, callState, answerCall, endCall, onCall, ringback, noteCall } from './voip.js';
 
 /*
  * 팀버전 (Work) on the phone: the team state (looked at every 8 s while the app is open — that also shows the person
@@ -18,20 +18,22 @@ const EVERY_MS = 8000;
 async function connect({ url, token }, onChange) {
   const { AudioSession } = require('@livekit/react-native');
   const { Room, RoomEvent } = require('livekit-client');
-  await AudioSession.startAudioSession();
+  // Answered through CallKit, the system activates the audio session itself (didActivate → onAudioSession below);
+  // activating it here then fails — which is no reason to drop the call. Without CallKit this is what turns audio on.
+  try { await AudioSession.startAudioSession(); } catch (e) { noteCall('오디오 세션을 직접 켜지 못함 (CallKit이 켠 것을 씀): ' + (e?.message || e)); }
   const room = new Room({ adaptiveStream: true, dynacast: true });
   const people = () => [room.localParticipant, ...room.remoteParticipants.values()].map((p) => ({
     id: p.identity, name: p.name || '팀원', me: p === room.localParticipant, speaking: p.isSpeaking, muted: !p.isMicrophoneEnabled,
   }));
   const update = () => onChange({ people: people(), state: room.state });
   for (const e of [RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.ActiveSpeakersChanged, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.LocalTrackPublished, RoomEvent.ConnectionStateChanged]) room.on(e, update);
-  room.on(RoomEvent.Disconnected, () => { AudioSession.stopAudioSession(); onChange({ people: [], state: 'disconnected', ended: true }); });
-  try { await room.connect(url, token); } catch (e) { AudioSession.stopAudioSession(); throw e; }
+  room.on(RoomEvent.Disconnected, (reason) => { noteCall('통화 끊김: ' + (reason ?? '?')); AudioSession.stopAudioSession().catch(() => {}); onChange({ people: [], state: 'disconnected', ended: true }); });
+  try { await room.connect(url, token); } catch (e) { noteCall('통화 서버 연결 실패: ' + (e?.message || e)); AudioSession.stopAudioSession().catch(() => {}); throw e; }
   await room.localParticipant.setMicrophoneEnabled(true).catch(() => onChange({ micError: '마이크를 쓸 수 없어요. 설정에서 마이크 권한을 켜 주세요.' }));
   update();
   return {
     mute: async (muted) => { await room.localParticipant.setMicrophoneEnabled(!muted); update(); },
-    leave: () => { room.disconnect(); AudioSession.stopAudioSession(); },
+    leave: () => { room.disconnect(); AudioSession.stopAudioSession().catch(() => {}); },
   };
 }
 
@@ -108,6 +110,11 @@ export function WorkProvider({ onOpen, children }) {
         else if (reason === 'hangup') actionsRef.current.leaveDive(false);
       }),
       onCall('onMute', ({ muted }) => actionsRef.current.setMuted(muted)),
+      // CallKit activates (and later deactivates) the audio session: WebRTC is told, so its audio unit starts on it.
+      onCall('onAudioSession', ({ active }) => {
+        try { const { RTCAudioSession } = require('@livekit/react-native-webrtc'); if (active) RTCAudioSession.audioSessionDidActivate(); else RTCAudioSession.audioSessionDidDeactivate(); noteCall(active ? '오디오 세션 켜짐 (CallKit)' : '오디오 세션 꺼짐 (CallKit)'); }
+        catch (e) { noteCall('오디오 세션 연동 실패: ' + (e?.message || e)); }
+      }),
     ];
     return () => { stop(); subs.forEach((s) => s.remove()); };
   }, []);
@@ -118,7 +125,7 @@ export function WorkProvider({ onOpen, children }) {
     setCall({ dive, people: [], state: 'connecting', muted: false });
     openRef.current?.('dive:' + dive); // into the room: the Team tab shows the live call in place of the Dive button
     try { live.current = await connect(r.call, (patch) => setCall((c) => (c && c.dive === dive ? { ...c, ...patch } : c))); }
-    catch (e) { setCall(null); live.current = null; await act('/dive/leave', { dive }).catch(() => {}); throw new Error('통화에 연결하지 못했어요: ' + (e.message || e)); }
+    catch (e) { noteCall('방에 들어가지 못함: ' + (e?.message || e)); setCall(null); live.current = null; await act('/dive/leave', { dive }).catch(() => {}); throw new Error('통화에 연결하지 못했어요: ' + (e.message || e)); }
   };
   const actions = {
     refresh,
