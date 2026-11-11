@@ -165,15 +165,36 @@ function RangeCalendar({ range, setRange }) {
   </View>;
 }
 
+// Start / end time. On an iPhone the small popover picker (compact) did not always report the time picked — it stayed
+// as it was after 확정 — so the time is a button that unfolds a wheel inside the card: the wheel reports every turn
+// at once, and 확정 applies what it shows and folds it. Android keeps its own dialog. "시간 없음" is the card's button.
+const pad2 = (n) => String(n).padStart(2, '0');
 function TimePick({ label, value, onPick }) {
   const d = useDesign(), [open, setOpen] = useState(false);
   const date = useMemo(() => { const [h, m] = (value && value !== '24:00' ? value : '09:00').split(':').map(Number); const x = new Date(); x.setHours(h, m, 0, 0); return x; }, [value]);
-  const done = (e, v) => { if (Platform.OS === 'android') setOpen(false); if (v && e.type !== 'dismissed') onPick(`${String(v.getHours()).padStart(2, '0')}:${String(v.getMinutes()).padStart(2, '0')}`); };
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-    <Text style={{ width: 32, color: d.muted, fontSize: 13 }}>{label}</Text>
-    {Platform.OS === 'ios' ? <DateTimePicker value={date} mode="time" display="compact" minuteInterval={5} accentColor={d.accent} onChange={done} />
-      : <><Button title={value || '--:--'} onPress={() => setOpen(true)} />{open && <DateTimePicker value={date} mode="time" minuteInterval={5} onChange={done} />}</>}
-    {!value && Platform.OS === 'ios' && <Text style={{ color: d.muted, fontSize: 12 }}>(시간 없음)</Text>}
+  const [picked, setPicked] = useState(date);
+  useEffect(() => { setPicked(date); }, [date]);
+  const hhmm = (v) => `${pad2(v.getHours())}:${pad2(v.getMinutes())}`;
+  const changed = (e, v) => {
+    if (Platform.OS === 'android') setOpen(false);
+    if (!v || e.type === 'dismissed') return;
+    setPicked(v); onPick(hhmm(v));
+  };
+  const confirm = () => { onPick(hhmm(picked)); setOpen(false); };
+  return <View style={{ gap: 6 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Text style={{ width: 32, color: d.muted, fontSize: 13 }}>{label}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${label} 시간 ${value || '없음'}`} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: open ? d.accent : d.edge, backgroundColor: open ? d.accent + '29' : d.input }}>
+        <Text style={{ color: value ? d.text : d.muted, fontWeight: '700', fontSize: 15, fontVariant: ['tabular-nums'] }}>{value || '--:--'}</Text>
+      </Pressable>
+      {!value && <Text style={{ color: d.muted, fontSize: 12 }}>(시간 없음)</Text>}
+    </View>
+    {open && (Platform.OS === 'ios'
+      ? <View style={{ alignItems: 'stretch', gap: 6 }}>
+          <DateTimePicker value={picked} mode="time" display="spinner" minuteInterval={5} themeVariant="light" textColor={d.text} accentColor={d.accent} onChange={changed} style={{ height: 150 }} />
+          <Button primary title={`확정 ${hhmm(picked)}`} onPress={confirm} />
+        </View>
+      : <DateTimePicker value={picked} mode="time" minuteInterval={5} onChange={changed} />)}
   </View>;
 }
 
