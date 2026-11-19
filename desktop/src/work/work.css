@@ -196,3 +196,26 @@ input.work-my-name { width: 140px; }
 .dive-call.inline::after { display: none; }
 .dive-call.inline .dive-call-head b { font-size: 16px; }
 .dive-call.inline .dive-people { justify-content: center; }
+
+/* 부재중 다이브 and 메모 in the Team tab; the record button in a call; the Notion picker. */
+.work-missed h3, .work-memos h3 { display: flex; align-items: center; gap: 6px; }
+.work-missed h3 small, .work-memos h3 small { font-weight: 600; color: var(--muted); }
+.work-missed h3 .ghost { margin-left: auto; font-size: 12px; }
+.work-missed ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.work-missed li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 12px; background: rgba(229, 72, 77, 0.08); border: 1px solid rgba(229, 72, 77, 0.25); font-size: 13px; }
+.work-missed li span { color: var(--text); } .work-missed li small { color: var(--muted); }
+.work-memo { border-top: 1px solid rgba(255, 255, 255, 0.18); padding: 6px 0; }
+.work-memo-head { display: grid; width: 100%; text-align: left; border: 0; background: none; color: var(--text); font: inherit; padding: 6px 4px; border-radius: 10px; cursor: pointer; }
+.work-memo-head:hover { background: rgba(255, 255, 255, 0.12); }
+.work-memo-head b { font-size: 13px; } .work-memo-head small { font-size: 11px; color: var(--muted); }
+.work-memo-body { padding: 4px 6px 8px; font-size: 13px; display: grid; gap: 6px; }
+.work-memo-body h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.work-memo-body ul { margin: 0; padding-left: 18px; }
+.work-memo-transcript { white-space: pre-wrap; color: var(--muted); font-size: 12px; max-height: 240px; overflow: auto; }
+.dive-call-actions .rec.on { color: #e5484d; border-color: rgba(229, 72, 77, 0.5); animation: rec-blink 1.2s ease-in-out infinite; }
+@keyframes rec-blink { 50% { opacity: 0.55; } }
+.notion-picker { max-width: 460px; }
+.notion-results { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; max-height: 300px; overflow: auto; }
+.notion-results button { display: grid; width: 100%; text-align: left; border: 1px solid transparent; background: none; color: var(--text); font: inherit; padding: 8px 10px; border-radius: 12px; cursor: pointer; }
+.notion-results button:hover { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+.notion-results small { color: var(--muted); font-size: 11px; }

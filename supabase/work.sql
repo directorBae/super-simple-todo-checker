@@ -102,3 +102,22 @@ grant select, insert, update, delete on public.voip_devices to authenticated;
 -- for 6 hours is ended by the function. Rooms open before this column existed count as empty since they were made.
 alter table public.work_dives add column if not exists empty_since timestamptz;
 update public.work_dives set empty_since = created_at where ended_at is null and empty_since is null;
+
+-- 녹음 → 메모 → 노션: a recording's pieces written down as they come (chunks: index → text), the whole text, GPT's
+-- summary when it ends, and the Notion page it went to. Team members read them; the function is the only writer.
+create table if not exists public.work_memos (
+  id uuid primary key default gen_random_uuid(),
+  team_id uuid not null references public.work_teams(id) on delete cascade,
+  dive_id uuid references public.work_dives(id) on delete set null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null default '',
+  chunks jsonb not null default '{}'::jsonb,
+  transcript text not null default '',
+  summary jsonb,
+  state text not null default 'recording' check (state in ('recording', 'done', 'error')),
+  notion_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists work_memos_team on public.work_memos (team_id, created_at desc);
+alter table public.work_memos enable row level security;

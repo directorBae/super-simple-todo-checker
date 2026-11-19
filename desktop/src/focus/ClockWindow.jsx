@@ -85,6 +85,8 @@ function Lens({ lens, half, todos, teams }) {
 
 export default function ClockWindow({ db, embedded = false, onClose, selectedTodoId = '' }) {
   const [now, setNow] = useState(new Date()), [selectedDate, setSelectedDate] = useState('');
+  // The day on the dials: today, or the days around it (◀ ▶ in the head, ← → keys); a dragged to-do's own day wins.
+  const [dayOffset, setDayOffset] = useState(0);
   // hover: { half, time } where a drop / click would land; lens: { half, angle, size } under the pointer.
   const [hover, setHover] = useState(null), [lens, setLens] = useState(null);
   const [pending, setPending] = useState(() => new URLSearchParams(location.search).get('todo') || '');
@@ -97,15 +99,27 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
   const draggedTodos = (drag?.ids || []).map(id => db.todos.find(t => t.id === id)).filter(Boolean);
   // The clock works on the dragged to-dos' own day (their dots are shown) instead of always today.
   const dragDate = draggedTodos[0]?.date || null;
-  const day = dragDate || selectedDate || todayStr();
+  const day = dragDate || selectedDate || addDay(todayStr(), dayOffset);
   const pendingTodo = db.todos.find(t => t.id === pending && t.status === 'todo');
   // Stretching a to-do's end round the dial (its torus arc's knob): { id, todo, startMs, baseDay, ref, cx, cy, st, place, flash }.
   // While it runs the clock shows the day the end has reached (into the next days as it goes on).
   const [stretch, setStretch] = useState(null);
   const shownDay = stretch ? addDay(stretch.baseDay, stretch.place.days) : day;
+  // The hands (and "지금") only on today's dial of the half we are in.
+  const nowHere = shownDay === todayStr();
   const live = stretch ? db.todos.map(t => (t.id === stretch.id ? { ...t, ...fromRange({ start: stretch.startMs, end: stretch.st.end ?? stretch.st.endMs, timed: true }) } : t)) : db.todos;
   const scheduled = todosOn(live.filter(t => t.status !== 'bucket'), shownDay).filter(t => t.startTime || t.span?.allDay).sort((a,b) => (a.startTime || '00:00').localeCompare(b.startTime || '00:00'));
   const sliceOf = v => (v.span?.allDay ? { s: 0, e: DAY_MIN } : slice(v));
+  // ← → (without Ctrl, which switches rooms) step the day shown.
+  useEffect(() => {
+    const k = (e) => {
+      if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable]')) return;
+      if (embedded && !document.querySelector('.clock-dock.is-open')) return;
+      e.preventDefault(); setDayOffset((n) => n + (e.key === 'ArrowRight' ? 1 : -1));
+    };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [embedded]);
   useEffect(() => {
     if (!embedded) { document.title = '시계'; document.documentElement.dataset.clock = 'true'; }
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -227,8 +241,8 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
   const dial = half => {
     const own = scheduled.filter(t => t.startTime && halfOf(t.startTime) === half), here = hover?.half === half ? hover.time : '', point = e => clockTimeAt(e.clientX, e.clientY, dials.current[half].getBoundingClientRect(), half);
     const endHere = stretch && stretch.place.half === half, turning = stretch?.ref === half;
-    return <div key={half} className={'clock-half' + (half === current ? ' is-now' : '') + (endHere ? ' is-stretching' : '') + (turning ? ' is-turning' : '')}>
-      <div className="clock-half-name">{half ? '오후' : '오전'}{half === current && <small>지금</small>}</div>
+    return <div key={half} className={'clock-half' + ((half === current && nowHere) ? ' is-now' : '') + (endHere ? ' is-stretching' : '') + (turning ? ' is-turning' : '')}>
+      <div className="clock-half-name">{half ? '오후' : '오전'}{(half === current && nowHere) && <small>지금</small>}</div>
       {/* On the dial being turned: a ring of light and what just changed (오전 ↔ 오후, or the day). */}
       {flashing && flashing.on === half && <>
         <div key={flashing.at} className={'clock-half-flash' + (flashing.kind === 'day' ? ' day' : '')} aria-hidden="true" />
@@ -263,7 +277,7 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
             })}
           </svg>
           {/* Hands only on the dial of the half we are in; the other dial stays clear for picking a time. */}
-          {half === current && <Hands h={h} m={m} seconds={seconds} />}
+          {(half === current && nowHere) && <Hands h={h} m={m} seconds={seconds} />}
           {here && <div className="drop-time">{here}<small>{pendingTodo ? '눌러서 시간 배정' : '놓으면 시간 배정'}</small></div>}
         </div>
         {lens?.half === half && !hover && <Lens lens={lens} half={half} todos={lensItems(scheduled, half, lens.angle * 2, sliceOf)} teams={db.teams} />}
@@ -272,7 +286,13 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
   };
 
   return <div className="clock-window" aria-label={embedded?'시계':'별도 시계 창'}>
-    <header className="clock-window-head"><span>시계</span><button aria-label="시계 닫기" title="Ctrl + ← 또는 Esc" onClick={() => onClose ? onClose() : window.close()}>×</button></header>
+    <header className="clock-window-head"><span>시계</span>
+      <nav className="clock-day-nav" aria-label="보는 날">
+        <button type="button" aria-label="전날" title="←" onClick={() => setDayOffset((n) => n - 1)}>◀</button>
+        <button type="button" className={'clock-day-label' + (dayOffset ? ' off' : '')} title="오늘로" onClick={() => setDayOffset(0)}>{dayOffset === 0 ? '오늘 · ' : dayOffset === 1 ? '내일 · ' : dayOffset === -1 ? '어제 · ' : ''}{dateLabel(addDay(todayStr(), dayOffset))}</button>
+        <button type="button" aria-label="다음 날" title="→" onClick={() => setDayOffset((n) => n + 1)}>▶</button>
+      </nav>
+      <button aria-label="시계 닫기" title="Ctrl + ← 또는 Esc" onClick={() => onClose ? onClose() : window.close()}>×</button></header>
     {drag && dragDate && <div className="clock-date-ui">
       <div className={'clock-date-pill' + (cal ? ' open' : '')} data-clock-date={dragDate}>{dragDate === todayStr() ? '오늘 · ' : ''}{dateLabel(dragDate)}<small>{cal ? '날짜에 놓으면 그날로 옮겨요' : '여기로 가져가면 다른 날로'}</small></div>
       {cal && <DragCalendar month={cal.month} date={dragDate} hover={cal.hover} />}

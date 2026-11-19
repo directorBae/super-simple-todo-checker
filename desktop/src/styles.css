@@ -1823,3 +1823,7 @@ button.team-badge-btn:hover {
 .source-icons { display:inline-flex; align-items:center; flex-shrink:0; vertical-align:middle; }
 .cal-chip { display:flex; align-items:center; gap:4px; }
 .cal-chip-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* A box dragged over the notebook's empty space selects the lines it touches (like icons on a desktop). */
+.todo-marquee { position: fixed; z-index: 240; border: 1px solid var(--accent); background: rgba(99, 102, 241, 0.12); border-radius: 4px; pointer-events: none; }
+.todo-marquee-on, .todo-marquee-on * { -webkit-user-select: none !important; user-select: none !important; cursor: crosshair; }

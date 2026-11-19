@@ -102,7 +102,9 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
  const [measured,setMeasured]=useState({}); // pill sizes measured off-screen, by pillKey
  const touch=useRef({x:0,y:0,at:0}),lensNext=useRef(null),lensFrame=useRef(null);
  // Two dials stacked: each as large as fits in half the sheet.
- const size=Math.max(0,Math.min(box.width*0.64,(box.height-150)/2)),day=pending?.date||todayStr();
+ // The day on the dials: today, or the days around it (◀ ▶ at the top); a line being dragged in shows its own day.
+ const [dayOffset,setDayOffset]=useState(0);
+ const size=Math.max(0,Math.min(box.width*0.64,(box.height-150)/2)),day=pending?.date||addDay(todayStr(),dayOffset);
  const pillMax=Math.round(Math.max(120,Math.min(240,box.width-40)));
  useEffect(()=>{if(!visible)return;setNow(new Date());const timer=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(timer);},[visible]);
  useEffect(()=>()=>{if(lensFrame.current!=null)cancelAnimationFrame(lensFrame.current);},[]);
@@ -179,7 +181,7 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
      onResponderTerminationRequest={()=>!stretch&&(!!pending||Date.now()-touch.current.at<180)}
      onResponderTerminate={()=>{clearLens();if(stretch)releaseEnd();}}
      onResponderRelease={e=>{if(stretch){releaseEnd();return;}clearLens();const {pageX,pageY}=e.nativeEvent;if(pending)dials.current[half]?.measureInWindow((left,top,w)=>assign(pending,timeAt(pageX-left,pageY-top,w,half)));}}>
-     <DialFace size={size} half={half} own={own} ownKey={ownKey} arcs={arcs} arcKey={arcKey} d={d} hands={half===current?{h:hours,m:minutes,s:seconds}:null}/>
+     <DialFace size={size} half={half} own={own} ownKey={ownKey} arcs={arcs} arcKey={arcKey} d={d} hands={half===current&&shownDay===todayStr()?{h:hours,m:minutes,s:seconds}:null}/>
      {/* Crossing 12 o'clock while stretching: a ring of light over the dial the end moved onto. */}
      {stretch?.flash&&stretch.flash.on===half&&<>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill,{borderRadius:size/2,borderWidth:4,borderColor:stretch.flash.kind==='day'?'#fde047':'#a5b4fc',opacity:flashAnim,transform:[{scale:flashAnim.interpolate({inputRange:[0,1],outputRange:[1.08,1]})}]}]}/>
@@ -209,6 +211,11 @@ const ClockDrawer=forwardRef(function ClockDrawer({visible,camera,db,api,pending
      <Text style={{fontSize:11,color:stretch.place.days>0?d.accent:d.muted,fontWeight:stretch.place.days>0?'700':'400'}}>{stretch.place.days>0?`+${stretch.place.days}일 · 다음 날로 넘어갔어요`:stretch.place.half?'오후':'오전'}</Text>
     </Animated.View>;})()}
    {/* The day the clock is working on: a to-do brought in from another day keeps its own date (only the time is set). */}
+   {!pending&&(()=>{const [y,mo,dd]=day.split('-').map(Number),w='일월화수목금토'[new Date(y,mo-1,dd).getDay()];return <View style={[glass,{position:'absolute',top:12,alignSelf:'center',flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:8,paddingVertical:5,borderRadius:99,backgroundColor:'#ffffffe0'}]}>
+     <Pressable accessibilityRole="button" accessibilityLabel="전날" hitSlop={8} onPress={()=>setDayOffset(n=>n-1)} style={{paddingHorizontal:8,paddingVertical:3}}><Text style={{fontSize:13,color:d.muted}}>◀</Text></Pressable>
+     <Pressable accessibilityRole="button" accessibilityLabel="오늘로" onPress={()=>setDayOffset(0)}><Text style={{fontSize:14,fontWeight:'700',color:dayOffset?d.accent:d.text}}>{dayOffset===0?'오늘 · ':dayOffset===1?'내일 · ':dayOffset===-1?'어제 · ':''}{mo}월 {dd}일 ({w})</Text></Pressable>
+     <Pressable accessibilityRole="button" accessibilityLabel="다음 날" hitSlop={8} onPress={()=>setDayOffset(n=>n+1)} style={{paddingHorizontal:8,paddingVertical:3}}><Text style={{fontSize:13,color:d.muted}}>▶</Text></Pressable>
+   </View>;})()}
    {!!pending&&(()=>{const [y,mo,dd]=day.split('-').map(Number),w='일월화수목금토'[new Date(y,mo-1,dd).getDay()];return <View pointerEvents="none" style={[glass,{position:'absolute',top:12,alignSelf:'center',paddingHorizontal:18,paddingVertical:7,borderRadius:99,backgroundColor:'#ffffffe0',alignItems:'center'}]}><Text style={{fontSize:15,fontWeight:'700',color:d.text}}>{day===todayStr()?'오늘 · ':''}{mo}월 {dd}일 ({w})</Text></View>;})()}
    <Pressable accessibilityLabel="시계 닫기" onPress={onClose} hitSlop={12} style={[glass,{position:'absolute',top:12,right:12,width:32,height:32,borderRadius:16,alignItems:'center',justifyContent:'center',backgroundColor:'#ffffff59'}]}><Text style={{fontSize:16,color:d.muted}}>×</Text></Pressable>
    {!!toast&&<View style={[glass,{position:'absolute',left:14,bottom:14,maxWidth:box.width-28,flexDirection:'row',alignItems:'center',gap:8,paddingVertical:8,paddingHorizontal:12,borderRadius:14,backgroundColor:'#ffffffd0'}]}>

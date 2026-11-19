@@ -16,7 +16,7 @@ function start({ client, pet = () => null, send, openView, icon, ring = () => {}
     if (!Notification.isSupported()) { if (a.important && a.dive) ring(a); return; }
     const n = new Notification({ title: a.title, body: a.body, icon, silent: false, ...(a.important ? { timeoutType: 'never', urgency: 'critical' } : {}) });
     // A dive that picked you is a call: clicking it answers (joins), and the window comes up ringing.
-    n.on('click', () => openView(a.dive ? (a.important ? 'join:' : 'dive:') + a.dive : 'team'));
+    n.on('click', () => { refresh(); openView(a.dive ? (a.important ? 'join:' : 'dive:') + a.dive : 'team'); });
     n.show();
     if (a.important && a.dive) ring(a);
   };

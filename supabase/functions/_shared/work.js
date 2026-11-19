@@ -9,7 +9,8 @@ import { apnsReady, voipPush } from './apns.js';
 // A dive is a room named by its agenda: it stays open until the one who opened it deletes it, or until it has been
 // empty (nobody in the call) for ROOM_IDLE_MS.
 // CALL_STALE_MS: a 'join' whose app has not been heard from this long counts as left (a phone closed mid-call).
-export const ONLINE_MS = 45_000, CALL_STALE_MS = 120_000, ROOM_IDLE_MS = 6 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
+// RINGBACK_MS: how long a call rings; a picked person with no answer after that has missed it (shown for MISSED_WINDOW_MS).
+export const ONLINE_MS = 45_000, CALL_STALE_MS = 120_000, ROOM_IDLE_MS = 6 * 3600_000, RINGBACK_MS = 60_000, MISSED_WINDOW_MS = 24 * 3600_000, AGENDA_MAX = 50, NAME_MAX = 20, TEAM_NAME_MAX = 40, INVITE_MAX = 20;
 export const ANSWERS = ['kakao', 'busy'];
 const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send', EXPO_RECEIPTS = 'https://exp.host/--/api/v2/push/getReceipts';
 
@@ -175,6 +176,11 @@ export async function workState(env, user, body = {}) {
     d.empty_since = iso(now);
     await store.update('work_dives', `id=${eq(d.id)}&ended_at=is.null`, { empty_since: d.empty_since }).catch(() => {});
   }
+  // 부재중: dives that called this person and got no answer by the time the ring was over — the last day, open or
+  // already gone. The apps keep which ones were seen.
+  const called = activeIds.length ? await store.select('work_dives', `team_id=${list(activeIds)}&created_at=gte.${iso(now - MISSED_WINDOW_MS)}&targets=cs.{${user.id}}&created_by=neq.${user.id}&select=id,team_id,created_by,agenda,created_at,ended_at&order=created_at.desc`) : [];
+  const answered = new Set(called.length ? (await store.select('work_replies', `dive_id=${list(called.map((d) => d.id))}&user_id=${eq(user.id)}&select=dive_id`)).map((r) => r.dive_id) : []);
+  const missed = called.filter((d) => !answered.has(d.id) && now - Date.parse(d.created_at) > RINGBACK_MS).map((d) => ({ id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, createdAt: d.created_at, open: !d.ended_at }));
   // "다이브 중": in an open room, as one of its joins (presence alone can be stale).
   const inDiveOf = (id) => { const p = presence.get(id); return p?.in_dive && dives.some((d) => d.id === p.in_dive) && replies.some((r) => r.dive_id === p.in_dive && r.user_id === id && r.answer === 'join') ? p.in_dive : null; };
   const online = (id) => { const p = presence.get(id); return !!p && now - Date.parse(p.last_seen) < ONLINE_MS; };
@@ -189,6 +195,7 @@ export async function workState(env, user, body = {}) {
         online: m.user_id ? online(m.user_id) : false, inDive: m.user_id ? inDiveOf(m.user_id) : null,
       })),
     })),
+    missed,
     invites: invited.map((r) => ({ team: r.team_id, name: teams.find((t) => t.id === r.team_id)?.name || '팀', from: nameOf(presence.get(r.invited_by), '') })),
     dives: dives.map((d) => ({
       id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, targets: d.targets || [], createdAt: d.created_at, emptySince: d.empty_since || null,

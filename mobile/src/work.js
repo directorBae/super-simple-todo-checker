@@ -28,7 +28,9 @@ async function connect({ url, token }, onChange) {
   const update = () => onChange({ people: people(), state: room.state });
   for (const e of [RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.ActiveSpeakersChanged, RoomEvent.TrackMuted, RoomEvent.TrackUnmuted, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.LocalTrackPublished, RoomEvent.ConnectionStateChanged]) room.on(e, update);
   room.on(RoomEvent.Disconnected, (reason) => { noteCall('통화 끊김: ' + (reason ?? '?')); AudioSession.stopAudioSession().catch(() => {}); onChange({ people: [], state: 'disconnected', ended: true }); });
-  try { await room.connect(url, token); } catch (e) { noteCall('통화 서버 연결 실패: ' + (e?.message || e)); AudioSession.stopAudioSession().catch(() => {}); throw e; }
+  // The first connection is tried again before giving up.
+  try { for (let i = 0; ; i++) { try { await room.connect(url, token); break; } catch (e) { if (i >= 2) throw e; noteCall('통화 서버 다시 연결 ' + (i + 1)); await new Promise((r) => setTimeout(r, 600 * (i + 1))); } } }
+  catch (e) { noteCall('통화 서버 연결 실패: ' + (e?.message || e)); AudioSession.stopAudioSession().catch(() => {}); throw e; }
   await room.localParticipant.setMicrophoneEnabled(true).catch(() => onChange({ micError: '마이크를 쓸 수 없어요. 설정에서 마이크 권한을 켜 주세요.' }));
   update();
   return {
@@ -38,7 +40,7 @@ async function connect({ url, token }, onChange) {
 }
 
 export function WorkProvider({ onOpen, children }) {
-  const [state, setState] = useState(null), [error, setError] = useState(''), [call, setCall] = useState(null), live = useRef(null);
+  const [state, setState] = useState(null), [error, setError] = useState(''), [call, setCall] = useState(null), live = useRef(null), [memos, setMemos] = useState(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
   const actionsRef = useRef(null);
   const callRef = useRef(null);
@@ -119,6 +121,8 @@ export function WorkProvider({ onOpen, children }) {
     return () => { stop(); subs.forEach((s) => s.remove()); };
   }, []);
 
+  // A few tries before giving up (a call answered on a shaky network; a server that was just restarted).
+  const retry = async (f, n = 3) => { for (let i = 0; ; i++) { try { return await f(); } catch (e) { if (i >= n - 1 || /찾을 수 없|사라진|팀원이 아니|끝난/.test(e?.message || '')) throw e; noteCall(`다시 시도 ${i + 1}: ${e?.message || e}`); await new Promise((r) => setTimeout(r, 700 * (i + 1))); } } };
   const act = async (path, body = {}) => { const r = await tools.work(path, body); refresh(); return r; };
   const enter = async (dive, r) => {
     live.current?.leave();
@@ -150,7 +154,12 @@ export function WorkProvider({ onOpen, children }) {
     removeMember: (team, email) => act('/member/remove', { team, email }),
     reply: (dive, answer) => act('/dive/reply', { dive, answer }),
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
-    join: async (dive) => { const r = await act('/dive/join', { dive }); await enter(dive, r); },
+    join: async (dive) => { const r = await retry(() => act('/dive/join', { dive })); await enter(dive, r); },
+    // 메모 (recorded on a computer; read and sent to Notion here).
+    loadMemos: async (team) => { const r = await tools.work('/memos', { team }); setMemos(r.memos || []); return r.memos; },
+    deleteMemo: async (memo) => { await act('/memo/delete', { memo }); setMemos((m) => (m || []).filter((x) => x.id !== memo)); },
+    notionSearch: (q) => tools.work('/memo/notion/search', { q }).then((r) => r.results || []),
+    memoToNotion: async (memo, page, type, connection) => { const r = await act('/memo/notion', { memo, page, type, connection }); setMemos((m) => (m || []).map((x) => (x.id === memo ? { ...x, notionUrl: r.url } : x))); return r; },
     deleteDive: (dive) => act('/dive/delete', { dive }),
     // Joining while the call screen still rings for this dive: answer it there (the answer comes back as onAnswerCall
     // and joins), so the system knows the call is on.
@@ -175,5 +184,5 @@ export function WorkProvider({ onOpen, children }) {
     ringback(true);
     return () => ringback(false);
   }, [call?.dive, call?.state, remote, state?.dives, state?.me?.id]);
-  return <WorkContext.Provider value={{ state, error, call, available: !!tools, ...actions }}>{children}</WorkContext.Provider>;
+  return <WorkContext.Provider value={{ state, error, call, memos, available: !!tools, ...actions }}>{children}</WorkContext.Provider>;
 }

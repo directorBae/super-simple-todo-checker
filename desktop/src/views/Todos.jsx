@@ -161,6 +161,23 @@ function caretAt(e, titleEl, raw) {
   return Math.min(i, title.length);
 }
 
+// Where the caret is in a title that wraps: its row, how many rows there are and its column in that row, measured
+// with a hidden twin of the textarea that wraps the same way (the browser does not say where a row breaks).
+let mirror = null;
+function rowStartsOf(el) {
+  if (!mirror) { mirror = document.createElement('div'); mirror.setAttribute('aria-hidden', 'true'); mirror.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;pointer-events:none;'; document.body.appendChild(mirror); }
+  const cs = getComputedStyle(el);
+  for (const p of ['font', 'letterSpacing', 'padding', 'border', 'boxSizing', 'lineHeight', 'width', 'textIndent', 'tabSize']) mirror.style[p] = cs[p];
+  const lh = parseFloat(cs.lineHeight) || 20, v = el.value, pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const rowsAt = (i) => { mirror.textContent = v.slice(0, i); mirror.appendChild(document.createTextNode('\u200b')); return Math.max(1, Math.round((mirror.getBoundingClientRect().height - pad) / lh)); };
+  const total = rowsAt(v.length), starts = [0];
+  for (let r = 2; r <= total; r++) { let lo = starts[starts.length - 1] + 1, hi = v.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (rowsAt(mid) >= r) hi = mid; else lo = mid + 1; } starts.push(lo); }
+  return starts;
+}
+function caretRow(el) { const starts = rowStartsOf(el), i = el.selectionStart; let row = 0; for (let r = 0; r < starts.length; r++) if (starts[r] <= i) row = r; return { row, rows: starts.length, col: i - starts[row] }; }
+// The same column on the first row (coming down) or the last row (going up) of this textarea.
+function caretAtColumn(el, col, fromEnd) { const starts = rowStartsOf(el), start = fromEnd ? starts[starts.length - 1] : 0, end = fromEnd ? el.value.length : (starts[1] ?? el.value.length); return Math.max(0, Math.min(start + col, end)); }
+
 function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
   const [detail, setDetail] = useState(false);
   const [repeatOpen, setRepeatOpen] = useState(false);
@@ -175,7 +192,7 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
     if (editing && inputRef.current) {
       const el = inputRef.current;
       el.focus();
-      const at = Math.min(caret ?? el.value.length, el.value.length);
+      const at = caret && typeof caret === 'object' ? caretAtColumn(el, caret.col, caret.fromEnd) : Math.min(caret ?? el.value.length, el.value.length);
       el.setSelectionRange(at, at);
       fit(el);
     }
@@ -222,10 +239,10 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
       onEndEdit();
       onEscape();
     } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && el.selectionStart === el.selectionEnd) {
-      // ↑ on the first row / ↓ on the last row of the text moves to the line above / below.
-      const rows = Math.round(el.scrollHeight / (parseFloat(getComputedStyle(el).lineHeight) || 20));
-      const up = e.key === 'ArrowUp';
-      if (rows <= 1 || (up ? el.selectionStart === 0 : el.selectionEnd === el.value.length)) { e.preventDefault(); onArrow(todo, up ? -1 : 1); }
+      // Like a notepad: ↑ on the first row / ↓ on the last row of the text moves to the line above / below, and the
+      // caret lands in the same column there (on its last row going up, its first coming down).
+      const up = e.key === 'ArrowUp', { row, rows, col } = caretRow(el);
+      if (up ? row === 0 : row === rows - 1) { e.preventDefault(); onArrow(todo, up ? -1 : 1, col); }
     } else if (e.key === 'Backspace' && e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0) {
       e.preventDefault();
       // A team tag in front goes first (the line keeps the team it had).
@@ -593,6 +610,10 @@ function TeamAddInput({ date, kind, db, team, inputRef, onNext, onUp, onFocusCha
 function DaySection({ date, kind, db, isToday, registerInput, focusDay, selection }) {
   const [editingId, setEditingId] = useState(null);
   const caretRef = useRef(null); // where the caret lands in the line being opened (null = end)
+  useEffect(() => {
+    const h = (e) => { const { id, caret } = e.detail || {}; if (displayOrder.some((t) => t.id === id)) editLine(id, caret ?? null); };
+    window.addEventListener('checker:edit-line', h); return () => window.removeEventListener('checker:edit-line', h);
+  });
   const [typingTeam, setTypingTeam] = useState(null); // the team input row in use stays while you type in it
   const [draft, setDraft] = useState(null); // { key, teamId, projectId, channel }
   const [ctx, setCtx] = useState(null);
@@ -668,9 +689,9 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
     return at;
   };
   // ↑ / ↓ from a line: the line above / below in the day; below the last line is the day's input.
-  const stepLine = (todo, dir) => {
+  const stepLine = (todo, dir, col = null) => {
     const i = displayOrder.findIndex((t) => t.id === todo.id), t = displayOrder[i + dir];
-    if (t) editLine(t.id, dir < 0 ? null : 0);
+    if (t) editLine(t.id, col == null ? (dir < 0 ? null : 0) : { col, fromEnd: dir < 0 });
     else if (dir > 0) { setEditingId(null); focusDay(date); }
   };
 

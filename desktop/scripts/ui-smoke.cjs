@@ -229,14 +229,33 @@ app.whenReady().then(async()=>{
   if(await js(`${gcard}.querySelectorAll('.tool-account').length`)!==1)throw Error('The other Google account must stay');
   if(errors.length)throw Error(errors.join('\n'));
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='일').click()`);await pause(300);
-  // Dragging the mouse across several lines' text selects those lines; Delete removes them all, with undo.
+  // Text, like a notepad: a selection from the start of line 1 to the 2nd character of line 3, then Delete, leaves one
+  // line — what was before the cut (nothing) + what is after it in line 3 — with the caret at the cut; undo brings all back.
   const before=db.todos.length;
-  const picked=await js(`(async()=>{const rows=[...document.querySelectorAll('#day-${today} .memo-line .memo-title')].slice(0,3);const r=document.createRange();r.setStart(rows[0].firstChild||rows[0],0);r.setEnd(rows[2].firstChild||rows[2],1);const s=getSelection();s.removeAllRanges();s.addRange(r);await new Promise(r=>setTimeout(r,120));return __sel().split(',').filter(Boolean).length;})()`);
-  if(picked!==3)throw Error('Selecting text across three lines must select those three: '+picked);
-  await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))`);await pause(300);
-  if(db.todos.length!==before-3)throw Error('Delete must remove the selected lines: '+(before-db.todos.length));
-  await js(`document.querySelector('.todo-undo-toast button').click()`);await pause(300);
-  if(db.todos.length!==before)throw Error('Undo must bring them all back');
+  const three=await js(`[...document.querySelectorAll('#day-${today} .memo-line')].slice(0,3).map(e=>({id:e.dataset.todoId,title:e.querySelector('.memo-title').textContent}))`);
+  const picked=await js(`(async()=>{const rows=[...document.querySelectorAll('#day-${today} .memo-line .memo-title')].slice(0,3);const r=document.createRange();r.setStart(rows[0].firstChild||rows[0],0);r.setEnd(rows[2].firstChild||rows[2],1);const s=getSelection();s.removeAllRanges();s.addRange(r);await new Promise(r=>setTimeout(r,120));return __sel()})()`);
+  if(picked)throw Error('Dragging across text must select text, not lines: '+picked);
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))`);await pause(400);
+  {const first=db.todos.find(t=>t.id===three[0].id),want=db.todos.find(t=>t.id===three[2].id)?null:three[2].title.slice(1);
+   if(db.todos.length!==before-2||!first||first.title!==want)throw Error('Delete over a text selection must join the lines: '+JSON.stringify({count:before-db.todos.length,title:first?.title,want}));
+   const caret=await js('(()=>{const a=document.activeElement;return a&&a.tagName==="TEXTAREA"?a.selectionStart:null})()');
+   if(caret!==0)throw Error('the caret must stay at the cut (0), got '+caret);}
+  await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))`);await pause(120);
+  await js(`document.querySelector('.todo-undo-toast button').click()`);await pause(400);
+  if(db.todos.length!==before||db.todos.find(t=>t.id===three[0].id)?.title!==three[0].title)throw Error('Undo must bring the lines back');
+  // Several lines: a box dragged over the notebook's empty space selects what it touches; Delete removes them, with undo.
+  {const start=await js(`(()=>{const mains=[...document.querySelectorAll('#day-${today} .memo-line')].slice(0,4).map(e=>(e.querySelector('.memo-line-main')||e).getBoundingClientRect());const day=document.querySelector('#day-${today}').getBoundingClientRect();const endX=mains[2].right-4,endY=Math.min(mains[2].bottom-3,(mains[3]?mains[3].top:Infinity)-2);const tries=[[mains[0].left-6,mains[0].top+4],[mains[0].left+10,mains[0].top-4],[day.right-6,mains[0].top+4],[mains[0].left-6,mains[1].top+4]];for(const [x,y] of tries){const el=document.elementFromPoint(x,y);if(el&&!el.closest('.memo-line,.memo-head,input,button,textarea,a,label')&&document.querySelector('#day-${today}').contains(el))return {x,y,endX,endY};}return null;})()`);
+   if(!start)throw Error('no empty space to start a selection box from');
+   await js(`{__ptr('pointerdown',document.elementFromPoint(${start.x},${start.y}),${start.x},${start.y});}`);await pause(30);
+   for(const k of [0.2,0.5,1]){await js(`{__ptr('pointermove',document.body,${start.x+(start.endX-start.x)*k},${start.y+(start.endY-start.y)*k});}`);await pause(30);}
+   if(!await js('!!document.querySelector(".todo-marquee")'))throw Error('a box must be drawn while dragging over empty space');
+   await js(`{__ptr('pointerup',document.body,${start.endX},${start.endY});}`);await pause(120);
+   const sel=await js('__sel()'),now3=await js(`[...document.querySelectorAll('#day-${today} .memo-line')].slice(0,3).map(e=>e.dataset.todoId).join(',')`); // (undo re-made two lines with new ids)
+   if(sel!==now3)throw Error('the box must select the three lines it covers: '+sel+' vs '+now3);
+   await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Delete',bubbles:true,cancelable:true}))`);await pause(300);
+   if(db.todos.length!==before-3)throw Error('Delete must remove the selected lines: '+(before-db.todos.length));
+   await js(`document.querySelector('.todo-undo-toast button').click()`);await pause(300);
+   if(db.todos.length!==before)throw Error('Undo must bring them all back');}
   await js(`{const h=document.querySelector('#day-${today} .memo-head'),r=h.getBoundingClientRect();__ptr('pointerdown',document.body,5,5);__ptr('pointerup',document.body,5,5);}`);await pause(80);
   if(await js('__sel()'))throw Error('A press outside the to-dos must clear the selection');
   // The day page behaves like a notepad: Backspace at the start of a line joins it to the line above

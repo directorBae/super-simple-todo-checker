@@ -32,8 +32,11 @@ const typing = (el) => el instanceof Element && !!el.closest('input,textarea,sel
  * Mouse: press and move drags at once. Touch: hold still for a moment, then move — a move before that scrolls,
  * and a plain tap anywhere on a row edits its text.
  * Several at once (computer): click a row to select it, Shift+click for a range, Ctrl/⌘+click to add or remove one,
- * or drag-select text across lines. A selected row drags the whole selection; Delete removes it (with undo);
- * Esc or a press outside the to-dos lets go.
+ * or drag a box over the notebook's empty space (like icons on a desktop). A selected row drags the whole selection;
+ * Delete removes it (with undo); Esc or a press outside the to-dos lets go.
+ * Text, like a notepad: dragging across the titles selects text, across lines too; Delete / Backspace / typing then
+ * joins what is left of the first line with what is left of the last (the lines between go), and the caret stays
+ * where the cut was.
  * Drops: between lines (order, day and team — dropping among a team's lines puts it in that team), onto a team
  * (sidebar, notebook header or the teams room), onto a day header (out of its team), onto a calendar cell (date),
  * onto the bin shown while dragging (delete, with undo) and onto the clock (time).
@@ -46,7 +49,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    let p = null, ghost = null, line = null, marked = null, edge = null, suppress = { until: 0, el: null }, anchor = null;
+    let p = null, ghost = null, line = null, marked = null, edge = null, suppress = { until: 0, el: null }, anchor = null, m = null, box = null;
     const order = () => [...root.querySelectorAll('.memo-line[data-todo-id]')].map((el) => el.dataset.todoId);
     const set = (ids) => setSelection(new Set(ids));
     const clear = () => { if (live.current.selection.size) set([]); };
@@ -182,7 +185,12 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       // Only a finger counts as touch; a mouse, a pen or an unreported pointer type ('') works like a mouse.
       const modifier = e.shiftKey || e.ctrlKey || e.metaKey, mouse = e.pointerType !== 'touch';
       // Pressing anything that is not a to-do lets go of the selection.
-      if (!target?.closest('.memo-line[data-todo-id], .cal-chip[data-todo-id], .todo-drop-strip, .todo-undo-toast')) { if (!modifier) clear(); return; }
+      if (!target?.closest('.memo-line[data-todo-id], .cal-chip[data-todo-id], .todo-drop-strip, .todo-undo-toast')) {
+        if (!modifier) clear();
+        // Empty space of the notebook, with a mouse: a drag from here draws a box that selects the lines it touches.
+        if (mouse && !modifier && root.contains(target) && !target.closest('input,textarea,select,button,a,label,[contenteditable],.memo-head,.suggest-pop,.todo-editor,.popup-overlay,.sched-card,.cal-cell')) m = { x: e.clientX, y: e.clientY, started: false };
+        return;
+      }
       const main = target.closest('.memo-line-main, .cal-chip');
       if (!main || !root.contains(main) || target.closest(OWN_CLICK)) return;
       const el = main.closest('[data-todo-id]'), touch = !mouse, chip = main.classList.contains('cal-chip');
@@ -194,7 +202,26 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       // On touch a row is picked up only by holding still; moving first is a scroll.
       if (touch) p.timer = setTimeout(() => { if (!p) return; p.held = true; el.classList.add('is-held'); navigator.vibrate?.(12); }, HOLD_MS);
     };
+    const marqueeMove = (e) => {
+      if (!m.started) {
+        if (Math.abs(e.clientX - m.x) + Math.abs(e.clientY - m.y) < 6) return;
+        m.started = true;
+        box = document.createElement('div'); box.className = 'todo-marquee'; document.body.appendChild(box);
+        document.body.classList.add('todo-marquee-on');
+      }
+      getSelection()?.removeAllRanges();
+      const l = Math.min(m.x, e.clientX), t = Math.min(m.y, e.clientY), w = Math.abs(e.clientX - m.x), h = Math.abs(e.clientY - m.y);
+      Object.assign(box.style, { left: l + 'px', top: t + 'px', width: w + 'px', height: h + 'px' });
+      const ids = [...root.querySelectorAll('.memo-line[data-todo-id]')].filter((row) => { const r = (row.querySelector('.memo-line-main') || row).getBoundingClientRect(); return r.left < l + w && r.right > l && r.top < t + h && r.bottom > t; }).map((row) => row.dataset.todoId);
+      const sel = live.current.selection;
+      if (ids.length !== sel.size || ids.some((id) => !sel.has(id))) set(ids);
+    };
+    const marqueeEnd = () => {
+      if (m?.started) { box?.remove(); box = null; document.body.classList.remove('todo-marquee-on'); suppress = { until: Date.now() + 350, el: null }; anchor = order().find((id) => live.current.selection.has(id)) || null; }
+      m = null;
+    };
     const move = (e) => {
+      if (m) { marqueeMove(e); return; }
       if (!p) return;
       const dist = Math.abs(e.clientX - p.x) + Math.abs(e.clientY - p.y);
       if (!p.started) {
@@ -207,6 +234,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       track(e.clientX, e.clientY);
     };
     const up = (e) => {
+      if (m) { marqueeEnd(); return; }
       if (!p) return;
       if (p.started) { suppress = { until: Date.now() + 350, el: null }; finish(e.clientX, e.clientY); return; }
       clearTimeout(p.timer); p.el.classList.remove('is-held');
@@ -224,19 +252,54 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
       else set([id]);
       anchor = id;
     };
-    // Dragging the mouse across several lines' text selects those lines.
-    const selectionChange = () => {
-      if (p?.started) return;
-      const range = getSelection()?.rangeCount ? getSelection().getRangeAt(0) : null;
-      if (!range || range.collapsed || !root.contains(range.commonAncestorContainer)) return;
-      const rows = [...root.querySelectorAll('.memo-line[data-todo-id]')].filter((row) => range.intersectsNode(row));
-      if (rows.length < 2) return;
-      anchor = rows[0].dataset.todoId;
-      const ids = rows.map((row) => row.dataset.todoId), sel = live.current.selection;
-      if (ids.length !== sel.size || ids.some((x) => !sel.has(x))) set(ids);
+    // A point of the text selection → the line it is in and the index in that line's real title (the shown text may
+    // have whitespace collapsed or an ending cut; outside the title it counts as its start or end).
+    const shownTitle = (title) => { let s = ''; const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT); for (let n = walker.nextNode(); n; n = walker.nextNode()) { if (n.parentElement?.closest('.span-day')) break; s += n.nodeValue; } return s; };
+    const rawIndex = (raw, shown, k) => { let i = 0, j = 0; while (j < k && i < raw.length) { if (raw[i] === shown[j]) { i++; j++; } else if (/\s/.test(raw[i])) i++; else break; } return Math.min(i, raw.length); };
+    const pointOf = (node, offset) => {
+      const el = node.nodeType === 1 ? node : node.parentElement, row = el?.closest('.memo-line[data-todo-id]'), title = row?.querySelector('.memo-title');
+      if (!row || !title || !root.contains(row)) return null;
+      const id = row.dataset.todoId, raw = live.current.db.todos.find((t) => t.id === id)?.title || '', shown = shownTitle(title);
+      const r = document.createRange(); r.selectNodeContents(title);
+      try { r.setEnd(node, offset); } catch { /* before the title: its start */ }
+      const k = title.contains(node) ? Math.min(r.toString().length, shown.length) : (title.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING ? 0 : shown.length);
+      return { id, index: rawIndex(raw, shown, k) };
+    };
+    const textSelection = () => {
+      const s = getSelection();
+      if (!s || !s.rangeCount || s.isCollapsed) return null;
+      const r = s.getRangeAt(0), a = pointOf(r.startContainer, r.startOffset), b = pointOf(r.endContainer, r.endOffset);
+      if (!a || !b) return null;
+      const ids = order(), ia = ids.indexOf(a.id), ib = ids.indexOf(b.id);
+      if (ia < 0 || ib < 0 || ia > ib) return null;
+      return { first: a, last: b, between: ids.slice(ia + 1, ib) };
+    };
+    // Delete / Backspace / a typed character over a text selection: the first line keeps what is before the cut
+    // (+ the character), the last line's remainder joins it, the lines between go; the first line opens for editing
+    // with the caret at the cut. Undo brings everything back.
+    const cutSelection = async ({ first, last, between }, typed) => {
+      const todos = live.current.db.todos, A = todos.find((t) => t.id === first.id), B = todos.find((t) => t.id === last.id);
+      if (!A || !B) return;
+      const one = first.id === last.id, head = A.title.slice(0, first.index), tail = (one ? A.title : B.title).slice(last.index), title = (head + typed + tail).slice(0, 50);
+      const gone = one ? [] : [...between, last.id].map((id) => todos.find((t) => t.id === id)).filter(Boolean);
+      getSelection()?.removeAllRanges();
+      if (title.trim()) await window.api.updateTodo(A.id, { title });
+      await Promise.all(gone.map((t) => window.api.deleteTodo(t.id)));
+      if (!title.trim()) await window.api.deleteTodo(A.id);
+      const back = [A, ...gone].map(({ title: t, notes, date, endDate, startTime, endTime, teamId, projectId, channel, status }) => ({ title: t, notes, date, endDate, startTime, endTime, teamId, projectId, channel, status }));
+      undoToast(gone.length ? `${gone.length + 1}줄을 합쳤어요` : '글을 지웠어요', () => { if (title.trim()) { window.api.updateTodo(A.id, { title: A.title }); back.slice(1).forEach((t) => window.api.addTodo(t)); } else back.forEach((t) => window.api.addTodo(t)); });
+      if (title.trim()) setTimeout(() => window.dispatchEvent(new CustomEvent('checker:edit-line', { detail: { id: A.id, caret: head.length + typed.length } })), 30);
     };
     const key = (e) => {
       const sel = live.current.selection;
+      if (!typing(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const span = textSelection();
+        if (span) {
+          if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); cutSelection(span, ''); return; }
+          if (e.key.length === 1) { e.preventDefault(); cutSelection(span, e.key); return; }
+          if (e.key === 'Escape') { getSelection()?.removeAllRanges(); return; }
+        }
+      }
       if (!sel.size || typing(e.target)) return;
       if (e.key === 'Escape') { set([]); getSelection()?.removeAllRanges(); }
       else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -244,7 +307,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
         trash(live.current.db.todos.filter((t) => sel.has(t.id))); set([]); getSelection()?.removeAllRanges();
       }
     };
-    const cancel = () => { if (p) cleanup(); };
+    const cancel = () => { if (p) cleanup(); if (m) marqueeEnd(); };
     // While a row is being dragged the page must not scroll or open the long-press menu.
     const touchMove = (e) => { if (p?.held && p.touch) e.preventDefault(); };
     const contextMenu = (e) => { if (p?.touch) e.preventDefault(); };
@@ -261,9 +324,7 @@ export function useTodoDrag({ rootRef, db, selection, setSelection, onDragging }
     listeners.forEach(([n, fn]) => window.addEventListener(n, fn));
     window.addEventListener('touchmove', touchMove, { passive: false });
     window.addEventListener('click', click, true);
-    document.addEventListener('selectionchange', selectionChange);
     return () => {
-      document.removeEventListener('selectionchange', selectionChange);
       cancel(); line?.remove();
       window.removeEventListener('pointerdown', down);
       listeners.forEach(([n, fn]) => window.removeEventListener(n, fn));

@@ -140,6 +140,8 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  // edge (or past it), and faster still the longer the finger stays there, so a line can travel many days quickly;
  // the drag or selection keeps following the finger while it does.
  const EDGE_ZONE=120,auto=useRef({dir:0,depth:0,since:0,raf:0,frame:0,x:0,y:0,kind:null}),contentH=useRef(0),frameBox=useRef(null),[ghost,setGhost]=useState(null);
+ // The ghost's place is an animated value set straight from the finger (no board re-render per move: that is what made a drag stutter).
+ const ghostPos=useRef(new Animated.ValueXY({x:0,y:0})).current;
  const measureViewport=()=>viewport.current?.measureInWindow((x,y,w,h)=>{frameBox.current={x,y,w,h};});
  const stopAuto=()=>{cancelAnimationFrame(auto.current.raf);auto.current.dir=0;};
  const autoStep=()=>{
@@ -180,7 +182,7 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
  };
  // Dragging to the right edge slides the clock in; back to the left edge slides it away again.
  // Over the clock the dragged line is hidden under the sheet, so the clock draws it (title + the time it would get).
- const moving=(x,y)=>{if(!clockOpen){edgeScroll(x,y,'drag');const f=frameBox.current;if(f&&dragging)setGhost({x:x-f.x,y:y-f.y,title:dragging.title,count:selection.has(dragging.id)?selection.size:1});}else setGhost(null);if(dragging&&x>width-64)onClockReveal(dragging);else if(clockOpen&&x<40)onClockClose();if(clockOpen)onClockHover(x,y,dragging);setHover(clockOpen?null:hit(geometry.current.teams,x,y)?.id||null);};
+ const moving=(x,y)=>{if(!clockOpen){edgeScroll(x,y,'drag');const f=frameBox.current;if(f&&dragging){ghostPos.setValue({x:x-f.x,y:y-f.y});const title=dragging.title,count=selection.has(dragging.id)?selection.size:1;setGhost(g=>g&&g.title===title&&g.count===count?g:{title,count});}}else setGhost(null);if(dragging&&x>width-64)onClockReveal(dragging);else if(clockOpen&&x<40)onClockClose();if(clockOpen)onClockHover(x,y,dragging);setHover(clockOpen?null:hit(geometry.current.teams,x,y)?.id||null);};
  const section=date=><DaySection date={date} db={db} api={api} focus={focus} setFocus={setFocus} rows={rows} schedule={dateTodo} onScheduleClose={()=>setDateTodo(null)} selection={selection} onSelectStart={selectStart} onSelectMove={selectMoveFinger} onSelectEnd={selectEnd} onToggle={toggleLine} onDate={t=>setDateTodo(cur=>cur&&cur.id===t.id&&(cur.span?.day??cur.date)===(t.span?.day??t.date)?null:t)} onRepeat={setRepeatTodo} onGrab={on=>{setGrabbing(on);if(on)measureViewport();}} onStart={setDragging} onDrop={drop} onMove={moving} reveal={reveal} typing={typingRows}/>;
  // What a Notion / Google Calendar job does to the lines is played here, one change at a time (ImportTyping.js,
  // import-typing.js): the list scrolls to the line, then a new line is typed out, a changed one erased back and
@@ -252,10 +254,10 @@ export default function Board({ clockOpen=false, clockLeft=Infinity, onClockReve
     </View>)}
     </View>
    </GestureScrollView>
-   {ghost&&<View pointerEvents="none" style={{position:'absolute',left:Math.max(8,ghost.x-40),top:ghost.y-44,maxWidth:240,flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:8,borderRadius:16,backgroundColor:'#fffffff0',borderWidth:1,borderColor:d.edge,shadowColor:'#1e1b4b',shadowOpacity:0.2,shadowRadius:12,shadowOffset:{width:0,height:6},elevation:8}}>
+   {ghost&&<Animated.View pointerEvents="none" style={{position:'absolute',left:-40,top:-44,transform:[{translateX:ghostPos.x},{translateY:ghostPos.y}],maxWidth:240,flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:12,paddingVertical:8,borderRadius:16,backgroundColor:'#fffffff0',borderWidth:1,borderColor:d.edge,shadowColor:'#1e1b4b',shadowOpacity:0.2,shadowRadius:12,shadowOffset:{width:0,height:6},elevation:8}}>
     <Text numberOfLines={1} style={{flexShrink:1,fontSize:14,color:d.text}}>{ghost.title}</Text>
     {ghost.count>1&&<View style={{minWidth:20,height:20,paddingHorizontal:6,borderRadius:10,alignItems:'center',justifyContent:'center',backgroundColor:d.accent}}><Text style={{fontSize:11,fontWeight:'700',color:'#fff'}}>{ghost.count}</Text></View>}
-   </View>}
+   </Animated.View>}
    </View>}
   {!dragging&&!undo&&<Pressable accessibilityLabel="오늘로 이동" onPress={goToday} style={{position:'absolute',right:16,bottom:100}}><Surface native style={{borderRadius:99}} contentStyle={{paddingHorizontal:14,paddingVertical:9}}><Text style={{fontSize:13,fontWeight:'700',color:d.accent}}>◎ 오늘</Text></Surface></Pressable>}
   {undo&&!dragging&&<Surface native style={{position:'absolute',bottom:98,left:16,right:16}} contentStyle={{padding:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}><Text style={{fontSize:13,color:d.text}}>{undo.action==='delete'?(undo.todos?.length>1?`할 일 ${undo.todos.length}개를 삭제했어요`:'할 일을 삭제했어요'):'버킷에 담았어요'}</Text><Pressable onPress={()=>{if(undo.action==='bucket')api.updateTodo(undo.todo.id,{status:undo.todo.status});else (undo.todos||[undo.todo]).forEach(t=>api.restoreTodo(t));setUndo(null);}}><Text style={{color:d.accent,fontWeight:'700'}}>되돌리기</Text></Pressable><Pressable accessibilityLabel="알림 닫기" onPress={()=>setUndo(null)}><Icon name="close" size={16}/></Pressable></Surface>}

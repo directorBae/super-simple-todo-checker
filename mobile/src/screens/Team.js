@@ -5,7 +5,7 @@ import { Text } from '../text.js';
 import { useDesign, Surface, Button, Sheet } from '../design.js';
 import { useWork } from '../work.js';
 import { useDb } from '../store.js';
-import { incomingDive } from '../../../shared/work-alerts.mjs';
+import { incomingDive, missedDives } from '../../../shared/work-alerts.mjs';
 import { notificationPermission, pushState, startPush, permissionNote, quietly } from '../notifications.js';
 import { available as voipAvailable, callState } from '../voip.js';
 import { Linking, AppState } from 'react-native';
@@ -117,6 +117,65 @@ function MemberSheet({ team, member, onClose }) {
       </View>;
     })}
   </Sheet>;
+}
+
+// 부재중: dives that called me and I did not answer in time. "확인" puts one away; "들어가기" joins while the room is open.
+function Missed({ team }) {
+  const w = useWork(), d = useDesign(), { db, api } = useDb(), seen = db.settings.missedSeen || [], [error, setError] = useState('');
+  const list = missedDives(w.state, seen).filter((m) => m.team === team.id);
+  if (!list.length) return null;
+  const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
+  const dismiss = (ids) => api.updateSettings({ missedSeen: [...new Set([...seen, ...ids])].slice(-200) });
+  return <Card style={{ borderColor: '#e5484d59' }}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Title note={`${list.length}개`}>📵 부재중 다이브</Title><View style={{ flex: 1 }} /><Pressable accessibilityRole="button" hitSlop={8} onPress={() => dismiss(list.map((m) => m.id))}><Text style={{ color: d.muted, fontSize: 12 }}>모두 확인</Text></Pressable></View>
+    {list.map((m) => <View key={m.id} style={{ gap: 6, padding: 10, borderRadius: 14, backgroundColor: '#e5484d14' }}>
+      <Text style={{ color: d.text, fontWeight: '700' }}>{nameOf(m.by)} <Text style={{ color: d.muted, fontWeight: '500', fontSize: 12 }}>· {ago(m.createdAt)}{m.open ? '' : ' · 방은 닫혔어요'}</Text></Text>
+      <Text style={{ color: d.text }}>{m.agenda}</Text>
+      <View style={{ flexDirection: 'row', gap: 6 }}>{m.open && <Button primary title="들어가기" onPress={() => run(setError, () => w.joinDive(m.id).then(() => dismiss([m.id])))} />}<Button title="확인" onPress={() => dismiss([m.id])} /></View>
+    </View>)}
+    <ErrorText>{error}</ErrorText>
+  </Card>;
+}
+
+// 메모: what was recorded in the team's calls on a computer, written down and summed up; sending one to Notion.
+function NotionSheet({ memo, onClose }) {
+  const w = useWork(), d = useDesign(), [q, setQ] = useState(''), [results, setResults] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const search = async () => { setBusy(true); setError(''); try { setResults(await w.notionSearch(q)); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  useEffect(() => { search(); }, []);
+  const send = async (r) => { setBusy(true); setError(''); try { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } catch (e) { setError(e.message); setBusy(false); } };
+  return <Sheet title="노션에 보내기" onClose={() => onClose()}>
+    <Text style={{ color: d.muted, fontSize: 13 }}>메모 "{memo.title || memo.summary?.title}"를 어디에 넣을까요? 페이지 아래 새 페이지로, DB면 새 행으로 들어가요.</Text>
+    <View style={{ flexDirection: 'row', gap: 8 }}><Field value={q} onChangeText={setQ} placeholder="페이지·DB 이름으로 찾기" onSubmitEditing={search} /><Button title="찾기" disabled={busy} onPress={search} /></View>
+    {results && results.map((r) => <Pressable key={r.connection + r.id} accessibilityRole="button" disabled={busy} onPress={() => send(r)} style={{ padding: 10, borderRadius: 12, borderWidth: 1, borderColor: d.edge }}><Text style={{ color: d.text, fontWeight: '600' }}>{r.icon ? r.icon + ' ' : ''}{r.title}</Text><Text style={{ color: d.muted, fontSize: 11 }}>{r.type === 'database' ? 'DB' : '페이지'}{r.workspace ? ' · ' + r.workspace : ''}</Text></Pressable>)}
+    {results && !results.length && <Text style={{ color: d.muted, fontSize: 13 }}>찾은 게 없어요. 노션에서 연결 권한을 준 페이지만 보여요.</Text>}
+    <ErrorText>{error}</ErrorText>
+  </Sheet>;
+}
+function Memos({ team }) {
+  const w = useWork(), d = useDesign(), me = w.state.me, [open, setOpen] = useState(null), [picker, setPicker] = useState(null), [error, setError] = useState('');
+  useEffect(() => { w.loadMemos(team.id).catch((e) => setError(e.message)); }, [team.id]);
+  const list = (w.memos || []).filter((m) => m.team === team.id);
+  const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
+  if (!list.length) return null;
+  return <Card><Title note={`${list.length}개 · 녹음은 PC·웹에서`}>📝 메모</Title>
+    {list.map((m) => <View key={m.id} style={{ gap: 6 }}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open === m.id }} onPress={() => setOpen(open === m.id ? null : m.id)} style={{ paddingVertical: 4 }}>
+        <Text style={{ color: d.text, fontWeight: '700' }}>{m.title || m.summary?.title || '메모'}</Text>
+        <Text style={{ color: d.muted, fontSize: 11 }}>{nameOf(m.by)} · {ago(m.createdAt)}{m.state !== 'done' ? ' · 정리 중' : ''}{m.notionUrl ? ' · 노션에 있음' : ''}</Text>
+      </Pressable>
+      {open === m.id && <View style={{ gap: 6, paddingLeft: 4 }}>
+        {!!m.summary?.summary && <Text style={{ color: d.text, fontSize: 13, lineHeight: 19 }}>{m.summary.summary}</Text>}
+        {m.summary?.decisions?.length > 0 && <Text style={{ color: d.text, fontSize: 13 }}><Text style={{ color: d.muted }}>정해진 것{'\n'}</Text>{m.summary.decisions.map((x) => '• ' + x).join('\n')}</Text>}
+        {m.summary?.todos?.length > 0 && <Text style={{ color: d.text, fontSize: 13 }}><Text style={{ color: d.muted }}>할 일{'\n'}</Text>{m.summary.todos.map((x) => '☐ ' + x).join('\n')}</Text>}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {m.state === 'done' && <Button primary title="📝 노션에 보내기" onPress={() => setPicker(m)} />}
+          {!!m.notionUrl && <Button title="노션에서 열기" onPress={() => Linking.openURL(m.notionUrl)} />}
+          {m.by === me.id && <Button title="지우기" onPress={() => Alert.alert('이 메모를 지울까요?', '', [{ text: '취소', style: 'cancel' }, { text: '지우기', style: 'destructive', onPress: () => run(setError, () => w.deleteMemo(m.id)) }])} />}
+        </View>
+      </View>}
+    </View>)}
+    <ErrorText>{error}</ErrorText>
+    {picker && <NotionSheet memo={picker} onClose={() => setPicker(null)} />}
+  </Card>;
 }
 
 function Members({ team }) {
@@ -262,6 +321,7 @@ export default function TeamScreen() {
     </View>
     <AlertsOff />
     <Invites />
+    {team && !adding && <Missed team={team} />}
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <>
       <Card style={{ alignItems: 'stretch' }}>
         <CheckerLink team={team} />
@@ -273,6 +333,7 @@ export default function TeamScreen() {
         </>}
       </Card>
       <Dives team={team} />
+      <Memos team={team} />
       <Members team={team} />
     </>}
     {composer && team && <DiveComposer team={team} onClose={() => setComposer(false)} />}

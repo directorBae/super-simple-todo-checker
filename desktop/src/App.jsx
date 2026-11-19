@@ -30,6 +30,11 @@ export default function App() {
  useEffect(() => { const m = matchMedia('(max-width: 700px)'), change = () => setPhone(m.matches); m.addEventListener('change',change); return () => m.removeEventListener('change',change); }, []);
  const open = view => { setMenu(false); setBell(false); if(view === 'missed') setBell(true); else if(view === 'today') { setPopup(null); setRoom(0); setMode('checker'); } else if(view === 'team' || view.startsWith('dive:') || view.startsWith('join:')) { setPopup(null); setRoom(0); setMode('team'); if(view.startsWith('dive:')) setFocusDive(view.slice(5)); if(view.startsWith('join:')) setAnswerDive(view.slice(5)); } else setPopup(view); };
  useEffect(() => { window.api.getState().then(setDb); window.api.onDbChanged(setDb); window.api.onOpenView(open); }, []);
+ // Space is for typing: it never scrolls the page (buttons, the game's canvas and text fields keep their own Space).
+ useEffect(() => {
+  const k = (e) => { if (e.key === ' ' && !(e.target instanceof Element && e.target.closest('input,textarea,select,button,[contenteditable],canvas,[role="button"],summary,a'))) e.preventDefault(); };
+  window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+ }, []);
  useEffect(() => { const key = e => { if(e.key === 'Escape') { setPopup(null); setMenu(false); setBell(false); } }; window.addEventListener('keydown',key); return () => window.removeEventListener('keydown',key); }, []);
  // The web version reminds through the browser (the desktop app uses its own system notifications).
  const latestDb = useRef(null); latestDb.current = db;
@@ -64,7 +69,7 @@ export default function App() {
    </div>
   </header>
   {onboarding ? <main className="onboarding"><div className="welcome-mark">✓</div><p className="eyebrow">WELCOME TO CHECKER</p><h1>흩어진 일들을 한곳으로.</h1><p className="welcome-desc">쓰고 있는 도구를 연결해 시작하세요.<br />이제 할 일만 적으면 됩니다.</p><Integrations db={db} /><div className="welcome-actions"><button className="primary" onClick={finish}>시작하기 →</button><button className="ghost" onClick={finish}>지금은 건너뛰기</button></div></main> :
-   (mode === 'team' ? <Team checkerTeams={db.teams} /> : <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>)}
+   (mode === 'team' ? <Team checkerTeams={db.teams} db={db} /> : <main className="content notebook-content"><MemoBoard db={board} onOpenTeams={() => setRoom(-1)} /></main>)}
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} open={popup === 'music'} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />

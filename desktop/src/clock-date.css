@@ -76,3 +76,10 @@
 .clock-half-badge.day { color: #a16207; }
 @keyframes clock-badge { 0% { opacity: 0; transform: translate(-50%, -30%) scale(0.9); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); } 70% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -60%); } }
 @media (prefers-reduced-motion: reduce) { .clock-half-badge { animation-duration: 1.8s; } }
+
+/* The day shown on the dials: ◀ 오늘 · 11월 12일 (수) ▶ in the clock's head. */
+.clock-day-nav { display: inline-flex; align-items: center; gap: 2px; margin-left: 10px; }
+.clock-day-nav button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 8px; cursor: pointer; }
+.clock-day-nav button:hover { background: rgba(255, 255, 255, 0.18); color: var(--text); }
+.clock-day-nav .clock-day-label { font-weight: 700; color: var(--text); }
+.clock-day-nav .clock-day-label.off { color: var(--accent); }

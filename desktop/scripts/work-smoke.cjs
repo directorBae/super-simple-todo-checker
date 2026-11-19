@@ -8,7 +8,7 @@ const fs = require('node:fs'), path = require('node:path');
 const dir = path.resolve(__dirname, '../../artifacts/uiux-qa');
 fs.mkdirSync(dir, { recursive: true }); app.setPath('userData', path.join(dir, 'profile-work'));
 const now = Date.now(), today = new Date().toLocaleDateString('en-CA');
-const db = { todos: [{ id: 'a', title: 'Design review', teamId: 'team', kind: 'todo', status: 'todo', date: today, createdAt: now, updatedAt: now, origin: { type: 'app' } }], teams: [{ id: 'team', name: 'Studio', color: '#6685e8' }], projects: [], gcalEvents: [], tombstones: [], notifLog: [], settings: { theme: 'light', onboardingDone: true, musicSeeded: true, sync: { lastSync: now } } };
+const db = { todos: [{ id: 'a', title: 'Design review', teamId: 'team', kind: 'todo', status: 'todo', date: today, createdAt: now, updatedAt: now, origin: { type: 'app' } }, { id: 'b', title: 'Second line here', teamId: 'team', kind: 'todo', status: 'todo', date: today, createdAt: now + 1, updatedAt: now + 1, origin: { type: 'app' } }], teams: [{ id: 'team', name: 'Studio', color: '#6685e8' }], projects: [], gcalEvents: [], tombstones: [], notifLog: [], settings: { theme: 'light', onboardingDone: true, musicSeeded: true, sync: { lastSync: now } } };
 const ME = { id: 'me', name: '정원', email: 'me@x.com' }, MJ = { id: 'mj', name: '민지', email: 'minji@x.com', status: 'active', online: true };
 const ago = (ms) => new Date(now - ms).toISOString();
 const state = { ok: true, me: ME, invites: [], teams: [{ id: 'w1', name: 'UO BioLabs', mine: true, links: [], link: null, members: [{ ...ME, status: 'active', online: true }, MJ] }],
@@ -17,13 +17,18 @@ const state = { ok: true, me: ME, invites: [], teams: [{ id: 'w1', name: 'UO Bio
     { id: 'r1', team: 'w1', by: 'me', agenda: '내일 발표 자료 맞추기', targets: ['mj'], createdAt: ago(3600_000 * 2), emptySince: ago(3600_000), replies: [{ id: 'me', answer: 'left', at: ago(3600_000) }] },
     // 민지's, she is in it, I am called.
     { id: 'r2', team: 'w1', by: 'mj', agenda: '세포 배양 결과 리뷰', targets: ['me'], createdAt: ago(60_000), emptySince: null, replies: [{ id: 'mj', answer: 'join', at: ago(60_000) }] },
-  ] };
+  ],
+  missed: [{ id: 'r0', team: 'w1', by: 'mj', agenda: '아침 스탠드업', createdAt: ago(3 * 3600_000), open: false }] };
+const memos = [{ id: 'm1', team: 'w1', by: 'mj', title: '발표 자료', state: 'done', transcript: '전체 받아쓴 글', summary: { title: '발표 자료 회의', summary: '내일까지 자료를 맞추기로 했다.', decisions: ['디자인은 민지'], todos: ['민지: 시안 보내기'] }, notionUrl: null, createdAt: ago(7200_000) }];
+const notionSent = [];
 const asked = [], saved = [];
 ipcMain.handle('smoke:state', () => db);
 ipcMain.handle('smoke:settings', (e, p) => { Object.assign(db.settings, p); e.sender.send('smoke:db', db); return db; });
 ipcMain.handle('smoke:integrations', () => ({ ok: true, connections: [], targets: [], jobs: [], configured: {} }));
 ipcMain.handle('smoke:tools', (_, { action, payload }) => {
-  if (action === 'work') { asked.push(payload.path); if (payload.path === '/state') return state; if (payload.path === '/dive/delete') { state.dives = state.dives.filter((d) => d.id !== payload.body.dive); return { ok: true }; } return { ok: true }; }
+  if (action === 'work') { asked.push(payload.path); if (payload.path === '/state') return state; if (payload.path === '/dive/delete') { state.dives = state.dives.filter((d) => d.id !== payload.body.dive); return { ok: true }; }
+    if (payload.path === '/memos') return { ok: true, memos }; if (payload.path === '/memo/notion/search') return { ok: true, results: [{ id: 'page1', type: 'page', title: '회의록', connection: 'c1', workspace: 'Studio' }] };
+    if (payload.path === '/memo/notion') { notionSent.push(payload.body); memos[0].notionUrl = 'https://notion.so/new-memo'; return { ok: true, url: 'https://notion.so/new-memo' }; } return { ok: true }; }
   if (action === 'playlist') return { ok: true, playlist: [{ id: 'm1', url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa', title: '' }, { id: 'm2', url: 'https://www.youtube.com/watch?v=bbbbbbbbbbb', title: 'https://www.youtube.com/watch?v=bbbbbbbbbbb' }, { id: 'm3', url: 'https://www.youtube.com/watch?v=ccccccccccc', title: '이미 있는 제목' }] };
   if (action === 'musicTitle') { asked.push('musicTitle:' + payload.url.slice(-3)); return { ok: true, title: '받아온 제목 ' + payload.url.slice(-3) }; }
   if (action === 'savePlaylist') { saved.push(payload.list); return { ok: true }; }
@@ -45,6 +50,28 @@ app.whenReady().then(async () => {
     await pause(250);
     const sel = await js('(()=>{const a=document.activeElement;return a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")?{start:a.selectionStart,end:a.selectionEnd,value:a.value}:null})()');
     if (!sel || sel.start !== 7 || sel.end !== 7) throw Error('the caret should open at the 8th character of "Design review" (click at ' + JSON.stringify(hit) + '), got ' + JSON.stringify(sel));
+    // ↓ from the 8th column of line 1 opens line 2 with the caret in its 8th column (like a notepad).
+    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))'); await pause(250);
+    const down = await js('(()=>{const a=document.activeElement,row=a&&a.closest(".memo-line");return a&&a.tagName==="TEXTAREA"?{id:row?.dataset.todoId,start:a.selectionStart}:null})()');
+    if (!down || down.id !== 'b' || down.start !== 7) throw Error('↓ should open the next line with the caret in the same column: ' + JSON.stringify(down));
+    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}))'); await pause(250);
+    const up = await js('(()=>{const a=document.activeElement,row=a&&a.closest(".memo-line");return a&&a.tagName==="TEXTAREA"?{id:row?.dataset.todoId,start:a.selectionStart}:null})()');
+    if (!up || up.id !== 'a' || up.start !== 7) throw Error('↑ should go back to line 1, same column: ' + JSON.stringify(up));
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); await pause(200);
+    // Space on the page itself is swallowed (no scrolling); in a text field it is a space.
+    const space = await js('(()=>{document.activeElement.blur();const e=new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true});document.body.dispatchEvent(e);const t=document.createElement("textarea");document.body.appendChild(t);t.focus();const e2=new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true});t.dispatchEvent(e2);t.remove();return {page:e.defaultPrevented,field:e2.defaultPrevented}})()');
+    if (!space.page || space.field) throw Error('Space: page ' + space.page + ', field ' + space.field);
+    // The clock shows any day: ▶ in its head goes to tomorrow (no hands there), the label says so, → key too.
+    await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowRight",ctrlKey:true,bubbles:true,cancelable:true}))'); await pause(800);
+    if (!await js('!!document.querySelector(".clock-dock.is-open .clock-day-nav")')) throw Error('the clock head needs its day nav');
+    const hadHands = await js('!!document.querySelector(".clock-dock .clock-hands")');
+    await js(`document.querySelector('.clock-dock .clock-day-nav button[aria-label="다음 날"]').click()`); await pause(200);
+    const nav = await js('({label:document.querySelector(".clock-dock .clock-day-label").textContent,hands:!!document.querySelector(".clock-dock .clock-hands")})');
+    if (!nav.label.startsWith('내일') || nav.hands || !hadHands) throw Error('tomorrow on the clock: ' + JSON.stringify({ ...nav, hadHands }));
+    await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",bubbles:true,cancelable:true}))'); await pause(200);
+    if (!(await js('document.querySelector(".clock-dock .clock-day-label").textContent')).startsWith('오늘')) throw Error('← should come back to today');
+    await snap('clock-day-nav');
+    await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",ctrlKey:true,bubbles:true,cancelable:true}))'); await pause(800);
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); await pause(200);
     // ---- rooms ----
     await js('[...document.querySelectorAll("button")].find(b=>b.textContent.trim()==="Team").click()'); await pause(900);
@@ -53,6 +80,25 @@ app.whenReady().then(async () => {
     must(text, '열린 방', '안에 1명: 민지'); must(text, '열린 방', '들어가기'); must(text, '열린 방', '카톡 가능'); must(text, '열린 방', '지금 연락 불가');
     if (text.includes('사라져요')) throw Error('old wording');
     await snap('rooms');
+    // ---- 부재중 ----
+    const missedText = await js('document.querySelector(".work-missed")?.innerText || ""');
+    for (const want of ['부재중 다이브', '민지', '아침 스탠드업', '방은 닫혔어요', '확인']) must(missedText, '부재중', want);
+    if (missedText.includes('들어가기')) throw Error('a closed room cannot be entered');
+    await js('[...document.querySelectorAll(".work-missed button")].find(b=>b.textContent.trim()==="확인").click()'); await pause(400);
+    if (!(db.settings.missedSeen || []).includes('r0') || await js('!!document.querySelector(".work-missed")')) throw Error('확인 must put the missed dive away: ' + JSON.stringify(db.settings.missedSeen));
+    // ---- 메모 → 노션 ----
+    const memoText = await js('document.querySelector(".work-memos")?.innerText || ""');
+    for (const want of ['메모', '발표 자료', '민지']) must(memoText, '메모', want);
+    await js('document.querySelector(".work-memo-head").click()'); await pause(200);
+    const opened = await js('document.querySelector(".work-memo.open")?.innerText || ""');
+    for (const want of ['내일까지 자료를 맞추기로', '정해진 것', '디자인은 민지', '할 일', '민지: 시안 보내기', '노션에 보내기']) must(opened, '메모 펼침', want);
+    await js('[...document.querySelectorAll(".work-memo button")].find(b=>b.textContent.includes("노션에 보내기")).click()'); await pause(400);
+    const picker = await js('document.querySelector(".notion-picker")?.innerText || ""');
+    must(picker, '노션 고르기', '회의록'); must(picker, '노션 고르기', 'Studio');
+    await js('document.querySelector(".notion-results button").click()'); await pause(400);
+    if (!notionSent.length || notionSent[0].memo !== 'm1' || notionSent[0].page !== 'page1' || notionSent[0].connection !== 'c1') throw Error('sending to Notion: ' + JSON.stringify(notionSent));
+    if (await js('!!document.querySelector(".notion-picker")') || !(await js('document.querySelector(".work-memo.open").innerText')).includes('노션에서 열기')) throw Error('after sending, the picker closes and the memo links to Notion');
+    await snap('memo-notion');
     // 방 삭제 (confirmed) asks the server and the room goes.
     await js('window.confirm = () => true; [...document.querySelectorAll(".work-dive button")].find(b=>b.textContent.trim()==="방 삭제").click()'); await pause(600);
     if (!asked.includes('/dive/delete')) throw Error('방 삭제 did not reach /dive/delete: ' + asked.join(','));
@@ -66,7 +112,7 @@ app.whenReady().then(async () => {
     await pause(700); // the debounced save
     if (!saved.length || !saved.at(-1).every((x) => x.title && !/^https/.test(x.title))) throw Error('titles not saved: ' + JSON.stringify(saved.at(-1)));
     await snap('music-titles');
-    console.log('work smoke passed: 클릭한 자리에 커서, 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
+    console.log('work smoke passed: 클릭한 자리에 커서, ↑↓ 같은 열, 스페이스바 안 스크롤, 시계 다른 날, 부재중, 메모 → 노션, 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
   } catch (e) { console.error(e.message); process.exitCode = 1; }
   app.quit();
 });

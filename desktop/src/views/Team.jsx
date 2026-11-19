@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { useWork } from '../work/work-state.jsx';
 import { incomingDive } from '../../../shared/work-alerts.mjs';
 import { ring } from '../work/ring.js';
+import { missedDives } from '../../../shared/work-alerts.mjs';
+import { recordingSupported } from '../work/recorder.js';
 import { todosOn, addDay } from '../../../shared/multi-day.js';
 import { PetSprite, DEFAULT_PET } from '../focus/Pet.jsx';
 
@@ -13,6 +15,7 @@ import { PetSprite, DEFAULT_PET } from '../focus/Pet.jsx';
  */
 const AGENDA_MAX = 50;
 const ANSWER = { join: '참여', left: '나감', kakao: '카톡 가능', busy: '지금 연락 불가' };
+function sinceLabel(ms) { const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
 // A room's second line: who is in it, or how long until an empty one goes away (6 hours after the last one left).
 const ROOM_IDLE_MS = 6 * 3600_000;
 function roomNote(d, nameOf) {
@@ -138,6 +141,75 @@ function MemberWindow({ team, member, onClose }) {
       {board && !phone && <WindowPet pet={board.pet} />}
     </section>
   </div>, document.body);
+}
+
+// 부재중: dives that called me and I did not answer in time. "확인" puts one away; "들어가기" joins while the room is open.
+function Missed({ team, db }) {
+  const w = useWork(), seen = db?.settings?.missedSeen || [], [error, setError] = useState('');
+  const list = missedDives(w.state, seen).filter((m) => m.team === team.id);
+  if (!list.length) return null;
+  const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
+  const dismiss = (ids) => window.api.updateSettings({ missedSeen: [...new Set([...seen, ...ids])].slice(-200) });
+  return <section className="work-card work-missed" aria-label="부재중 다이브">
+    <h3>📵 부재중 다이브 <small>{list.length}</small><button className="ghost" onClick={() => dismiss(list.map((m) => m.id))}>모두 확인</button></h3>
+    <ul>{list.map((m) => <li key={m.id}>
+      <div><b>{nameOf(m.by)}</b> · {ago(m.createdAt)}<br /><span>{m.agenda}</span>{!m.open && <small> · 방은 닫혔어요</small>}</div>
+      <div className="work-row">
+        {m.open && <button className="primary" onClick={() => w.joinDive(m.id).then(() => dismiss([m.id]), (e) => setError(e.message))}>들어가기</button>}
+        <button className="ghost" onClick={() => dismiss([m.id])}>확인</button>
+      </div>
+    </li>)}</ul>
+    {error && <p className="work-error" role="alert">{error}</p>}
+  </section>;
+}
+
+// 메모: what was recorded in the team's calls — written down and summed up by the server — and sending one to Notion.
+function NotionPicker({ memo, onClose }) {
+  const w = useWork(), [q, setQ] = useState(''), [results, setResults] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const search = async (e) => { e?.preventDefault(); setBusy(true); setError(''); try { setResults(await w.notionSearch(q)); } catch (x) { setError(x.message); } finally { setBusy(false); } };
+  useEffect(() => { search(); }, []);
+  const send = async (r) => { setBusy(true); setError(''); try { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } catch (x) { setError(x.message); setBusy(false); } };
+  return <div className="popup-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <form className="popup-panel notion-picker" role="dialog" aria-modal="true" aria-label="노션에 보내기" onSubmit={search}>
+      <div className="popup-head"><h2>노션에 보내기</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={() => onClose()}>✕</button></div>
+      <div className="popup-body">
+        <p className="desc">메모 "{memo.title || memo.summary?.title}"를 어디에 넣을까요? 페이지 아래에 새 페이지로, DB면 새 행으로 들어가요.</p>
+        <div className="work-row"><input value={q} placeholder="페이지·DB 이름으로 찾기" aria-label="노션에서 찾기" onChange={(e) => setQ(e.target.value)} autoFocus /><button className="ghost" disabled={busy}>찾기</button></div>
+        {results && <ul className="notion-results">{results.map((r) => <li key={r.connection + r.id}><button type="button" disabled={busy} onClick={() => send(r)}>{r.icon ? r.icon + ' ' : ''}{r.title}<small>{r.type === 'database' ? 'DB' : '페이지'}{r.workspace ? ' · ' + r.workspace : ''}</small></button></li>)}
+          {!results.length && <li className="desc">찾은 게 없어요. 노션에서 연결 권한을 준 페이지만 보여요.</li>}</ul>}
+        {error && <p className="work-error" role="alert">{error}</p>}
+      </div>
+    </form>
+  </div>;
+}
+function Memos({ team }) {
+  const w = useWork(), me = w.state.me, [open, setOpen] = useState(null), [picker, setPicker] = useState(null), [error, setError] = useState('');
+  useEffect(() => { w.loadMemos(team.id).catch((e) => setError(e.message)); }, [team.id]);
+  const list = (w.memos || []).filter((m) => m.team === team.id);
+  const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
+  if (!list.length && !w.recording) return null;
+  return <section className="work-card work-memos" aria-label="메모">
+    <h3>📝 메모 <small>{list.length}</small></h3>
+    {w.recording && <p className="desc">⏺ 녹음 중 · 조각 {w.recording.sent}/{w.recording.pieces} 받아쓰는 중{w.recording.stopping ? ' · 정리하는 중…' : ''}</p>}
+    {list.map((m) => <article key={m.id} className={'work-memo' + (open === m.id ? ' open' : '')}>
+      <button type="button" className="work-memo-head" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
+        <b>{m.title || m.summary?.title || '메모'}</b><small>{nameOf(m.by)} · {ago(m.createdAt)}{m.state !== 'done' ? ' · 정리 중' : ''}{m.notionUrl ? ' · 노션에 있음' : ''}</small>
+      </button>
+      {open === m.id && <div className="work-memo-body">
+        {m.summary?.summary && <p>{m.summary.summary}</p>}
+        {m.summary?.decisions?.length > 0 && <><h4>정해진 것</h4><ul>{m.summary.decisions.map((d, i) => <li key={i}>{d}</li>)}</ul></>}
+        {m.summary?.todos?.length > 0 && <><h4>할 일</h4><ul>{m.summary.todos.map((d, i) => <li key={i}>☐ {d}</li>)}</ul></>}
+        {m.transcript && <details><summary>전체 기록</summary><p className="work-memo-transcript">{m.transcript}</p></details>}
+        <div className="work-row">
+          {m.state === 'done' && <button className="primary" onClick={() => setPicker(m)}>📝 노션에 보내기</button>}
+          {m.notionUrl && <button className="ghost" onClick={() => window.api.openExternal(m.notionUrl)}>노션에서 열기</button>}
+          {m.by === me.id && <button className="ghost danger" onClick={() => { if (confirm('이 메모를 지울까요?')) w.deleteMemo(m.id).catch((e) => setError(e.message)); }}>지우기</button>}
+        </div>
+      </div>}
+    </article>)}
+    {error && <p className="work-error" role="alert">{error}</p>}
+    {picker && <NotionPicker memo={picker} onClose={() => setPicker(null)} />}
+  </section>;
 }
 
 function Members({ team }) {
@@ -273,7 +345,7 @@ function TeamSettings({ team, onClose }) {
   </div>;
 }
 
-export default function Team({ checkerTeams = [] }) {
+export default function Team({ checkerTeams = [], db }) {
   const w = useWork(), s = w.state;
   const [teamId, setTeamId] = useState(null), [composer, setComposer] = useState(false), [adding, setAdding] = useState(false), [settings, setSettings] = useState(false);
   if (!s) return <main className="content team-view"><p className="team-empty">{w.error || '팀을 불러오는 중…'}</p></main>;
@@ -289,6 +361,7 @@ export default function Team({ checkerTeams = [] }) {
       <MyName />
     </div>
     <Invites />
+    {team && !adding && <Missed team={team} db={db} />}
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <div className="team-grid">
       <Members team={team} />
       <section className="work-card dive-hub" aria-label="다이브">
@@ -301,6 +374,7 @@ export default function Team({ checkerTeams = [] }) {
         </>}
       </section>
       <Dives team={team} />
+      <Memos team={team} />
     </div>}
     {composer && team && <DiveComposer team={team} onClose={() => setComposer(false)} />}
     {settings && team && <TeamSettings team={team} onClose={() => setSettings(false)} />}
@@ -315,6 +389,7 @@ export function IncomingDive({ focus, onSeen, answer, onAnswered }) {
   const d = incomingDive(w.state), showing = !!d && !w.call && !gone.has(d.id);
   const go = (f) => f().then(() => setGone((g) => new Set(g).add(d.id)), (e) => setError(e.message));
   useEffect(() => { if (focus && d?.id === focus) onSeen?.(); }, [focus, d?.id]);
+  useEffect(() => { if (answer && !d) w.refresh?.(); }, [answer, d?.id]);
   useEffect(() => { if (showing && answer === d.id) { onAnswered?.(); go(() => w.joinDive(d.id)); } }, [showing, answer, d?.id]);
   useEffect(() => { if (!showing || answer === d.id || Date.now() - Date.parse(d.createdAt) > 60_000) return undefined; return ring(); }, [showing, d?.id]);
   if (!showing) return null;
@@ -346,6 +421,7 @@ export function CallPanel({ inline = false, hidden = false }) {
     {c.micError && <p className="work-error">{c.micError}</p>}
     <div className="dive-call-actions">
       <button className={'ghost' + (c.muted ? ' on' : '')} aria-pressed={c.muted} onClick={() => w.mute()}>{c.muted ? '🔇 음소거 중' : '🎤 마이크 켜짐'}</button>
+      {recordingSupported() && (w.recording ? <button className="ghost on rec" onClick={() => w.recordStop().catch(() => {})} title="녹음을 끝내면 받아쓴 글이 메모로 정리돼요">■ 녹음 끝 · {sinceLabel(w.recording.since)}</button> : <button className="ghost rec" onClick={() => w.recordStart(team?.id, d?.id, d?.agenda).catch((e) => alert(e.message))} title="통화를 녹음해 메모로 남겨요 (받아쓰기 + 요약)">⏺ 녹음</button>)}
       <button className="ghost danger" onClick={() => w.leaveDive(false)}>나가기</button>
       {d?.by === w.state?.me.id && <button className="ghost" onClick={() => { if (confirm('방을 없앨까요? 모두 나가게 돼요.')) w.leaveDive(true); }}>방 삭제</button>}
     </div>

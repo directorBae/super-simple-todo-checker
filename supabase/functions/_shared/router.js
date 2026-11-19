@@ -17,6 +17,7 @@ import { sendDue } from './push.js';
 import { handleMcp, createLink, listLinks, revokeLink } from './mcp.js';
 import * as oauth from './oauth.js';
 import * as work from './work.js';
+import * as memo from './memo.js';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } });
@@ -209,6 +210,14 @@ async function workRoute(env, user, route, b) {
     case '/work/dive/reply': return work.replyDive(env, user, b.dive, b.answer);
     case '/work/dive/delete': return work.leaveDive(env, user, b.dive, true);
     case '/work/dive/leave': return work.leaveDive(env, user, b.dive, !!b.end);
+    // 녹음 → 메모 → 노션 (memo.js)
+    case '/work/memo/start': return memo.startMemo(env, user, b);
+    case '/work/memo/chunk': return memo.addChunk(env, user, b);
+    case '/work/memo/finish': return memo.finishMemo(env, user, b);
+    case '/work/memo/delete': return memo.deleteMemo(env, user, b);
+    case '/work/memos': return memo.listMemos(env, user, b);
+    case '/work/memo/notion/search': return memo.searchNotion(env, user, b);
+    case '/work/memo/notion': return memo.memoToNotion(env, user, b);
     default: throw new HttpError('요청을 찾을 수 없어요.', 404);
   }
 }

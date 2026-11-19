@@ -7,6 +7,7 @@ import { handle, environment } from '../../supabase/functions/_shared/router.js'
 let NOW = Date.parse('2026-11-06T03:00:00Z');
 const USERS = { 'tok-a': { id: '00000000-0000-4000-8000-00000000000a', email: 'a@x.com' }, 'tok-b': { id: '00000000-0000-4000-8000-00000000000b', email: 'B@x.com' }, 'tok-c': { id: '00000000-0000-4000-8000-00000000000c', email: 'c@x.com' } };
 const KEYS = { work_members: ['team_id', 'email'], work_presence: ['user_id'], work_replies: ['dive_id', 'user_id'], voip_devices: ['user_id', 'token'] };
+import { missedDives } from '../../shared/work-alerts.mjs';
 // An APNs key for the tests (a P-256 key in a .p8, as Apple hands it out).
 async function apnsKey() {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
@@ -14,8 +15,8 @@ async function apnsKey() {
 }
 
 function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env: extraEnv = {} } = {}) {
-  const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], voip_devices: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
-  const pushes = [], receipts = {}, voips = [], apns = {}, livekit = [], clock = { now: null }; let ticketNo = 0; // clock.now: a test's own time; otherwise NOW (which some tests move)
+  const tables = { todos: [], teams: [], work_teams: [], work_members: [], work_presence: [], work_dives: [], work_replies: [], voip_devices: [], work_memos: [], connections: [], push_devices: [{ user_id: USERS['tok-a'].id, token: 'ExponentPushToken[a]', disabled_at: null }, { user_id: USERS['tok-b'].id, token: 'ExponentPushToken[b]', disabled_at: null }, { user_id: USERS['tok-c'].id, token: 'ExponentPushToken[c]', disabled_at: null }] };
+  const pushes = [], receipts = {}, voips = [], apns = {}, livekit = [], openai = [], notionCalls = [], clock = { now: null }; let ticketNo = 0; // clock.now: a test's own time; otherwise NOW (which some tests move)
   const match = (row, [key, cond]) => {
     if (['select', 'order', 'limit', 'on_conflict'].includes(key)) return true;
     if (key === 'or') return cond.slice(1, -1).split(',').some((c) => { const [k, ...r] = c.split('.'); return match(row, [k, r.join('.')]); });
@@ -25,6 +26,8 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
     if (op === 'in') return arg.slice(1, -1).split(',').includes(String(v));
     if (op === 'gte') return v != null && v >= arg;
     if (op === 'lt') return v != null && v < arg;
+    if (op === 'neq') return String(v) !== arg;
+    if (op === 'cs') return Array.isArray(v) && arg.replace(/[{}]/g, '').split(',').every((w) => v.includes(w));
     if (op === 'lte') return v != null && v <= arg;
     if (op === 'neq') return String(v) !== arg;
     throw new Error('filter ' + op);
@@ -33,6 +36,17 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
   const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => (body === undefined ? '' : JSON.stringify(body)) });
   async function fetch(url, init = {}) {
     const u = new URL(url), method = init.method || 'GET';
+    if (u.hostname === 'api.openai.com') {
+      if (u.pathname.endsWith('/audio/transcriptions')) { const f = init.body.get('file'); openai.push({ kind: 'transcribe', size: f.size, type: f.type, model: init.body.get('model') }); return reply({ text: `받아쓴 ${openai.filter((o) => o.kind === 'transcribe').length}번째 조각` }); }
+      if (u.pathname.endsWith('/responses')) { openai.push({ kind: 'summary', input: JSON.parse(init.body).input }); return reply({ output_text: JSON.stringify({ title: '발표 자료 회의', summary: '발표 자료를 내일까지 맞추기로 했다.', decisions: ['디자인은 민지가 맡는다'], todos: ['민지: 시안 보내기', '정원: 문구 다듬기'] }) }); }
+    }
+    if (u.hostname === 'api.notion.com') {
+      notionCalls.push({ path: u.pathname, method, body: init.body ? JSON.parse(init.body) : null });
+      if (u.pathname === '/v1/search') return reply({ results: [{ object: 'page', id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', url: 'https://notion.so/meeting-notes', properties: { title: { type: 'title', title: [{ plain_text: '회의록' }] } } }] });
+      if (u.pathname === '/v1/pages' && method === 'POST') return reply({ id: '11111111-2222-3333-4444-555555555555', url: 'https://notion.so/new-memo' });
+      if (u.pathname.startsWith('/v1/databases/')) return reply({ properties: { 이름: { type: 'title' } } });
+      return reply({});
+    }
     if (u.hostname === 'work.livekit.cloud') { livekit.push({ path: u.pathname, body: JSON.parse(init.body), auth: init.headers.Authorization }); return reply({}); }
     if (u.hostname === 'api.push.apple.com') { const token = u.pathname.split('/').pop(), a = apns[token] || { status: 200, body: '' }; voips.push({ token, headers: init.headers, body: JSON.parse(init.body) }); return { ok: a.status < 400, status: a.status, text: async () => a.body }; }
     if (u.hostname === 'exp.host' && u.pathname.endsWith('/getReceipts')) return reply({ data: Object.fromEntries(JSON.parse(init.body).ids.map((id) => [id, receipts[id] || { status: 'ok' }])) });
@@ -63,7 +77,7 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
     const res = await handle(new Request('https://x.supabase.co/functions/v1/integrations/work' + path, { method: 'POST', headers: { Authorization: 'Bearer tok-' + who, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), env);
     const out = await res.json(); if (!res.ok) throw Object.assign(new Error(out.error), { status: res.status }); return out;
   };
-  return { tables, pushes, receipts, voips, apns, livekit, clock, a: as('a'), b: as('b'), c: as('c') };
+  return { tables, pushes, receipts, voips, apns, livekit, openai, notionCalls, clock, a: as('a'), b: as('b'), c: as('c') };
 }
 
 test('work: make a team, invite by email, accept, and see who is online', async () => {
@@ -233,6 +247,76 @@ test('work: someone whose app went quiet is no longer in the room (so it can emp
   assert.equal(closed.body.room, w.tables.work_dives[0].room);
   const payload = JSON.parse(Buffer.from(closed.auth.replace('Bearer ', '').split('.')[1], 'base64url').toString());
   assert.deepEqual([payload.iss, payload.video.roomAdmin, payload.video.room], ['APIkey', true, w.tables.work_dives[0].room]);
+});
+
+test('work: 부재중 — a picked person who did not answer sees the dive after the ring, open or gone; answered or seen ones are not listed', async () => {
+  const w = world(), B = USERS['tok-b'].id;
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com', 'c@x.com'] }); await w.b('/invite/accept', { team: team.id }); await w.c('/invite/accept', { team: team.id });
+  const { dive } = await w.a('/dive', { team: team.id, targets: [B], agenda: '급한 회의' });
+  assert.deepEqual((await w.b('/state')).missed, [], 'still ringing: not missed yet');
+  w.clock.now = NOW + 61_000;
+  let s = await w.b('/state');
+  assert.deepEqual(s.missed.map((m) => [m.id, m.by.slice(-1), m.agenda, m.open]), [[dive.id, 'a', '급한 회의', true]]);
+  assert.deepEqual((await w.c('/state')).missed, [], 'C was not called');
+  assert.deepEqual((await w.a('/state')).missed, [], 'the caller never misses their own');
+  assert.deepEqual(missedDives(s, [dive.id]), [], 'seen on the device: gone from the list');
+  // The room is deleted: still listed as missed (closed), until the day is over.
+  await w.a('/dive/delete', { dive: dive.id });
+  assert.equal((await w.b('/state')).missed[0].open, false);
+  w.clock.now = NOW + 25 * 3600_000;
+  assert.deepEqual((await w.b('/state')).missed, [], 'a day later it is history');
+  // Answering (joining or replying) in time: not missed.
+  w.clock.now = NOW + 25 * 3600_000;
+  const { dive: d2 } = await w.a('/dive', { team: team.id, targets: [B], agenda: '둘' });
+  await w.b('/dive/reply', { dive: d2.id, answer: 'busy' });
+  w.clock.now = NOW + 25 * 3600_000 + 61_000;
+  assert.deepEqual((await w.b('/state')).missed, []);
+});
+
+test('memo: a recording comes in pieces and is written down as it goes, summed up at the end, listed for the team, and sent to Notion', async () => {
+  const w = world({ env: { OPENAI_API_KEY: 'sk-test', OPENAI_MODEL: 'gpt-test' } });
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '발표 자료' });
+  const { memo } = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '발표 자료' });
+  assert.equal(memo.state, 'recording');
+  const piece = Buffer.from('fake-opus-bytes').toString('base64');
+  const one = await w.a('/memo/chunk', { memo: memo.id, index: 0, audio: piece, mime: 'audio/webm;codecs=opus' });
+  assert.equal(one.text, '받아쓴 1번째 조각');
+  assert.deepEqual(w.openai[0], { kind: 'transcribe', size: 15, type: 'audio/webm;codecs=opus', model: 'gpt-4o-mini-transcribe' });
+  // Pieces may arrive out of order; the text keeps their order.
+  await w.a('/memo/chunk', { memo: memo.id, index: 2, audio: piece, mime: 'audio/webm' });
+  const two = await w.a('/memo/chunk', { memo: memo.id, index: 1, audio: piece, mime: 'audio/webm' });
+  assert.equal(two.memo.transcript, '받아쓴 1번째 조각 받아쓴 3번째 조각 받아쓴 2번째 조각');
+  await assert.rejects(w.a('/memo/chunk', { memo: memo.id, index: 3, audio: '', mime: 'audio/webm' }), /비어/);
+  const done = await w.a('/memo/finish', { memo: memo.id });
+  assert.equal(done.memo.state, 'done'); assert.equal(done.memo.summary.title, '발표 자료 회의'); assert.deepEqual(done.memo.summary.todos, ['민지: 시안 보내기', '정원: 문구 다듬기']);
+  assert.match(w.openai.find((o) => o.kind === 'summary').input[1].content, /안건: 발표 자료/);
+  await assert.rejects(w.a('/memo/chunk', { memo: memo.id, index: 4, audio: piece }), /끝난 메모/);
+  // Teammates see it; outsiders do not.
+  assert.deepEqual((await w.b('/memos', { team: team.id })).memos.map((m) => [m.title, m.state]), [['발표 자료', 'done']]);
+  await assert.rejects(w.c('/memos', { team: team.id }), /팀원이 아니에요/);
+  // To Notion: through the person's own connection, as a page under the page they pick.
+  await assert.rejects(w.a('/memo/notion/search', { q: '회의' }), /노션이 연결/);
+  w.tables.connections.push({ id: 'conn-1', user_id: USERS['tok-a'].id, provider: 'notion', account: 'Studio 워크스페이스', secret: { access_token: 'ntn-token' }, meta: {} });
+  const found = (await w.a('/memo/notion/search', { q: '회의' })).results;
+  assert.deepEqual(found.map((r) => [r.title, r.type, r.connection, r.workspace]), [['회의록', 'page', 'conn-1', 'Studio 워크스페이스']]);
+  const sent = await w.a('/memo/notion', { memo: memo.id, page: found[0].id, type: 'page', connection: 'conn-1' });
+  assert.equal(sent.url, 'https://notion.so/new-memo');
+  const made = w.notionCalls.find((c) => c.path === '/v1/pages' && c.method === 'POST');
+  assert.equal(made.body.parent.page_id, 'aaaaaaaabbbbccccddddeeeeeeeeeeee');
+  assert.match(made.body.properties.title.title[0].text.content, /발표 자료 · /);
+  assert.deepEqual(made.body.children.map((b) => b.type).slice(0, 6), ['heading_2', 'paragraph', 'heading_2', 'bulleted_list_item', 'heading_2', 'to_do']);
+  assert.equal((await w.a('/memos', { team: team.id })).memos[0].notionUrl, 'https://notion.so/new-memo');
+  // Into a database: its title property is found by type.
+  await w.a('/memo/notion', { memo: memo.id, page: 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb', type: 'database', connection: 'conn-1' });
+  const row = w.notionCalls.filter((c) => c.path === '/v1/pages').at(-1);
+  assert.deepEqual(Object.keys(row.body.properties), ['이름']); assert.equal(row.body.parent.database_id, 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb');
+  // Only the one who recorded deletes it.
+  await assert.rejects(w.b('/memo/delete', { memo: memo.id }), /녹음한 사람만/);
+  await w.a('/memo/delete', { memo: memo.id });
+  assert.deepEqual((await w.a('/memos', { team: team.id })).memos, []);
 });
 
 test('work: the one who opened a room deletes it — from inside the call or from the list — and everyone in it is out', async () => {

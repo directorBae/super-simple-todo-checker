@@ -40,6 +40,24 @@ export async function search(env, token, query = '') {
 }
 export const resource = (env, token, type, id) => call(env, token, type === 'database' ? `/databases/${id}` : `/pages/${id}`);
 
+// A new page under a page — or a new row of a database (its title property found by type) — with blocks of content
+// (Notion takes 100 blocks per call; more are appended).
+export async function createPage(env, token, parent, title, children = []) {
+  let titleProp = 'title';
+  if (parent.type === 'database') {
+    const d = await resource(env, token, 'database', parent.id);
+    titleProp = Object.entries(d.properties || {}).find(([, p]) => p.type === 'title')?.[0] || 'Name';
+  }
+  const body = {
+    parent: parent.type === 'database' ? { database_id: parent.id } : { page_id: parent.id },
+    properties: { [titleProp]: { title: [{ type: 'text', text: { content: String(title).slice(0, 200) } }] } },
+    children: children.slice(0, 100),
+  };
+  const page = await call(env, token, '/pages', { method: 'POST', body: JSON.stringify(body) });
+  for (let i = 100; i < children.length; i += 100) await call(env, token, `/blocks/${plainId(page.id)}/children`, { method: 'PATCH', body: JSON.stringify({ children: children.slice(i, i + 100) }) });
+  return { id: plainId(page.id), url: page.url };
+}
+
 // Which properties of a database hold the title, the date and "done" — found by type, so any DB works.
 export function schemaOf(db) {
   const props = Object.entries(db.properties || {});

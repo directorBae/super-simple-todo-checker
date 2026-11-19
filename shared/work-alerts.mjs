@@ -46,3 +46,6 @@ export function ringbackWanted(call, dive, meId, now = Date.now()) {
   if (now - Date.parse(dive.createdAt) > RINGBACK_MS) return false;
   return dive.targets.some((id) => !dive.replies.some((r) => r.id === id));
 }
+
+// 부재중 다이브: the ones the server lists (called, not answered, the ring over) that the person has not yet seen.
+export const missedDives = (state, seen = []) => (state?.missed || []).filter((m) => !seen.includes(m.id));
