@@ -218,6 +218,7 @@ async function workRoute(env, user, route, b) {
     case '/work/memos': return memo.listMemos(env, user, b);
     case '/work/memo/notion/search': return memo.searchNotion(env, user, b);
     case '/work/memo/notion': return memo.memoToNotion(env, user, b);
+    case '/work/team/memo-store': return memo.setMemoStore(env, user, b);
     default: throw new HttpError('요청을 찾을 수 없어요.', 404);
   }
 }

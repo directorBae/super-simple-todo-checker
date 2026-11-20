@@ -164,6 +164,11 @@
 .roaming-pet[data-below="1"] .pet-say { bottom:auto; top:calc(100% + 4px); }
 .roaming-pet[data-below="1"] .pet-say::after { top:auto; bottom:100%; border-top:2px solid; border-bottom:0; }
 .pet-say.error { border-color:#9f1239; background:#fff4f5; color:#881337; }
+.pet-say.memo { border-color:#1d4ed8; background:#f1f6ff; color:#1e3a8a; }
+.pet-say.can-open { pointer-events:auto; cursor:pointer; }
+.pet-say.can-open:hover { background:#e4eeff; }
+.pet-say u, .pet-toast u { text-decoration:underline dotted; text-underline-offset:2px; }
+.pet-toast.can-open { cursor:pointer; }
 @keyframes pet-say-in { from { opacity:0; transform:translate(calc(-50% + var(--say-shift, 0px)), 6px); } }
 .job-icon { position:relative; display:inline-flex; flex-shrink:0; width:18px; height:18px; }
 .job-icon svg { width:18px; height:18px; image-rendering:pixelated; }

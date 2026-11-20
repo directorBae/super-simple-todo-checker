@@ -15,6 +15,7 @@ import OfflineEgg from './focus/OfflineEgg.jsx';
 import MusicPlayer from './focus/MusicPlayer.jsx';
 import { PetToast } from './focus/PetWork.jsx';
 import { usePetJobs } from './tools-state.js';
+import { usePetSay } from './pet-say.js';
 import { useTypingRunner, useTypingNow, AiEdge, MoveNote } from './typing.jsx';
 import { wallpaperSrc } from './wallpapers.js';
 import { startWebReminders, onWebReminderClick } from './web-notify.js';
@@ -44,6 +45,8 @@ export default function App() {
  // The pet's work for the tool connections (노션 · 구글 캘린더): polled while someone is signed in.
  const signedIn = !!db?.auth?.email && new URLSearchParams(window.location.search).get('view') !== 'clock';
  const petJobs = usePetJobs(signedIn);
+ // … and what the rest of the app asks it to do or say (a dive's 회의록 coming along: work/work-state.jsx).
+ const said = usePetSay(), petWorking = petJobs.working || said.working, petBubble = petJobs.bubble || said.bubble;
  // What an import just did is played on screen (written, rewritten, carried, ticked, erased); the window edge glows
  // while the AI is at it. The notebook draws `board`: the real data plus the rows still leaving or not written yet.
  const board = useTypingRunner(db, signedIn);
@@ -73,12 +76,12 @@ export default function App() {
   <div hidden={popup !== 'music'} className="popup-overlay music-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel music-panel" role="dialog" aria-modal="true" aria-label="음악"><div className="popup-head"><h2>음악</h2><button className="icon-btn" aria-label="음악 창 닫기" onClick={close}>✕</button></div><div className="popup-body"><MusicPlayer db={db} open={popup === 'music'} onNowPlaying={setNowPlaying} controls={music} /></div></section></div>
   {!onboarding && <OfflineEgg db={db} />}
   <RoomDock db={db} blocked={onboarding || !!popup || menu || bell} room={room} setRoom={setRoom} />
-  {!onboarding && !phone && <RoamingPet db={db} room={room} working={petJobs.working} bubble={petJobs.bubble} typing={typing} />}
-  {!onboarding && phone && <PetToast working={petJobs.working} bubble={petJobs.bubble} />}
+  {!onboarding && !phone && <RoamingPet db={db} room={room} working={petWorking} bubble={petBubble} typing={typing} />}
+  {!onboarding && phone && <PetToast working={petWorking} bubble={petBubble} />}
   {popup === 'settings' && <div className="popup-overlay" onMouseDown={e => { if(e.target === e.currentTarget) close(); }}><section className="popup-panel settings-panel" role="dialog" aria-modal="true" aria-label="설정"><div className="popup-head"><h2>설정</h2><button className="icon-btn" aria-label="닫기" onClick={close}>✕</button></div><div className="popup-body"><Settings db={db} /></div></section></div>}
   {popup?.startsWith('postpone:') && <Postpone db={db} date={popup.slice('postpone:'.length)} onClose={close} />}
   <MoveNote />
-  <AiEdge on={!!(petJobs.working || typing)} />
+  <AiEdge on={!!(petWorking || typing)} />
   {!onboarding && <IncomingDive focus={focusDive} onSeen={() => setFocusDive(null)} answer={answerDive} onAnswered={() => setAnswerDive(null)} />}
   {!onboarding && <CallPanel hidden={mode === 'team'} />}
  </div></WorkProvider>;

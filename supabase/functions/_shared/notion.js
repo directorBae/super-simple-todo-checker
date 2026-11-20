@@ -40,17 +40,18 @@ export async function search(env, token, query = '') {
 }
 export const resource = (env, token, type, id) => call(env, token, type === 'database' ? `/databases/${id}` : `/pages/${id}`);
 
-// A new page under a page — or a new row of a database (its title property found by type) — with blocks of content
-// (Notion takes 100 blocks per call; more are appended).
-export async function createPage(env, token, parent, title, children = []) {
-  let titleProp = 'title';
+// A new page under a page — or a new row of a database (its title property found by type; its first date property
+// gets `date` when given) — with blocks of content (Notion takes 100 blocks per call; more are appended).
+export async function createPage(env, token, parent, title, children = [], { date = null } = {}) {
+  let titleProp = 'title', dateProp = null;
   if (parent.type === 'database') {
     const d = await resource(env, token, 'database', parent.id);
     titleProp = Object.entries(d.properties || {}).find(([, p]) => p.type === 'title')?.[0] || 'Name';
+    dateProp = Object.entries(d.properties || {}).find(([, p]) => p.type === 'date')?.[0] || null;
   }
   const body = {
     parent: parent.type === 'database' ? { database_id: parent.id } : { page_id: parent.id },
-    properties: { [titleProp]: { title: [{ type: 'text', text: { content: String(title).slice(0, 200) } }] } },
+    properties: { [titleProp]: { title: [{ type: 'text', text: { content: String(title).slice(0, 200) } }] }, ...(dateProp && date ? { [dateProp]: { date: { start: new Date(date).toISOString() } } } : {}) },
     children: children.slice(0, 100),
   };
   const page = await call(env, token, '/pages', { method: 'POST', body: JSON.stringify(body) });

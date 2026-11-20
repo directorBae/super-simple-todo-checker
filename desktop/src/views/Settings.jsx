@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Section, TimeField } from '../components.jsx';
 import Integrations from './Integrations.jsx';
+import { MemoStoreSettings } from './Team.jsx';
 import { WALLPAPERS, shrinkImage, wallpaperSrc } from '../wallpapers.js';
 import { DEFAULT_PET } from '../focus/Pet.jsx';
 import { petPixels } from '../../../shared/pixel-pet.js';
@@ -98,7 +99,8 @@ export default function Settings({ db, initialTab = 'general' }) {
       {TABS.map(([key, label]) => <button key={key} className={'settings-tab' + (tab === key ? ' active' : '')} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}>{label}</button>)}
     </nav>
     <div className="settings-pane">
-      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <Integrations db={db} chatgpt /> : <About />}
+      {tab === 'general' ? <General db={db} /> : tab === 'wallpaper' ? <Wallpaper db={db} /> : tab === 'tools' ? <><Integrations db={db} chatgpt />
+        <Section title="다이브 회의록"><p className="desc">다이브(팀 통화)가 끝나면 받아쓰고 요약한 회의록이 저장되는 곳이에요. 팀마다 하나로 정해지고 팀원 누구나 바꿀 수 있어요. Team 탭의 다이브 칸에서도 보여요.</p><MemoStoreSettings /></Section></> : <About />}
     </div>
   </div>;
 }

@@ -7,6 +7,7 @@ import { missedDives } from '../../../shared/work-alerts.mjs';
 import { recordingSupported } from '../work/recorder.js';
 import { todosOn, addDay } from '../../../shared/multi-day.js';
 import { PetSprite, DEFAULT_PET } from '../focus/Pet.jsx';
+import { storeLabel, STORE_OPTIONS } from '../../../shared/memo-store.mjs';
 
 /*
  * 팀버전 (Work) — the Team tab: teams and invites, who is online, and the dive button in the middle. A dive is a group
@@ -164,16 +165,17 @@ function Missed({ team, db }) {
 }
 
 // 메모: what was recorded in the team's calls — written down and summed up by the server — and sending one to Notion.
-function NotionPicker({ memo, onClose }) {
+// With onPick(result) it picks a place for something else (the team's 회의록 저장소) instead of sending a memo.
+function NotionPicker({ memo, title: heading = '노션에 보내기', desc, onPick, onClose }) {
   const w = useWork(), [q, setQ] = useState(''), [results, setResults] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const search = async (e) => { e?.preventDefault(); setBusy(true); setError(''); try { setResults(await w.notionSearch(q)); } catch (x) { setError(x.message); } finally { setBusy(false); } };
   useEffect(() => { search(); }, []);
-  const send = async (r) => { setBusy(true); setError(''); try { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } catch (x) { setError(x.message); setBusy(false); } };
+  const send = async (r) => { setBusy(true); setError(''); try { if (onPick) { await onPick(r); onClose(true); } else { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } } catch (x) { setError(x.message); setBusy(false); } };
   return <div className="popup-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <form className="popup-panel notion-picker" role="dialog" aria-modal="true" aria-label="노션에 보내기" onSubmit={search}>
-      <div className="popup-head"><h2>노션에 보내기</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={() => onClose()}>✕</button></div>
+    <form className="popup-panel notion-picker" role="dialog" aria-modal="true" aria-label={heading} onSubmit={search}>
+      <div className="popup-head"><h2>{heading}</h2><button type="button" className="icon-btn" aria-label="닫기" onClick={() => onClose()}>✕</button></div>
       <div className="popup-body">
-        <p className="desc">메모 "{memo.title || memo.summary?.title}"를 어디에 넣을까요? 페이지 아래에 새 페이지로, DB면 새 행으로 들어가요.</p>
+        <p className="desc">{desc || `메모 "${memo?.title || memo?.summary?.title}"를 어디에 넣을까요? 페이지 아래에 새 페이지로, DB면 새 행으로 들어가요.`}</p>
         <div className="work-row"><input value={q} placeholder="페이지·DB 이름으로 찾기" aria-label="노션에서 찾기" onChange={(e) => setQ(e.target.value)} autoFocus /><button className="ghost" disabled={busy}>찾기</button></div>
         {results && <ul className="notion-results">{results.map((r) => <li key={r.connection + r.id}><button type="button" disabled={busy} onClick={() => send(r)}>{r.icon ? r.icon + ' ' : ''}{r.title}<small>{r.type === 'database' ? 'DB' : '페이지'}{r.workspace ? ' · ' + r.workspace : ''}</small></button></li>)}
           {!results.length && <li className="desc">찾은 게 없어요. 노션에서 연결 권한을 준 페이지만 보여요.</li>}</ul>}
@@ -182,18 +184,72 @@ function NotionPicker({ memo, onClose }) {
     </form>
   </div>;
 }
+// 회의록 저장소 — where this team's dive notes go. One choice for the whole team (so one dive makes one note, in one
+// place); anyone in the team may change it. Picking Notion goes through the Notion picker (this person's connection).
+export function MemoStorePicker({ team, onClose }) {
+  const w = useWork(), store = team.memoStore, [notion, setNotion] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const choose = async (value) => { setBusy(true); setError(''); try { await w.setMemoStore(team.id, value); onClose(); } catch (x) { setError(x.message); setBusy(false); } };
+  if (notion) return <NotionPicker title="노션 DB 고르기" desc={`'${team.name}'의 다이브 회의록이 들어갈 노션 데이터베이스(또는 페이지)를 골라 주세요. 다이브가 끝나면 새 행으로 들어가요.`} onPick={(r) => w.setMemoStore(team.id, { kind: 'notion', page: r.id, type: r.type, connection: r.connection })} onClose={(done) => (done === true ? onClose() : setNotion(false))} />;
+  const current = store?.kind || null;
+  return <div className="popup-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <section className="popup-panel memo-store-picker" role="dialog" aria-modal="true" aria-label="회의록 저장소">
+      <div className="popup-head"><h2>dive 회의록이 기록될 데이터베이스를 선택하세요</h2><button className="icon-btn" aria-label="닫기" onClick={onClose}>✕</button></div>
+      <div className="popup-body">
+        <p className="desc"><b>{team.name}</b> 팀 전체에 하나로 정해져요 (팀원 누구나 바꿀 수 있어요). 저장소가 정해진 팀의 다이브는 PC·웹에서 자동으로 녹음되고, 끝나면 받아쓰기 → 요약 → 여기에 저장돼요. 지금: <b>{storeLabel(store)}</b>{store?.byName ? ` (${store.byName}님이 정함)` : ''}</p>
+        <div className="memo-store-options" role="radiogroup" aria-label="저장소">
+          {STORE_OPTIONS.map((o) => <button key={String(o.kind)} type="button" role="radio" aria-checked={current === o.kind} className={'memo-store-option' + (current === o.kind ? ' on' : '')} disabled={busy}
+            onClick={() => (o.kind === 'notion' ? setNotion(true) : choose(o.kind ? { kind: o.kind } : null))}>
+            <b>{o.kind === 'local' ? '📁 ' : o.kind === 'notion' ? '📝 ' : '— '}{o.label}{o.kind === 'notion' && current === 'notion' ? ` · ${store.title}` : ''}</b><small>{o.desc}</small>
+          </button>)}
+        </div>
+        {error && <p className="work-error" role="alert">{error}</p>}
+      </div>
+    </section>
+  </div>;
+}
+// The store as a line: in the dive hub, and (compact) in Settings → 도구 연결 for every team.
+export function MemoStoreLine({ team, compact = false }) {
+  const store = team.memoStore, [picking, setPicking] = useState(false);
+  const picker = picking && <MemoStorePicker team={team} onClose={() => setPicking(false)} />;
+  if (compact && !store) return <div className="memo-store compact"><button type="button" className="ghost memo-store-change" onClick={() => setPicking(true)}>dive 회의록이 기록될 데이터베이스를 선택하세요</button>{picker}</div>;
+  return <div className={'memo-store' + (compact ? ' compact' : '')} role="group" aria-label="회의록 저장소">
+    <span className="memo-store-label">📝 회의록</span>
+    <span className="memo-store-value">
+      {store ? <>{store.kind === 'notion' && store.url ? <button type="button" className="link-btn" title="노션에서 열기" onClick={() => window.api.openExternal(store.url)}>{storeLabel(store)}</button> : <b>{storeLabel(store)}</b>}
+        <small>{store.byName ? `${store.byName}님이 정함 · ` : ''}다이브가 끝나면 받아쓰고 요약해 여기에 저장해요</small></>
+        : <small>저장소를 정하면 다이브가 자동으로 녹음·요약돼요 (PC·웹에서)</small>}
+    </span>
+    <button type="button" className="ghost memo-store-change" onClick={() => setPicking(true)}>{store ? '바꾸기' : '정하기'}</button>
+    {picker}
+  </div>;
+}
+export function MemoStoreSettings() {
+  const w = useWork(), teams = w?.state?.teams || [];
+  return <div className="memo-store-settings">
+    {!teams.length && <p className="desc">{w?.state ? 'Team 탭에서 팀을 만들면 여기서 회의록 저장소를 정할 수 있어요.' : (w?.error || '팀을 불러오는 중…')}</p>}
+    {teams.map((t) => <div key={t.id} className="memo-store-team"><b>{t.name}</b><MemoStoreLine team={t} compact /></div>)}
+  </div>;
+}
+
 function Memos({ team }) {
   const w = useWork(), me = w.state.me, [open, setOpen] = useState(null), [picker, setPicker] = useState(null), [error, setError] = useState('');
   useEffect(() => { w.loadMemos(team.id).catch((e) => setError(e.message)); }, [team.id]);
+  // The pet's bubble ("'…'에 정리했어요!") opens the memo here.
+  useEffect(() => { const h = (e) => setOpen(e.detail?.memo || null); window.addEventListener('checker:open-memo', h); return () => window.removeEventListener('checker:open-memo', h); }, []);
   const list = (w.memos || []).filter((m) => m.team === team.id);
   const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
+  // 로컬 저장소 on this computer: every done memo of the team as a file (the same memo → the same file, so this is cheap).
+  const local = team.memoStore?.kind === 'local' && !!window.api.saveMemoFile;
+  useEffect(() => { if (local) for (const m of list) if (m.state === 'done') w.saveMemoLocal(team.id, m); }, [local, list.map((m) => m.id + m.state).join()]);
+  const openFolder = async (m) => { const r = await w.saveMemoLocal(team.id, m); if (r?.ok) window.api.showInFolder(r.path); else setError(r?.error || '폴더를 열지 못했어요.'); };
+  const where = (m) => (m.state === 'summarizing' ? ' · 요약 중' : m.state !== 'done' ? ' · 녹음 중' : m.notionUrl ? ` · ${m.stored?.kind === 'notion' ? storeLabel(m.stored) : '노션'}에 있음` : m.stored?.kind === 'local' ? ' · 로컬 저장소' : '');
   if (!list.length && !w.recording) return null;
   return <section className="work-card work-memos" aria-label="메모">
     <h3>📝 메모 <small>{list.length}</small></h3>
     {w.recording && <p className="desc">⏺ 녹음 중 · 조각 {w.recording.sent}/{w.recording.pieces} 받아쓰는 중{w.recording.stopping ? ' · 정리하는 중…' : ''}</p>}
     {list.map((m) => <article key={m.id} className={'work-memo' + (open === m.id ? ' open' : '')}>
       <button type="button" className="work-memo-head" aria-expanded={open === m.id} onClick={() => setOpen(open === m.id ? null : m.id)}>
-        <b>{m.title || m.summary?.title || '메모'}</b><small>{nameOf(m.by)} · {ago(m.createdAt)}{m.state !== 'done' ? ' · 정리 중' : ''}{m.notionUrl ? ' · 노션에 있음' : ''}</small>
+        <b>{m.title || m.summary?.title || '메모'}</b><small>{nameOf(m.by)} · {ago(m.createdAt)}{where(m)}</small>
       </button>
       {open === m.id && <div className="work-memo-body">
         {m.summary?.summary && <p>{m.summary.summary}</p>}
@@ -203,7 +259,8 @@ function Memos({ team }) {
         <div className="work-row">
           {m.state === 'done' && <button className="primary" onClick={() => setPicker(m)}>📝 노션에 보내기</button>}
           {m.notionUrl && <button className="ghost" onClick={() => window.api.openExternal(m.notionUrl)}>노션에서 열기</button>}
-          {m.by === me.id && <button className="ghost danger" onClick={() => { if (confirm('이 메모를 지울까요?')) w.deleteMemo(m.id).catch((e) => setError(e.message)); }}>지우기</button>}
+          {m.state === 'done' && !!window.api.saveMemoFile && (local || m.stored?.kind === 'local') && <button className="ghost" onClick={() => openFolder(m)}>📁 폴더 열기</button>}
+          {(m.by === me.id || team.mine) && <button className="ghost danger" onClick={() => { if (confirm('이 메모를 지울까요?')) w.deleteMemo(m.id).catch((e) => setError(e.message)); }}>지우기</button>}
         </div>
       </div>}
     </article>)}
@@ -366,6 +423,7 @@ export default function Team({ checkerTeams = [], db }) {
       <Members team={team} />
       <section className="work-card dive-hub" aria-label="다이브">
         <CheckerLink team={team} checkerTeams={checkerTeams} />
+        <MemoStoreLine team={team} />
         {w.call ? <CallPanel inline /> : <>
           <button className="dive-button" disabled={!others.length} onClick={() => setComposer(true)} aria-label="다이브 시작">
             <DiveIcon size={96} /><span>Dive</span>
@@ -421,7 +479,9 @@ export function CallPanel({ inline = false, hidden = false }) {
     {c.micError && <p className="work-error">{c.micError}</p>}
     <div className="dive-call-actions">
       <button className={'ghost' + (c.muted ? ' on' : '')} aria-pressed={c.muted} onClick={() => w.mute()}>{c.muted ? '🔇 음소거 중' : '🎤 마이크 켜짐'}</button>
-      {recordingSupported() && (w.recording ? <button className="ghost on rec" onClick={() => w.recordStop().catch(() => {})} title="녹음을 끝내면 받아쓴 글이 메모로 정리돼요">■ 녹음 끝 · {sinceLabel(w.recording.since)}</button> : <button className="ghost rec" onClick={() => w.recordStart(team?.id, d?.id, d?.agenda).catch((e) => alert(e.message))} title="통화를 녹음해 메모로 남겨요 (받아쓰기 + 요약)">⏺ 녹음</button>)}
+      {recordingSupported() && (w.recording ? <button className="ghost on rec" onClick={() => w.recordStop({ byHand: true }).catch(() => {})} title={team?.memoStore ? `끝나면 ${storeLabel(team.memoStore)}에 회의록으로 정리돼요` : '녹음을 끝내면 받아쓴 글이 메모로 정리돼요'}>■ 녹음 끝 · {sinceLabel(w.recording.since)}</button>
+        : d?.recording && d.recording !== w.state?.me.id ? <span className="desc rec-other" title="방은 한 사람만 녹음해요 (회의록이 겹치지 않게)">⏺ {nameOf(d.recording)}님이 녹음 중</span>
+        : <button className="ghost rec" onClick={() => w.recordStart(team?.id, d?.id, d?.agenda).catch((e) => alert(e.message))} title={team?.memoStore ? '팀원이 들어오면 저절로 녹음돼요. 지금 바로 시작하려면 누르세요' : '통화를 녹음해 메모로 남겨요 (받아쓰기 + 요약)'}>⏺ 녹음</button>)}
       <button className="ghost danger" onClick={() => w.leaveDive(false)}>나가기</button>
       {d?.by === w.state?.me.id && <button className="ghost" onClick={() => { if (confirm('방을 없앨까요? 모두 나가게 돼요.')) w.leaveDive(true); }}>방 삭제</button>}
     </div>

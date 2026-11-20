@@ -76,23 +76,26 @@ export function JobIcon({ kind, provider }) {
     done: <>{[[0, 4], [1, 5], [2, 6], [3, 5], [4, 4], [5, 3], [6, 2], [7, 1]].map(([x, y]) => r(x, y, 2, 2, '#22a06b', x))}</>,
     push: <>{r(0, 4, 6, 1, '#5b5bd6')}{r(5, 2, 1, 5, '#5b5bd6')}{r(6, 3, 1, 3, '#5b5bd6')}{r(7, 4, 1, 1, '#5b5bd6')}</>,
     error: <>{r(1, 0, 7, 9, '#f3d982')}{r(0, 1, 9, 7, '#f3d982')}{r(2, 3, 1, 1, INK)}{r(6, 3, 1, 1, INK)}{r(3, 6, 3, 1, INK)}{r(2, 7, 1, 1, INK)}{r(6, 7, 1, 1, INK)}</>,
-  }[kind];
+  }[kind === 'memo' ? 'done' : kind];
   return <span className="job-icon" aria-hidden="true">
     <svg viewBox="0 0 9 9" shapeRendering="crispEdges">{icon}</svg>
     {provider && PROVIDER_LOGOS[provider] && kind !== 'error' && <img src={PROVIDER_LOGOS[provider]} alt="" draggable={false} />}
   </span>;
 }
 
-// What the pet says: a finished import, a change sent back to the tool, or a failure (sad face).
+// What the pet says: a finished import, a change sent back to the tool, a failure (sad face) — or where a dive's
+// 회의록 went ('memo': "'노션 DB 회의록'에 정리했어요!"), which opens on a click (onOpen).
+const sayBody = (say) => (say.name ? <><u>‘{say.name}’</u>{say.tail}</> : say.text);
 export function PetSay({ say }) {
   if (!say) return null;
-  return <span className={'pet-say ' + say.mood} aria-hidden="true"><JobIcon kind={say.mood} provider={say.provider} /><span>{say.text}</span></span>;
+  const open = say.onOpen ? (e) => { e.preventDefault(); e.stopPropagation(); say.onOpen(); } : undefined;
+  return <span className={'pet-say ' + say.mood + (open ? ' can-open' : '')} aria-hidden="true" title={open ? '눌러서 열기' : undefined} onClick={open} onPointerDown={open ? (e) => e.stopPropagation() : undefined}><JobIcon kind={say.mood} provider={say.provider} /><span>{sayBody(say)}</span></span>;
 }
 
-// Phones have no pet: the same news as a small glass toast at the top.
+// Phones have no pet: the same news as a small glass toast at the top (tapped, a bubble with onOpen opens the thing).
 export function PetToast({ working, bubble }) {
-  const show = bubble ? { kind: bubble.mood, text: bubble.text, provider: bubble.provider, key: bubble.id } : working ? { kind: working.state, text: working.text, provider: working.provider, key: working.id + working.state } : null;
+  const show = bubble ? { kind: bubble.mood, body: sayBody(bubble), provider: bubble.provider, key: bubble.id, onOpen: bubble.onOpen } : working ? { kind: working.state, body: working.text, provider: working.provider, key: working.id + working.state } : null;
   return <div className="pet-toast-slot" role="status" aria-live="polite">
-    {show && <div key={show.key} className={'pet-toast ' + show.kind}><JobIcon kind={show.kind} provider={show.provider} /><span>{show.text}</span></div>}
+    {show && <div key={show.key} className={'pet-toast ' + show.kind + (show.onOpen ? ' can-open' : '')} role={show.onOpen ? 'button' : undefined} onClick={show.onOpen || undefined}><JobIcon kind={show.kind} provider={show.provider} /><span>{show.body}</span></div>}
   </div>;
 }

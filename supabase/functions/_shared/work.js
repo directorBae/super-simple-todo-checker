@@ -2,6 +2,7 @@
 // teammates they pick, with an agenda of up to 50 characters. The picked people get an important push (time-sensitive
 // on iPhone), everyone else in the team an ordinary one; anyone can join, or answer "카톡 가능" / "지금 연락 불가".
 // Only this function touches the work_* tables (service key); each request is checked against the person's membership.
+import { publicStore, finishStale } from './memo.js';
 import { HttpError, localDate, addDays } from './http.js';
 import { db, eq } from './db.js';
 import { apnsReady, voipPush } from './apns.js';
@@ -165,6 +166,9 @@ export async function workState(env, user, body = {}) {
   }
   const dives = activeIds.length ? await store.select('work_dives', `team_id=${list(activeIds)}&ended_at=is.null&select=*&order=created_at.desc`) : [];
   const replies = dives.length ? await store.select('work_replies', `dive_id=${list(dives.map((d) => d.id))}&select=*`) : [];
+  // Who is recording each room (one at a time), and recordings whose pieces stopped coming are finished.
+  const recordings = dives.length ? await store.select('work_memos', `dive_id=${list(dives.map((d) => d.id))}&state=eq.recording&select=dive_id,user_id`).catch(() => []) : [];
+  env.waitUntil?.(finishStale(env, store, now).catch(() => 0));
   // A 'join' that is no longer real — the person's app has gone quiet (closed, offline) or they are in another
   // call — counts as left, and is written so: a room never shows someone who is gone, and it can empty out.
   const there = (r) => { const p = presence.get(r.user_id); return !!p && now - Date.parse(p.last_seen) < CALL_STALE_MS && p.in_dive === r.dive_id; };
@@ -188,6 +192,8 @@ export async function workState(env, user, body = {}) {
     me: { id: user.id, email: user.email, name: nameOf(mine, user.email) },
     teams: teams.filter((t) => activeIds.includes(t.id)).map((t) => ({
       id: t.id, name: t.name, owner: t.owner, mine: t.owner === user.id,
+      // 회의록 저장소: where this team's dive notes go (one choice for the whole team; memo.js).
+      memoStore: t.memo_store ? { ...publicStore(t.memo_store), byName: nameOf(presence.get(t.memo_store.by), '') } : null,
       // The 체커 teams (this person's own to-do groups) they tagged this team with; `link` is the first, for older apps.
       ...linksOf(active.find((r) => r.team_id === t.id)),
       members: members.filter((m) => m.team_id === t.id).map((m) => ({
@@ -199,6 +205,7 @@ export async function workState(env, user, body = {}) {
     invites: invited.map((r) => ({ team: r.team_id, name: teams.find((t) => t.id === r.team_id)?.name || '팀', from: nameOf(presence.get(r.invited_by), '') })),
     dives: dives.map((d) => ({
       id: d.id, team: d.team_id, by: d.created_by, agenda: d.agenda, targets: d.targets || [], createdAt: d.created_at, emptySince: d.empty_since || null,
+      recording: recordings.find((r) => r.dive_id === d.id)?.user_id || null,
       replies: replies.filter((r) => r.dive_id === d.id).map((r) => ({ id: r.user_id, answer: r.answer, at: r.at })),
     })),
   };

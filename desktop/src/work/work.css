@@ -219,3 +219,24 @@ input.work-my-name { width: 140px; }
 .notion-results button { display: grid; width: 100%; text-align: left; border: 1px solid transparent; background: none; color: var(--text); font: inherit; padding: 8px 10px; border-radius: 12px; cursor: pointer; }
 .notion-results button:hover { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
 .notion-results small { color: var(--muted); font-size: 11px; }
+
+/* 회의록 저장소: the line in the dive hub and the rows in Settings → 도구 연결; the picker. */
+.memo-store { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; margin: 6px 0 2px; }
+.memo-store-label { font-weight: 700; color: var(--muted); }
+.memo-store-value { display: grid; flex: 1; min-width: 160px; }
+.memo-store-value b, .memo-store-value .link-btn { font-size: 13px; font-weight: 700; }
+.memo-store-value small { color: var(--muted); font-size: 11px; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-align: left; text-decoration: underline dotted; text-underline-offset: 2px; }
+.memo-store-change { font-size: 12px; }
+.memo-store.compact { margin: 2px 0; }
+.memo-store-picker { max-width: 520px; }
+.memo-store-picker .popup-head h2 { font-size: 16px; line-height: 1.35; }
+.memo-store-options { display: grid; gap: 8px; margin-top: 8px; }
+.memo-store-option { display: grid; gap: 2px; text-align: left; width: 100%; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 14px; background: rgba(255, 255, 255, 0.14); color: var(--text); font: inherit; padding: 10px 12px; cursor: pointer; }
+.memo-store-option:hover { border-color: var(--accent); background: rgba(99, 102, 241, 0.1); }
+.memo-store-option.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.memo-store-option b { font-size: 13px; } .memo-store-option small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.memo-store-settings { display: grid; gap: 10px; }
+.memo-store-team { display: grid; gap: 2px; padding: 8px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.12); }
+.memo-store-team > b { font-size: 13px; }
+.rec-other { color: #e5484d; font-weight: 600; font-size: 12px; align-self: center; }

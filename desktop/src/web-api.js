@@ -45,6 +45,8 @@ if (!window.api) {
     },
     openExternal: url => { const ok = /^https?:\/\//i.test(String(url)); if (ok) window.open(url, '_blank', 'noopener,noreferrer'); return Promise.resolve({ ok }); },
     saveWallpaper: dataUrl => request('wallpaper-upload', { dataUrl }),
+    // No folder of its own on the web: a 로컬 저장소 memo stays in the Team tab (the desktop app writes the files).
+    saveMemoFile: () => Promise.resolve({ ok: false, web: true }), showInFolder: () => Promise.resolve({ ok: false }),
     signIn: (email, password) => request('auth/signin', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
     signUp: (email, password) => request('auth/signup', { email, password }).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),
     signOut: () => request('auth/signout', {}).then(r => { if (r.state) { emit(r.state); channel.postMessage('refresh'); } return r; }),

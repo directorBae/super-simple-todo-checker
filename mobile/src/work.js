@@ -160,6 +160,8 @@ export function WorkProvider({ onOpen, children }) {
     deleteMemo: async (memo) => { await act('/memo/delete', { memo }); setMemos((m) => (m || []).filter((x) => x.id !== memo)); },
     notionSearch: (q) => tools.work('/memo/notion/search', { q }).then((r) => r.results || []),
     memoToNotion: async (memo, page, type, connection) => { const r = await act('/memo/notion', { memo, page, type, connection }); setMemos((m) => (m || []).map((x) => (x.id === memo ? { ...x, notionUrl: r.url } : x))); return r; },
+    // 회의록 저장소: one for the whole team; anyone in it may change it (null clears). Recording itself happens on PCs.
+    setMemoStore: (team, store) => act('/team/memo-store', { team, store }),
     deleteDive: (dive) => act('/dive/delete', { dive }),
     // Joining while the call screen still rings for this dive: answer it there (the answer comes back as onAnswerCall
     // and joins), so the system knows the call is on.

@@ -121,3 +121,13 @@ create table if not exists public.work_memos (
 );
 create index if not exists work_memos_team on public.work_memos (team_id, created_at desc);
 alter table public.work_memos enable row level security;
+
+-- 회의록 저장소: where the team's dive notes go — one choice for the whole team, set or changed by any member:
+-- { kind: 'local' | 'notion', type, page, title, url, connection, workspace, by, at }. null = not chosen (no automatic
+-- recording). `stored` on a memo says where that note went.
+alter table public.work_teams add column if not exists memo_store jsonb;
+alter table public.work_memos add column if not exists stored jsonb;
+alter table public.work_memos drop constraint if exists work_memos_state_check;
+alter table public.work_memos add constraint work_memos_state_check check (state in ('recording', 'summarizing', 'done', 'error'));
+-- One recording per room at a time (two computers joining together: the second is told who records).
+create unique index if not exists work_memos_one_recording on public.work_memos (dive_id) where state = 'recording' and dive_id is not null;

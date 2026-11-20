@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   integrations: p => ipcRenderer.invoke('smoke:integrations', p),
   tools: (action, payload) => ipcRenderer.invoke('smoke:tools', { action, payload }),
   openExternal: url => ipcRenderer.invoke('smoke:open', url),
+  saveMemoFile: p => ipcRenderer.invoke('smoke:memo-save', p).catch(() => ({ ok: false })),
+  showInFolder: p => ipcRenderer.invoke('smoke:memo-show', p).catch(() => ({ ok: false })),
   syncNow: async () => ({ ok: true }),
   updateSettings: p => ipcRenderer.invoke('smoke:settings', p),
   updateTodo: (id, patch) => ipcRenderer.invoke('smoke:todo', { id, patch }),

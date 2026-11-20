@@ -101,7 +101,7 @@ export default function RoamingPet({ db, room = 0, working = null, bubble = null
   const dragTo=e=>{const w=toWorld(e.clientX-drag.current.x,e.clientY-drag.current.y);movePetTo(model.current,w.x,w.y,innerWidth,innerHeight,view.current);};
   return <div className="pet-world" aria-label="화면을 돌아다니는 도트 펫">
     <button ref={element} className="roaming-pet" data-pet-instance={instance.current} aria-label={`${pet.name} 도트 펫`} title={working?working.text:`${pet.name} · 끌어서 이동 · 우클릭하면 쉬러 가요`} data-work={typing?'writing':working?.state||bubble?.mood||undefined} data-typing={typing?'1':undefined} style={{visibility:'hidden'}}
-      onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();grab(e,model.current);moved.current=false;movePetTo(model.current,model.current.x,model.current.y,innerWidth,innerHeight,view.current);try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}}}
+      onPointerDown={e=>{if(e.button!==0||(e.target.closest&&e.target.closest('.pet-say.can-open')))return;e.preventDefault();e.stopPropagation();grab(e,model.current);moved.current=false;movePetTo(model.current,model.current.x,model.current.y,innerWidth,innerHeight,view.current);try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}}}
       onPointerMove={e=>{if(!drag.current)return;e.preventDefault();e.stopPropagation();if(Math.hypot(e.clientX-drag.current.startX,e.clientY-drag.current.startY)>5)moved.current=true;dragTo(e);}}
       onPointerUp={e=>{if(!drag.current)return;e.stopPropagation();drag.current=null;releasePet(model.current);}}
       onPointerCancel={()=>{drag.current=null;releasePet(model.current);}}

@@ -11,6 +11,7 @@ import { available as voipAvailable, callState } from '../voip.js';
 import { Linking, AppState } from 'react-native';
 import { tools } from '../store.js';
 import { todosOn, addDay } from '../../../shared/multi-day.js';
+import { storeLabel, STORE_OPTIONS } from '../../../shared/memo-store.mjs';
 
 /*
  * 팀버전 (Work) — the Team screen (tap "체커" in the top bar): teams and invites, who is online, the dive button, and
@@ -137,21 +138,52 @@ function Missed({ team }) {
 }
 
 // 메모: what was recorded in the team's calls on a computer, written down and summed up; sending one to Notion.
-function NotionSheet({ memo, onClose }) {
+// With onPick(result) it picks a place for something else (the team's 회의록 저장소) instead of sending a memo.
+function NotionSheet({ memo, title = '노션에 보내기', desc, onPick, onClose }) {
   const w = useWork(), d = useDesign(), [q, setQ] = useState(''), [results, setResults] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const search = async () => { setBusy(true); setError(''); try { setResults(await w.notionSearch(q)); } catch (e) { setError(e.message); } finally { setBusy(false); } };
   useEffect(() => { search(); }, []);
-  const send = async (r) => { setBusy(true); setError(''); try { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } catch (e) { setError(e.message); setBusy(false); } };
-  return <Sheet title="노션에 보내기" onClose={() => onClose()}>
-    <Text style={{ color: d.muted, fontSize: 13 }}>메모 "{memo.title || memo.summary?.title}"를 어디에 넣을까요? 페이지 아래 새 페이지로, DB면 새 행으로 들어가요.</Text>
+  const send = async (r) => { setBusy(true); setError(''); try { if (onPick) { await onPick(r); onClose(true); } else { const made = await w.memoToNotion(memo.id, r.id, r.type, r.connection); onClose(made.url); } } catch (e) { setError(e.message); setBusy(false); } };
+  return <Sheet title={title} onClose={() => onClose()}>
+    <Text style={{ color: d.muted, fontSize: 13 }}>{desc || `메모 "${memo?.title || memo?.summary?.title}"를 어디에 넣을까요? 페이지 아래 새 페이지로, DB면 새 행으로 들어가요.`}</Text>
     <View style={{ flexDirection: 'row', gap: 8 }}><Field value={q} onChangeText={setQ} placeholder="페이지·DB 이름으로 찾기" onSubmitEditing={search} /><Button title="찾기" disabled={busy} onPress={search} /></View>
     {results && results.map((r) => <Pressable key={r.connection + r.id} accessibilityRole="button" disabled={busy} onPress={() => send(r)} style={{ padding: 10, borderRadius: 12, borderWidth: 1, borderColor: d.edge }}><Text style={{ color: d.text, fontWeight: '600' }}>{r.icon ? r.icon + ' ' : ''}{r.title}</Text><Text style={{ color: d.muted, fontSize: 11 }}>{r.type === 'database' ? 'DB' : '페이지'}{r.workspace ? ' · ' + r.workspace : ''}</Text></Pressable>)}
     {results && !results.length && <Text style={{ color: d.muted, fontSize: 13 }}>찾은 게 없어요. 노션에서 연결 권한을 준 페이지만 보여요.</Text>}
     <ErrorText>{error}</ErrorText>
   </Sheet>;
 }
+// 회의록 저장소 — where this team's dive notes go. One choice for the whole team (one dive → one note, in one place);
+// anyone in the team may change it. The recording and the summary happen on a PC in the room; the phone shows and sets.
+function MemoStoreSheet({ team, onClose }) {
+  const w = useWork(), d = useDesign(), store = team.memoStore, [notion, setNotion] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const choose = async (value) => { setBusy(true); setError(''); try { await w.setMemoStore(team.id, value); onClose(); } catch (e) { setError(e.message); setBusy(false); } };
+  if (notion) return <NotionSheet title="노션 DB 고르기" desc={`'${team.name}'의 다이브 회의록이 들어갈 노션 데이터베이스(또는 페이지)를 골라 주세요. 다이브가 끝나면 새 행으로 들어가요.`} onPick={(r) => w.setMemoStore(team.id, { kind: 'notion', page: r.id, type: r.type, connection: r.connection })} onClose={(done) => (done === true ? onClose() : setNotion(false))} />;
+  const current = store?.kind || null;
+  return <Sheet title="dive 회의록이 기록될 데이터베이스를 선택하세요" onClose={onClose}>
+    <Text style={{ color: d.muted, fontSize: 13, lineHeight: 19 }}>{team.name} 팀 전체에 하나로 정해져요 (팀원 누구나 바꿀 수 있어요). 저장소가 정해진 팀의 다이브는 PC·웹에서 자동으로 녹음되고, 끝나면 받아쓰기 → 요약 → 여기에 저장돼요. 지금: {storeLabel(store)}{store?.byName ? ` (${store.byName}님이 정함)` : ''}</Text>
+    {STORE_OPTIONS.map((o) => { const on = current === o.kind; return <Pressable key={String(o.kind)} accessibilityRole="radio" accessibilityState={{ checked: on }} disabled={busy} onPress={() => (o.kind === 'notion' ? setNotion(true) : choose(o.kind ? { kind: o.kind } : null))} style={{ padding: 12, borderRadius: 14, borderWidth: 1, borderColor: on ? d.accent : d.edge, backgroundColor: on ? '#6366f11a' : 'transparent', gap: 2 }}>
+      <Text style={{ color: d.text, fontWeight: '700' }}>{o.kind === 'local' ? '📁 ' : o.kind === 'notion' ? '📝 ' : '— '}{o.label}{o.kind === 'notion' && current === 'notion' ? ` · ${store.title}` : ''}</Text>
+      <Text style={{ color: d.muted, fontSize: 12, lineHeight: 17 }}>{o.desc}</Text>
+    </Pressable>; })}
+    <ErrorText>{error}</ErrorText>
+  </Sheet>;
+}
+function MemoStoreLine({ team }) {
+  const d = useDesign(), store = team.memoStore, [picking, setPicking] = useState(false), link = store?.kind === 'notion' && !!store.url;
+  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+    <Text style={{ color: d.muted, fontSize: 12, fontWeight: '700' }}>📝 회의록</Text>
+    <View style={{ flex: 1 }}>
+      {store ? <><Pressable accessibilityRole={link ? 'link' : undefined} disabled={!link} onPress={() => Linking.openURL(store.url)}><Text style={{ color: link ? d.accent : d.text, fontWeight: '700', fontSize: 13 }}>{storeLabel(store)}</Text></Pressable>
+        <Text style={{ color: d.muted, fontSize: 11 }}>{store.byName ? `${store.byName}님이 정함 · ` : ''}다이브가 끝나면 PC에서 받아쓰고 요약해 여기에 저장해요</Text></>
+        : <Text style={{ color: d.muted, fontSize: 12 }}>저장소를 정하면 다이브가 자동으로 녹음·요약돼요 (PC·웹에서)</Text>}
+    </View>
+    <Button title={store ? '바꾸기' : '정하기'} onPress={() => setPicking(true)} />
+    {picking && <MemoStoreSheet team={team} onClose={() => setPicking(false)} />}
+  </View>;
+}
 function Memos({ team }) {
   const w = useWork(), d = useDesign(), me = w.state.me, [open, setOpen] = useState(null), [picker, setPicker] = useState(null), [error, setError] = useState('');
+  const where = (m) => (m.state === 'summarizing' ? ' · 요약 중' : m.state !== 'done' ? ' · 녹음 중' : m.notionUrl ? ` · ${m.stored?.kind === 'notion' ? storeLabel(m.stored) : '노션'}에 있음` : m.stored?.kind === 'local' ? ' · 로컬 저장소 (PC)' : '');
   useEffect(() => { w.loadMemos(team.id).catch((e) => setError(e.message)); }, [team.id]);
   const list = (w.memos || []).filter((m) => m.team === team.id);
   const nameOf = (id) => team.members.find((m) => m.id === id)?.name || '팀원';
@@ -160,7 +192,7 @@ function Memos({ team }) {
     {list.map((m) => <View key={m.id} style={{ gap: 6 }}>
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: open === m.id }} onPress={() => setOpen(open === m.id ? null : m.id)} style={{ paddingVertical: 4 }}>
         <Text style={{ color: d.text, fontWeight: '700' }}>{m.title || m.summary?.title || '메모'}</Text>
-        <Text style={{ color: d.muted, fontSize: 11 }}>{nameOf(m.by)} · {ago(m.createdAt)}{m.state !== 'done' ? ' · 정리 중' : ''}{m.notionUrl ? ' · 노션에 있음' : ''}</Text>
+        <Text style={{ color: d.muted, fontSize: 11 }}>{nameOf(m.by)} · {ago(m.createdAt)}{where(m)}</Text>
       </Pressable>
       {open === m.id && <View style={{ gap: 6, paddingLeft: 4 }}>
         {!!m.summary?.summary && <Text style={{ color: d.text, fontSize: 13, lineHeight: 19 }}>{m.summary.summary}</Text>}
@@ -169,7 +201,7 @@ function Memos({ team }) {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {m.state === 'done' && <Button primary title="📝 노션에 보내기" onPress={() => setPicker(m)} />}
           {!!m.notionUrl && <Button title="노션에서 열기" onPress={() => Linking.openURL(m.notionUrl)} />}
-          {m.by === me.id && <Button title="지우기" onPress={() => Alert.alert('이 메모를 지울까요?', '', [{ text: '취소', style: 'cancel' }, { text: '지우기', style: 'destructive', onPress: () => run(setError, () => w.deleteMemo(m.id)) }])} />}
+          {(m.by === me.id || team.mine) && <Button title="지우기" onPress={() => Alert.alert('이 메모를 지울까요?', '', [{ text: '취소', style: 'cancel' }, { text: '지우기', style: 'destructive', onPress: () => run(setError, () => w.deleteMemo(m.id)) }])} />}
         </View>
       </View>}
     </View>)}
@@ -325,6 +357,7 @@ export default function TeamScreen() {
     {!team || adding ? <CreateTeam onDone={(id) => { setTeamId(id); setAdding(false); }} /> : <>
       <Card style={{ alignItems: 'stretch' }}>
         <CheckerLink team={team} />
+        <MemoStoreLine team={team} />
         {w.call ? <CallPanel inline /> : <>
           <Pressable accessibilityRole="button" accessibilityLabel="다이브 시작" disabled={!others.length} onPress={() => setComposer(true)} style={({ pressed }) => ({ alignItems: 'center', gap: 6, paddingVertical: 14, opacity: !others.length ? 0.45 : pressed ? 0.7 : 1 })}>
             <PulsingDive size={104} /><Text style={{ fontSize: 20, fontWeight: '800', color: d.accent, letterSpacing: 1 }}>Dive</Text>

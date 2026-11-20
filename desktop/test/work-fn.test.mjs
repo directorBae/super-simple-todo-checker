@@ -37,14 +37,16 @@ function world({ sleep = () => new Promise(() => {}), waitUntil = (p) => p, env:
   async function fetch(url, init = {}) {
     const u = new URL(url), method = init.method || 'GET';
     if (u.hostname === 'api.openai.com') {
-      if (u.pathname.endsWith('/audio/transcriptions')) { const f = init.body.get('file'); openai.push({ kind: 'transcribe', size: f.size, type: f.type, model: init.body.get('model') }); return reply({ text: `받아쓴 ${openai.filter((o) => o.kind === 'transcribe').length}번째 조각` }); }
-      if (u.pathname.endsWith('/responses')) { openai.push({ kind: 'summary', input: JSON.parse(init.body).input }); return reply({ output_text: JSON.stringify({ title: '발표 자료 회의', summary: '발표 자료를 내일까지 맞추기로 했다.', decisions: ['디자인은 민지가 맡는다'], todos: ['민지: 시안 보내기', '정원: 문구 다듬기'] }) }); }
+      // The fake ear: a piece saying 'silence' is silence; 'mic-test' is only a mic test (GPT then says nothing was said).
+      if (u.pathname.endsWith('/audio/transcriptions')) { const f = init.body.get('file'), raw = await f.text(); openai.push({ kind: 'transcribe', size: f.size, type: f.type, model: init.body.get('model') }); return reply({ text: raw === 'silence' ? '' : raw === 'mic-test' ? '들려요? 마이크 테스트 하나 둘' : `받아쓴 ${openai.filter((o) => o.kind === 'transcribe').length}번째 조각` }); }
+      if (u.pathname.endsWith('/responses')) { const body = JSON.parse(init.body); openai.push({ kind: 'summary', input: body.input }); if (/마이크 테스트/.test(body.input[1].content)) return reply({ output_text: JSON.stringify({ nothing: true, title: '', summary: '', decisions: [], todos: [] }) }); return reply({ output_text: JSON.stringify({ nothing: false, title: '발표 자료 회의', summary: '발표 자료를 내일까지 맞추기로 했다.', decisions: ['디자인은 민지가 맡는다'], todos: ['민지: 시안 보내기', '정원: 문구 다듬기'] }) }); }
     }
     if (u.hostname === 'api.notion.com') {
       notionCalls.push({ path: u.pathname, method, body: init.body ? JSON.parse(init.body) : null });
       if (u.pathname === '/v1/search') return reply({ results: [{ object: 'page', id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', url: 'https://notion.so/meeting-notes', properties: { title: { type: 'title', title: [{ plain_text: '회의록' }] } } }] });
       if (u.pathname === '/v1/pages' && method === 'POST') return reply({ id: '11111111-2222-3333-4444-555555555555', url: 'https://notion.so/new-memo' });
-      if (u.pathname.startsWith('/v1/databases/')) return reply({ properties: { 이름: { type: 'title' } } });
+      if (u.pathname.startsWith('/v1/databases/')) return reply({ object: 'database', id: u.pathname.split('/').pop(), url: 'https://notion.so/db-meetings', title: [{ plain_text: '회의록 DB' }], properties: { 이름: { type: 'title' }, 날짜: { type: 'date' } } });
+      if (u.pathname.startsWith('/v1/pages/') && method === 'GET') return reply({ object: 'page', id: u.pathname.split('/').pop(), url: 'https://notion.so/meeting-notes', properties: { title: { type: 'title', title: [{ plain_text: '회의록' }] } } });
       return reply({});
     }
     if (u.hostname === 'work.livekit.cloud') { livekit.push({ path: u.pathname, body: JSON.parse(init.body), auth: init.headers.Authorization }); return reply({}); }
@@ -312,11 +314,93 @@ test('memo: a recording comes in pieces and is written down as it goes, summed u
   // Into a database: its title property is found by type.
   await w.a('/memo/notion', { memo: memo.id, page: 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb', type: 'database', connection: 'conn-1' });
   const row = w.notionCalls.filter((c) => c.path === '/v1/pages').at(-1);
-  assert.deepEqual(Object.keys(row.body.properties), ['이름']); assert.equal(row.body.parent.database_id, 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb');
+  assert.deepEqual(Object.keys(row.body.properties), ['이름', '날짜']); assert.equal(row.body.parent.database_id, 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb');
+  assert.equal(row.body.properties.날짜.date.start, memo.createdAt); // its date property (found by type) gets the memo's day
   // Only the one who recorded deletes it.
-  await assert.rejects(w.b('/memo/delete', { memo: memo.id }), /녹음한 사람만/);
+  await assert.rejects(w.b('/memo/delete', { memo: memo.id }), /녹음한 사람/);
   await w.a('/memo/delete', { memo: memo.id });
   assert.deepEqual((await w.a('/memos', { team: team.id })).memos, []);
+});
+
+test('memo store: one place per team (anyone sets it, everyone sees it), one recording per room, the note goes to the team\'s Notion DB by itself, nothing said → no note, a dead recording is finished by the server', async () => {
+  const w = world({ env: { OPENAI_API_KEY: 'sk-test', OPENAI_MODEL: 'gpt-test' } });
+  const { team } = await w.a('/team', { name: 'Studio' });
+  await w.a('/invite', { team: team.id, emails: ['b@x.com'] }); await w.b('/invite/accept', { team: team.id });
+  // Not chosen yet: no store, so rooms are not recorded by themselves.
+  assert.equal((await w.a('/state')).teams[0].memoStore, null);
+  // b (not the owner) picks a Notion DB through their own connection; its title is read now and kept for everyone.
+  await assert.rejects(w.b('/team/memo-store', { team: team.id, store: { kind: 'notion', page: 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb', type: 'database' } }), /노션이 연결/);
+  w.tables.connections.push({ id: 'conn-b', user_id: USERS['tok-b'].id, provider: 'notion', account: 'B 워크스페이스', secret: { access_token: 'ntn-b' }, meta: {} });
+  const set = await w.b('/team/memo-store', { team: team.id, store: { kind: 'notion', page: 'dbdbdbdb-dbdb-dbdb-dbdb-dbdbdbdbdbdb', type: 'database', connection: 'conn-b' } });
+  assert.deepEqual([set.store.kind, set.store.type, set.store.page, set.store.title, set.store.url, set.store.by, 'connection' in set.store], ['notion', 'database', 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb', '회의록 DB', 'https://notion.so/db-meetings', USERS['tok-b'].id, false]);
+  const seenByA = (await w.a('/state')).teams[0].memoStore;
+  assert.equal(seenByA.title, '회의록 DB'); assert.equal(seenByA.by, USERS['tok-b'].id); assert.equal(typeof seenByA.byName, 'string');
+  // A room: a's computer starts recording; b's, joining too, is told a records instead of starting a second one.
+  const { dive } = await w.a('/dive', { team: team.id, targets: [USERS['tok-b'].id], agenda: '주간 회의' });
+  const first = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '주간 회의', auto: true });
+  assert.equal(first.memo.state, 'recording');
+  assert.deepEqual(await w.b('/memo/start', { team: team.id, dive: dive.id, title: '주간 회의', auto: true }), { memo: null, recorder: USERS['tok-a'].id });
+  await assert.rejects(w.b('/memo/start', { team: team.id, dive: dive.id, title: '주간 회의' }), /이미 다른 사람이/);
+  assert.equal((await w.b('/state')).dives[0].recording, USERS['tok-a'].id);
+  // Pieces → the end: GPT is told the note is a row of that DB (and the team), and the row is made, with its date.
+  const piece = Buffer.from('fake-opus-bytes').toString('base64');
+  await w.a('/memo/chunk', { memo: first.memo.id, index: 0, audio: piece, mime: 'audio/webm' });
+  const done = await w.a('/memo/finish', { memo: first.memo.id });
+  assert.equal(done.memo.state, 'done'); assert.deepEqual(done.stored, { kind: 'notion', type: 'database', title: '회의록 DB', url: 'https://notion.so/new-memo' });
+  assert.equal(done.memo.notionUrl, 'https://notion.so/new-memo'); assert.deepEqual(done.memo.stored, done.stored); assert.equal('nothing' in done.memo.summary, false);
+  const rules = w.openai.find((o) => o.kind === 'summary').input[0].content;
+  assert.match(rules, /노션 데이터베이스 '회의록 DB'/); assert.match(rules, /팀: Studio/); assert.match(rules, /nothing/);
+  const row = w.notionCalls.filter((c) => c.path === '/v1/pages' && c.method === 'POST').at(-1);
+  assert.equal(row.body.parent.database_id, 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb');
+  assert.equal(row.body.properties.이름.title[0].text.content, '발표 자료 회의'); // a DB row's title is the summary's own (no date in it)
+  assert.ok(row.body.properties.날짜.date.start);
+  assert.equal((await w.b('/state')).dives[0].recording, null);
+  // Finishing again changes nothing (no second row).
+  assert.equal((await w.a('/memo/finish', { memo: first.memo.id })).memo.notionUrl, 'https://notion.so/new-memo');
+  assert.equal(w.notionCalls.filter((c) => c.path === '/v1/pages' && c.method === 'POST').length, 1);
+  // Nothing said: silence is thrown away without asking GPT; a mic test is thrown away by GPT (nothing: true).
+  const silent = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '빈 방' });
+  await w.a('/memo/chunk', { memo: silent.memo.id, index: 0, audio: Buffer.from('silence').toString('base64'), mime: 'audio/webm' });
+  const summaries = w.openai.filter((o) => o.kind === 'summary').length;
+  assert.deepEqual(await w.a('/memo/finish', { memo: silent.memo.id }), { memo: null, reason: 'empty' });
+  assert.equal(w.openai.filter((o) => o.kind === 'summary').length, summaries);
+  const mic = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '테스트' });
+  await w.a('/memo/chunk', { memo: mic.memo.id, index: 0, audio: Buffer.from('mic-test').toString('base64'), mime: 'audio/webm' });
+  assert.deepEqual(await w.a('/memo/finish', { memo: mic.memo.id }), { memo: null, reason: 'nothing' });
+  assert.deepEqual((await w.a('/memos', { team: team.id })).memos.map((m) => m.title), ['주간 회의']);
+  // A recording whose pieces stopped coming 5 minutes ago (the computer slept) is finished by the server on the next look.
+  const dead = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '끊긴 녹음' });
+  await w.a('/memo/chunk', { memo: dead.memo.id, index: 0, audio: piece, mime: 'audio/webm' });
+  assert.equal((await w.b('/state')).dives[0].recording, USERS['tok-a'].id);
+  w.tables.work_memos.find((m) => m.id === dead.memo.id).updated_at = new Date(NOW - 6 * 60_000).toISOString();
+  await w.b('/state');
+  for (let i = 0; i < 50 && w.tables.work_memos.find((m) => m.id === dead.memo.id).state !== 'done'; i++) await new Promise((r) => setImmediate(r));
+  assert.equal(w.tables.work_memos.find((m) => m.id === dead.memo.id).state, 'done');
+  assert.equal((await w.b('/state')).dives[0].recording, null);
+  assert.equal(w.notionCalls.filter((c) => c.path === '/v1/pages' && c.method === 'POST').length, 2);
+  // 로컬 저장소: the server keeps the note (the computers write the files); GPT is told it is a markdown file.
+  await w.a('/team/memo-store', { team: team.id, store: { kind: 'local' } });
+  assert.equal((await w.b('/state')).teams[0].memoStore.kind, 'local');
+  const local = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '로컬' });
+  await w.a('/memo/chunk', { memo: local.memo.id, index: 0, audio: piece, mime: 'audio/webm' });
+  const localDone = await w.a('/memo/finish', { memo: local.memo.id });
+  assert.deepEqual(localDone.stored, { kind: 'local' }); assert.equal(localDone.memo.notionUrl, null);
+  assert.match(w.openai.filter((o) => o.kind === 'summary').at(-1).input[0].content, /마크다운/);
+  // The store's Notion connection gone: the note is kept as a memo, the answer says Notion failed (the app can send it by hand).
+  await w.b('/team/memo-store', { team: team.id, store: { kind: 'notion', page: 'dbdbdbdbdbdbdbdbdbdbdbdbdbdbdbdb', type: 'database', connection: 'conn-b' } });
+  w.tables.connections = w.tables.connections.filter((c) => c.id !== 'conn-b');
+  const orphan = await w.a('/memo/start', { team: team.id, dive: dive.id, title: '연결 끊김' });
+  await w.a('/memo/chunk', { memo: orphan.memo.id, index: 0, audio: piece, mime: 'audio/webm' });
+  const orphanDone = await w.a('/memo/finish', { memo: orphan.memo.id });
+  assert.equal(orphanDone.memo.state, 'done'); assert.equal(orphanDone.stored.kind, 'notion'); assert.match(orphanDone.stored.error, /노션 연결이 끊겼어요/); assert.equal(orphanDone.memo.notionUrl, null);
+  // Cleared by anyone in the team; outsiders and unknown kinds are refused. The owner may delete a teammate's memo.
+  await w.b('/team/memo-store', { team: team.id, store: null });
+  assert.equal((await w.a('/state')).teams[0].memoStore, null);
+  await assert.rejects(w.c('/team/memo-store', { team: team.id, store: { kind: 'local' } }), /팀원이 아니/);
+  await assert.rejects(w.a('/team/memo-store', { team: team.id, store: { kind: 'dropbox' } }), /로컬 저장소나 노션/);
+  await assert.rejects(w.b('/memo/delete', { memo: orphan.memo.id }), /녹음한 사람/);
+  w.tables.work_memos.find((m) => m.id === orphan.memo.id).user_id = USERS['tok-b'].id;
+  await w.a('/memo/delete', { memo: orphan.memo.id });
 });
 
 test('work: the one who opened a room deletes it — from inside the call or from the list — and everyone in it is out', async () => {

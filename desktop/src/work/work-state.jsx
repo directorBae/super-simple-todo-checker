@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { workAlerts, ringbackWanted } from '../../../shared/work-alerts.mjs';
 import { ringback } from './ring.js';
 import { startRecording, toBase64, recordingSupported } from './recorder.js';
+import { memoOutcome, MEMO_STEPS } from '../../../shared/memo-store.mjs';
 
 /*
  * 팀버전 (Work) in the window: the team state (teams, invites, who is online, open dives), the actions, and the dive
@@ -65,6 +66,23 @@ export function WorkProvider({ children, onOpen, pet }) {
   const [recording, setRecording] = useState(null), rec = useRef(null), [memos, setMemos] = useState(null);
   const openRef = useRef(onOpen); openRef.current = onOpen;
   const desktop = !!window.api.workRefresh;
+  // The pet tells how the note is coming along (전사 중 → 요약 중 → "'…'에 정리했어요!"; a click opens it) — App.jsx listens.
+  const petWork = (job) => window.dispatchEvent(new CustomEvent('checker:pet-work', { detail: job }));
+  const petSay = (say) => window.dispatchEvent(new CustomEvent('checker:pet-say', { detail: say }));
+  const openOutcome = (out) => {
+    const l = out.link; if (!l) return;
+    if (l.kind === 'notion') window.api.openExternal(l.url);
+    else if (l.kind === 'local') window.api.showInFolder?.(l.path);
+    else { openRef.current?.('team'); setTimeout(() => window.dispatchEvent(new CustomEvent('checker:open-memo', { detail: { memo: l.memo } })), 80); }
+  };
+  const teamOf = (id) => state?.teams.find((t) => t.id === id) || null;
+  // 로컬 저장소 on this computer: a done memo as a markdown file (nothing on the web — the memo stays in the Team tab).
+  const saveLocal = async (teamId, memo) => {
+    const team = teamOf(teamId); if (!team || !window.api.saveMemoFile) return null;
+    return window.api.saveMemoFile({ team: team.name, memo, names: Object.fromEntries(team.members.map((m) => [m.id, m.name])) }).catch(() => null);
+  };
+  // Recording stopped by hand (■) stays off for that room, store or not.
+  const stoppedByHand = useRef(null);
   // Tags tapped but not yet confirmed by the server, per team: shown at once and kept over any older answer that
   // comes in meanwhile (a regular look that started before the save) until the server says the same.
   const tags = useRef(new Map()), saving = useRef(new Map());
@@ -141,26 +159,47 @@ export function WorkProvider({ children, onOpen, pet }) {
     memberBoard: async (team, member) => { const r = await window.api.tools('work', { path: '/member', body: { team, member } }); if (!r?.ok) throw new Error(r?.error || '불러오지 못했어요.'); return r; },
     startDive: async (team, targets, agenda) => { const r = await act('/dive', { team, targets, agenda }); await enter(r.dive.id, r); return r; },
     joinDive: async (dive) => { const r = await retry(() => act('/dive/join', { dive })); await enter(dive, r); },
-    // 녹음 → 메모: pieces of the call's sound go to the server as they come; stopping sums the memo up.
-    recordStart: async (team, dive, title) => {
-      if (!live.current?.audioTracks || !recordingSupported()) throw new Error('이 환경에서는 녹음할 수 없어요.');
-      const r = await act('/memo/start', { team, dive, title });
+    // 녹음 → 회의록: pieces of the call's sound go to the server as they come; stopping sums the memo up and puts it
+    // where the team's 회의록 저장소 says. One recording per room: `auto` (started by the app itself) quietly gets
+    // null when someone else already records; by hand it is an error.
+    recordStart: async (team, dive, title, { auto = false } = {}) => {
+      if (!live.current?.audioTracks || !recordingSupported()) { if (auto) return null; throw new Error('이 환경에서는 녹음할 수 없어요.'); }
+      if (rec.current) return null;
+      const r = await act('/memo/start', { team, dive, title, auto });
+      if (!r.memo) return null;
       let chain = Promise.resolve(), pieces = 0, sent = 0;
       const h = startRecording({ tracks: () => live.current?.audioTracks?.() || [], onPiece: (blob, index) => {
         pieces++; setRecording((x) => x && { ...x, pieces });
-        chain = chain.then(async () => { try { await act('/memo/chunk', { memo: r.memo.id, index, audio: await toBase64(blob), mime: blob.type || h.mime }); sent++; setRecording((x) => x && { ...x, sent }); } catch (e) { setError('녹음 조각을 보내지 못했어요: ' + e.message); } });
+        chain = chain.then(async () => {
+          try { await act('/memo/chunk', { memo: r.memo.id, index, audio: await toBase64(blob), mime: blob.type || h.mime }); sent++; setRecording((x) => x && { ...x, sent }); }
+          catch (e) { setError('녹음 조각을 보내지 못했어요: ' + e.message); if (/끝난 메모/.test(e.message)) h.stop(); } // finished by the server meanwhile
+        });
       } });
-      rec.current = { h, done: () => chain, memo: r.memo.id, team };
-      setRecording({ memo: r.memo.id, since: h.since, pieces: 0, sent: 0, team });
+      rec.current = { h, done: () => chain, memo: r.memo.id, team, dive };
+      setRecording({ memo: r.memo.id, since: h.since, pieces: 0, sent: 0, team, dive });
+      return r.memo;
     },
-    recordStop: async () => {
+    recordStop: async ({ byHand = false } = {}) => {
       const x = rec.current; if (!x) return null;
-      rec.current = null;
+      rec.current = null; if (byHand) stoppedByHand.current = x.dive;
       setRecording((s) => s && { ...s, stopping: true });
-      await x.h.stop(); await x.done();
-      try { const r = await act('/memo/finish', { memo: x.memo }); setMemos((m) => [r.memo, ...(m || []).filter((y) => y.id !== r.memo.id)]); return r.memo; }
-      finally { setRecording(null); }
+      petWork({ id: x.memo, ...MEMO_STEPS.transcribing });
+      try {
+        await x.h.stop(); await x.done();
+        petWork({ id: x.memo, ...MEMO_STEPS.summarizing });
+        const r = await retry(() => act('/memo/finish', { memo: x.memo }));
+        if (r.memo) setMemos((m) => [r.memo, ...(m || []).filter((y) => y.id !== r.memo.id)]);
+        else setMemos((m) => (m || []).filter((y) => y.id !== x.memo));
+        const local = r.memo && r.stored?.kind === 'local' ? await saveLocal(x.team, r.memo) : null;
+        const out = memoOutcome(r, { local, teamName: teamOf(x.team)?.name || '' });
+        petSay({ id: x.memo, ...out, onOpen: out.link ? () => openOutcome(out) : null });
+        return r.memo;
+      } catch (e) { petSay({ id: x.memo, mood: 'error', text: '회의록을 정리하지 못했어요: ' + e.message }); throw e; }
+      finally { setRecording(null); petWork(null); }
     },
+    // 회의록 저장소: one for the whole team; anyone in it may change it (null clears).
+    setMemoStore: (team, store) => act('/team/memo-store', { team, store }),
+    saveMemoLocal: saveLocal,
     loadMemos: async (team) => { const r = await tools('/memos', { team }); setMemos(r.memos || []); return r.memos; },
     deleteMemo: async (memo) => { await act('/memo/delete', { memo }); setMemos((m) => (m || []).filter((x) => x.id !== memo)); },
     notionSearch: (q) => tools('/memo/notion/search', { q }).then((r) => r.results || []),
@@ -177,6 +216,15 @@ export function WorkProvider({ children, onOpen, pet }) {
   useEffect(() => { if (!call && rec.current) actions.recordStop().catch(() => {}); }, [call]);
   // 연결음 for the caller while nobody has come into the room yet (the rule is shared: work-alerts.mjs).
   const remote = (call?.people || []).filter((p) => !p.me).length;
+  // 회의록 저장소가 정해진 팀: the room records itself — on the first computer in it, once someone else is there — and the
+  // note is made when the recording ends. Someone else recording (state.dives[].recording) or ■ by hand: not here.
+  const dive = state?.dives?.find((x) => x.id === call?.dive), autoStore = !!teamOf(dive?.team)?.memoStore;
+  useEffect(() => {
+    if (!call || call.state !== 'connected' || remote < 1 || rec.current || recording || !dive || !autoStore || !recordingSupported()) return undefined;
+    if (stoppedByHand.current === dive.id || (dive.recording && dive.recording !== state?.me?.id)) return undefined;
+    const t = setTimeout(() => actions.recordStart(dive.team, dive.id, dive.agenda, { auto: true }).catch(() => {}), 500 + Math.random() * 1000);
+    return () => clearTimeout(t);
+  }, [call?.dive, call?.state, remote, dive?.recording, autoStore, !!recording]);
   useEffect(() => {
     const d = state?.dives?.find((x) => x.id === call?.dive);
     if (!ringbackWanted(call, d, state?.me?.id)) return undefined;

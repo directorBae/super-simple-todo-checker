@@ -17,6 +17,7 @@ const updater = require('./updater.cjs');
 const localServer = require('./local-server.cjs');
 const tools = require('./tools.cjs');
 const repeats = require('./repeats.cjs');
+const memoFiles = require('./memo-files.cjs');
 
 app.setAppUserModelId('com.baejungwon.todo-checklist');
 // Uploaded wallpaper lives in userData and is served as checker-media://wallpaper so it works in dev and packaged builds.
@@ -197,6 +198,10 @@ function registerIpc() {
     if (safe) await shell.openExternal(safe);
     return { ok: !!safe };
   });
+
+  // 회의록 저장소 = 로컬 저장소: a done memo as a markdown file under 문서/Work 회의록/<팀>, and opening that folder.
+  ipcMain.handle('memo:save', (_, p) => memoFiles.save(p));
+  ipcMain.handle('memo:show', (_, p) => memoFiles.show(p));
 
   ipcMain.handle('app:info', () => ({
     userData: app.getPath('userData'),
