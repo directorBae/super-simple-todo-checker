@@ -23,14 +23,25 @@ function cleanPlaylist(list) {
     .map((x) => ({ id: text(x.id, 64) || String(Math.random()).slice(2), url: text(x.url, 500), videoId: text(x.videoId, 20), listId: text(x.listId, 64), title: text(x.title, 200) }));
 }
 
+// token({ force }) gives the signed-in person's access token (null when nobody is in); with force it renews it first.
 function createToolsClient({ url, key, fetch: request = globalThis.fetch, token }) {
   const base = String(url || '').replace(/\/+$/, '');
+  const send = async (path, init, access) => {
+    const res = await request(base + path, { ...init, headers: { apikey: key, Authorization: 'Bearer ' + access, 'Content-Type': 'application/json', ...(init.headers || {}) } });
+    const text = await res.text();
+    return { res, body: text ? JSON.parse(text) : null };
+  };
   async function call(path, init = {}) {
     const access = await token();
     if (!access) throw new Error('로그인해 주세요.');
-    const res = await request(base + path, { ...init, headers: { apikey: key, Authorization: 'Bearer ' + access, 'Content-Type': 'application/json', ...(init.headers || {}) } });
-    const text = await res.text();
-    const body = text ? JSON.parse(text) : null;
+    let { res, body } = await send(path, init, access);
+    // The server did not take this token (it went stale while the app sat open): a renewed one gets one more try.
+    if (res.status === 401) {
+      const renewed = await token({ force: true }).catch(() => null);
+      if (!renewed) throw new Error('로그인해 주세요.');
+      if (renewed === access) throw new Error('로그인 상태를 새로 받지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.');
+      ({ res, body } = await send(path, init, renewed));
+    }
     if (!res.ok) throw new Error(body?.error || body?.message || '연결 서버에 닿지 못했어요.');
     return body;
   }

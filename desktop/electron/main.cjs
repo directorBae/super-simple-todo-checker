@@ -421,6 +421,7 @@ app.whenReady().then(() => {
   // Supabase가 설정돼 있으면 5초마다, 창으로 돌아올 때마다 가져오고 올린다.
   const autoSupabase = () => supabase.syncNow(store).then((r) => { if (r.changed) broadcast(); });
   supabase.ready().then(broadcast); // the window waits for this before it shows the login or the app
+  supabase.onAuthChange(broadcast); // a session that died (or was renewed): the window follows at once
   autoSupabase();
   setInterval(autoSupabase, 5000);
   // A new day brings the next occurrences of repeating to-dos into range.

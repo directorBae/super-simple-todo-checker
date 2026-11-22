@@ -88,9 +88,15 @@ async function signOut(store) {
 }
 const recover = (email) => attempt(() => keeper.recover(email));
 
-// The signed-in person's token for the tool connections (노션 · 구글 캘린더); null when nobody is in.
-const accessToken = async () => (await keeper.current())?.accessToken || null;
+// The signed-in person's token for the tool connections (노션 · 구글 캘린더 · Work); null when nobody is in.
+// With { force: true } (the server refused the token) it is renewed first.
+const accessToken = async (opts) => (await keeper.current(opts))?.accessToken || null;
 const tools = require('./tools.cjs').client(cfg, accessToken);
+// The session changed under us (renewed, or dead — the refresh token refused): the window hears about it at once,
+// so a dead session shows the login instead of leaving the app up with Work saying "로그인해 주세요".
+let onAuth = null;
+keeper.watch((s) => { account = s ? { id: s.user.id, email: s.user.email } : null; loading = false; onAuth?.(); });
+const onAuthChange = (fn) => { onAuth = fn; };
 // Tell the server the reminder settings (the phone's reminders are sent from there; the morning time also places the
 // Monday/Thursday check-up) — whenever they change.
 let sentPrefs = '';
@@ -101,4 +107,4 @@ function sharePrefs(settings) {
   tools.savePrefs?.(settings, zone).catch(() => { sentPrefs = ''; });
 }
 
-module.exports = { syncNow, configured: () => engine.configured(cfg), ready: refreshAccount, status, signIn, signUp, signOut, recover, accessToken, tools };
+module.exports = { syncNow, configured: () => engine.configured(cfg), ready: refreshAccount, status, signIn, signUp, signOut, recover, accessToken, tools, onAuthChange };

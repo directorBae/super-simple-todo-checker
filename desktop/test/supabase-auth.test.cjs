@@ -61,3 +61,23 @@ test('the session keeper remembers the login, renews it and forgets it on sign-o
   assert.equal(await dead.current(), null); assert.equal(saved, null);
   await again.signOut(); assert.equal(await again.account(), null);
 });
+
+test('the keeper renews on demand ({ force }) and tells its watchers about every change — a dead session included', async () => {
+  const f = fakeAuth(); let saved = null; const heard = [];
+  await auth.signUp(cfg(f), 'me@a.com', 'secret1');
+  const keeper = auth.createSessionKeeper(cfg(f), { load: () => saved, save: (s) => { saved = s; } });
+  const off = keeper.watch((s) => heard.push(s ? s.accessToken : null));
+  const first = await keeper.signIn('me@a.com', 'secret1');
+  assert.equal(await keeper.current(), first, 'far from expiry: the same session');
+  const forced = await keeper.current({ force: true });
+  assert.notEqual(forced.accessToken, first.accessToken); assert.equal(saved, forced, 'renewed now and stored');
+  assert.deepEqual(heard, [first.accessToken, forced.accessToken]);
+  // Offline while renewing: the old session stays (nothing to tell); the refresh token refused: gone, and watchers hear null.
+  const offline = auth.createSessionKeeper({ ...cfg(f), fetch: async () => { throw new Error('net'); } }, { load: () => saved, save: (s) => { saved = s; } });
+  assert.equal((await offline.current({ force: true })).accessToken, forced.accessToken);
+  saved = { ...saved, refreshToken: 'gone' };
+  const dying = auth.createSessionKeeper(cfg(f), { load: () => saved, save: (s) => { saved = s; } });
+  const gone = []; dying.watch((s) => gone.push(s));
+  assert.equal(await dying.current({ force: true }), null); assert.deepEqual(gone, [null]); assert.equal(saved, null);
+  off(); await keeper.signOut(); assert.equal(heard.length, 2, 'unsubscribed');
+});

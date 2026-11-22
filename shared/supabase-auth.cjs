@@ -74,20 +74,24 @@ async function recover(cfg, email) {
 
 // 한 기기의 로그인 상태. load/save는 세션을 그 기기 방식대로(파일, AsyncStorage 등) 읽고 쓴다(비동기여도 된다).
 // current()는 만료가 가까우면 새 토큰으로 바꿔 두고, 다시 로그인해야 하면 세션을 지운 뒤 null을 준다.
+// current({ force: true })는 만료와 상관없이 지금 바꾼다 (서버가 이 토큰을 거절했을 때). watch(fn)은 세션이 바뀔
+// 때마다(갱신, 로그인, 로그아웃, 죽은 세션 → null) fn을 부른다: 화면이 바로 로그인으로 넘어갈 수 있게.
 function createSessionKeeper(cfg, { load, save }) {
   let session, loaded = null, renewing = null;
+  const watchers = new Set();
   const ready = () => (loaded ||= Promise.resolve().then(load).then((s) => { session = s?.refreshToken ? s : null; }).catch(() => { session = null; }));
-  const keep = async (next) => { session = next; await save(next); return next; };
+  const keep = async (next) => { session = next; await save(next); for (const fn of watchers) { try { fn(next); } catch { /* a watcher's own problem */ } } return next; };
   return {
-    async current() {
+    async current({ force = false } = {}) {
       await ready();
       if (!session) return null;
-      renewing ||= fresh(cfg, session)
-        .then((next) => (next === session ? next : keep(next)))
+      if (force && renewing) { await renewing.catch(() => {}); renewing = null; }
+      renewing ||= (force ? refresh(cfg, session).then(keep) : fresh(cfg, session).then((next) => (next === session ? next : keep(next))))
         .catch((e) => (e.signedOut ? keep(null) : session)) // offline: keep the old one and try again later
         .finally(() => { renewing = null; });
       return renewing;
     },
+    watch(fn) { watchers.add(fn); return () => watchers.delete(fn); },
     async account() { await ready(); return session ? { id: session.user.id, email: session.user.email } : null; },
     async signIn(email, password) { await ready(); return keep(await signIn(cfg, email, password)); },
     async signUp(email, password) {

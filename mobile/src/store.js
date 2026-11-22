@@ -26,7 +26,7 @@ const keeper = supabaseAuth.createSessionKeeper(SUPABASE, {
 });
 
 // Notion · Google Calendar connections of the signed-in person (Edge Function `integrations`, see src/tools.js).
-export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, key: SUPABASE.key, fetch: (...a) => fetch(...a), token: async () => (await keeper.current())?.accessToken }) : null;
+export const tools = LOGIN ? toolsEngine.createToolsClient({ url: SUPABASE.url, key: SUPABASE.key, fetch: (...a) => fetch(...a), token: async (opts) => (await keeper.current(opts))?.accessToken }) : null;
 // The reminder settings go to the server too: it sends this phone's reminders, and runs the Monday/Thursday check-up
 // just before the morning one.
 let sentPrefs = '';
@@ -75,7 +75,12 @@ export function DbProvider({ children }) {
   const authGen = useRef(0); // bumps on sign-in/out so a sync that started for the previous account drops its result
   // undefined while the saved session is being read (so the login screen doesn't flash), then { email } or null.
   const [account, setAccount] = useState(LOGIN ? undefined : null);
-  useEffect(() => { if (LOGIN) keeper.account().then(setAccount, () => setAccount(null)); }, []);
+  useEffect(() => {
+    if (!LOGIN) return undefined;
+    keeper.account().then(setAccount, () => setAccount(null));
+    // The session died while the app sat open (the refresh token refused): straight to the login screen.
+    return keeper.watch((s) => { if (!s) setAccount(null); });
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY)

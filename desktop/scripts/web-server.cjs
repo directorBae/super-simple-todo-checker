@@ -28,10 +28,12 @@ function createWebService({ dataDir = process.env.DATA_DIR || path.resolve(__dir
     save: (session) => (session ? fs.writeFileSync(sessionFile, core.store.seal(session), { mode: 0o600 }) : fs.rmSync(sessionFile, { force: true })),
   });
   const ready = keeper ? keeper.account().then((a) => { account = a; }) : Promise.resolve();
+  // A session that died while the page sat open: the next state poll shows the login (locked) instead of the app.
+  keeper?.watch((s) => { account = s ? { id: s.user.id, email: s.user.email } : null; });
   // 노션 · 구글 캘린더 연결: the same person's token. The browser opens the OAuth page itself (web-api.js).
   // The morning alert time goes to the server too (the Monday/Thursday check-up runs just before it).
   const sharePrefs = () => { if (account) tools?.savePrefs?.(settings, Intl.DateTimeFormat().resolvedOptions().timeZone).catch(() => {}); };
-  const tools = authRequired ? toolsApi.client(authCfg, async () => (await keeper.current())?.accessToken || null) : null, importDone = toolsApi.doneWatcher();
+  const tools = authRequired ? toolsApi.client(authCfg, async (opts) => (await keeper.current(opts))?.accessToken || null) : null, importDone = toolsApi.doneWatcher();
   async function toolsAction(p) {
     const result = await toolsApi.run(tools, String(p.action || ''), p);
     if (result.ok && p.action === 'state' && importDone(result.jobs)) core.supabase?.sync().catch(() => {});
