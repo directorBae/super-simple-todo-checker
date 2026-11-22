@@ -114,10 +114,30 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('.roaming-pet').click()`);await pause(2200);
     assert.ok(await js(`{const pet=document.querySelector('.roaming-pet'),r=pet.getBoundingClientRect(),c=document.querySelector('.clock-popup').getBoundingClientRect();pet.dataset.room==='clock'&&getComputedStyle(pet).visibility==='visible'&&Number(getComputedStyle(pet).zIndex)>80&&r.left>=c.left-2&&r.right<=c.right+2&&r.top>=c.top-30&&r.bottom<=c.bottom+2}`),'summoned pet must be on the clock card');
     await snap('clock-pet-on-card');
+    // Grabbing the arc's body and turning it moves the whole to-do, its length kept: 09:00–10:00 turned by 30° (= 1 h) → 10:00–11:00.
+    await js(`{const d=document.querySelector('.clock-dial[data-half="0"]'),r=d.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,R=r.width/280*91;window.__clockAt=a=>({clientX:cx+Math.sin(a*Math.PI/180)*R,clientY:cy-Math.cos(a*Math.PI/180)*R});document.querySelector('.clock-dial[data-half="0"] .dial-arc .torus').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerId:5,...window.__clockAt(285)}));}`);await pause(80);
+    assert.ok(await js(`(document.querySelector('.clock-stretch-label')?.textContent||'').includes('통째로')`),'grabbing the body says the whole to-do moves');
+    for (const a of [295, 305, 315]) { await js(`window.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:5,...window.__clockAt(${a})}))`); await pause(40); }
+    assert.ok(await js(`(document.querySelector('.clock-stretch-label')?.textContent||'').includes('10:00–11:00')`),'the label follows the whole span');
+    await js(`window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:5,...window.__clockAt(315)}))`);await pause(150);
+    assert.deepEqual([db.todos[0].startTime,db.todos[0].endTime],['10:00','11:00'],'the body drag moves start and end together');
+    // The dot at the start moves only the start: 10:00–11:00, the start turned by 10° (= 20 min) → 10:20–11:00.
+    await js(`document.querySelector('.clock-dial[data-half="0"] .dial-arc .torus-start.grip').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,button:0,pointerId:6,...window.__clockAt(300)}))`);await pause(80);
+    assert.ok(await js(`(document.querySelector('.clock-stretch-label')?.textContent||'').includes('시작만')`),'grabbing the start dot says only the start moves');
+    for (const a of [305, 310]) { await js(`window.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,pointerId:6,...window.__clockAt(${a})}))`); await pause(40); }
+    await js(`window.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerId:6,...window.__clockAt(310)}))`);await pause(150);
+    assert.deepEqual([db.todos[0].startTime,db.todos[0].endTime],['10:20','11:00'],'the start dot moves the start only');
+    await js(`window.api.updateTodo('a',{startTime:'09:00',endTime:'10:00'})`);await pause(80);
+    // A scheduled to-do dragged in from the list previews its whole span at the pointer (length kept), like grabbing the body.
+    await js(`{const d=document.querySelector('.clock-dial[data-half="0"]'),r=d.getBoundingClientRect();window.dispatchEvent(new CustomEvent('checker:clock-pointer-move',{detail:{x:r.right-2,y:r.top+r.height/2,ids:['a']}}));}`);await pause(120);
+    assert.ok(await js(`(document.querySelector('.drop-time')?.textContent||'').includes('03:00–04:00')`),'the drop preview shows the whole span: '+await js(`document.querySelector('.drop-time')?.textContent`));
+    await js(`window.dispatchEvent(new CustomEvent('checker:clock-pointer-move',{detail:null}))`);await pause(80);
+    assert.ok(await js(`!document.querySelector('.drop-time')`));
     // Either half can be picked at any hour: a drop on the 오전 dial gives a morning time, on the 오후 dial an afternoon one.
+    // The to-do keeps its length (09:00–10:00 → 03:00–04:00), like grabbing the arc's body.
     const nativeDrop=half=>js(`{const el=document.querySelector('.clock-dial[data-half="${half}"]'),r=el.getBoundingClientRect(),dt=new DataTransfer();dt.setData('application/x-checker-todo','a');el.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt,clientX:r.right,clientY:r.top+r.height/2}));}`);
-    await nativeDrop(0);await pause(100);assert.equal(db.todos[0].startTime,'03:00');assert.equal(db.todos[0].endTime,null);
-    await nativeDrop(1);await pause(100);assert.equal(db.todos[0].startTime,'15:00','A drop on the 오후 dial sets an afternoon time');
+    await nativeDrop(0);await pause(100);assert.equal(db.todos[0].startTime,'03:00');assert.equal(db.todos[0].endTime,'04:00','a dropped to-do keeps its length');
+    await nativeDrop(1);await pause(100);assert.deepEqual([db.todos[0].startTime,db.todos[0].endTime],['15:00','16:00'],'A drop on the 오후 dial sets an afternoon time');
     // The clock's notice has no 되돌리기 button (Ctrl+Z undoes it like any other change).
     assert.ok(await js(`!!document.querySelector('.clock-toast')&&!document.querySelector('.clock-toast button')`),'No undo button on the clock');
     await js(`window.api.updateTodo('a',{startTime:'09:00',endTime:'10:00'})`);await pause(80);assert.equal(db.todos[0].startTime,'09:00');

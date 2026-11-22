@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { todayStr, localDateStr } from '../util.js';
-import { clockTimeAt, compactTitle, schedulePatch, TODO_DRAG_TYPE } from '../focus-utils.mjs';
+import { clockTimeAt, compactTitle, TODO_DRAG_TYPE } from '../focus-utils.mjs';
 import { LENS, arcPath, at, inWindow, lensAngle, lensPath, timeAngle } from './clock-lens.js';
 import { todosOn, spanPatch, addDay } from '../../../shared/multi-day.js';
 import { toRange, fromRange, dayOf } from '../../../shared/schedule-span.js';
-import { slice, onHalf, arcD, pointAt, angleAt, stretchStart, stretchMove, placeOf, lensItems, DAY_MIN } from '../../../shared/clock-span.js';
+import { slice, onHalf, arcD, pointAt, angleAt, gripStart, gripMove, gripAt, movedTo, placeOf, lensItems, DAY_MIN } from '../../../shared/clock-span.js';
 
 const pad = n => String(n).padStart(2, '0');
 const DOW = ['일', '월', '화', '수', '목', '금', '토'];
@@ -101,13 +101,19 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
   const dragDate = draggedTodos[0]?.date || null;
   const day = dragDate || selectedDate || addDay(todayStr(), dayOffset);
   const pendingTodo = db.todos.find(t => t.id === pending && t.status === 'todo');
-  // Stretching a to-do's end round the dial (its torus arc's knob): { id, todo, startMs, baseDay, ref, cx, cy, st, place, flash }.
-  // While it runs the clock shows the day the end has reached (into the next days as it goes on).
+  // A grip on a to-do's torus arc — its end knob (stretch), its start dot (move the start) or its body (move the whole
+  // thing, length kept): { id, todo, mode, noEnd, baseDay, ref, cx, cy, st, place, flash }. While it runs the clock
+  // shows the day the gripped point has reached (into the next days, or back).
   const [stretch, setStretch] = useState(null);
   const shownDay = stretch ? addDay(stretch.baseDay, stretch.place.days) : day;
   // The hands (and "지금") only on today's dial of the half we are in.
   const nowHere = shownDay === todayStr();
-  const live = stretch ? db.todos.map(t => (t.id === stretch.id ? { ...t, ...fromRange({ start: stretch.startMs, end: stretch.st.end ?? stretch.st.endMs, timed: true }) } : t)) : db.todos;
+  const gripFields = s => ({ ...fromRange({ start: s.st.start, end: s.st.end, timed: true }), ...(s.noEnd ? { endTime: null, endDate: null } : {}) });
+  // A to-do dragged in from the list (or picked for the clock) previews where it would land — with its length kept.
+  const previewTodos = drag ? draggedTodos : pendingTodo ? [pendingTodo] : [];
+  const live = stretch ? db.todos.map(t => (t.id === stretch.id ? { ...t, ...gripFields(stretch) } : t))
+    : hover && previewTodos.length ? db.todos.map(t => (previewTodos.some(p => p.id === t.id) ? { ...t, ...movedTo(t, t.date || day, hover.time) } : t)) : db.todos;
+  const previewRange = hover && previewTodos.length === 1 && previewTodos[0].endTime ? movedTo(previewTodos[0], previewTodos[0].date || day, hover.time) : null;
   const scheduled = todosOn(live.filter(t => t.status !== 'bucket'), shownDay).filter(t => t.startTime || t.span?.allDay).sort((a,b) => (a.startTime || '00:00').localeCompare(b.startTime || '00:00'));
   const sliceOf = v => (v.span?.allDay ? { s: 0, e: DAY_MIN } : slice(v));
   // ← → (without Ctrl, which switches rooms) step the day shown.
@@ -137,9 +143,11 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
   const assign = async (ids, time) => {
     const todos = [].concat(ids).map(id => db.todos.find(t => t.id === id && t.status === 'todo')).filter(Boolean); if (!todos.length) return;
     try {
-      // The time only: each to-do keeps its own day (a to-do without one takes the day shown).
-      await Promise.all(todos.map(todo => window.api.updateTodo(todo.id, schedulePatch(todo, todo.date || day, time))));
-      setNotice(`${todos.length > 1 ? `${todos.length}개` : compactTitle(todos[0].title, 20)} · ${time}`); setPending('');
+      // The time only: each to-do keeps its own day (a to-do without one takes the day shown) and its length (an end
+      // as long after the new start as before — like grabbing the arc's body).
+      await Promise.all(todos.map(todo => window.api.updateTodo(todo.id, { ...spanPatch(todo, movedTo(todo, todo.date || day, time)), timeZone: todo.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone })));
+      const f = movedTo(todos[0], todos[0].date || day, time);
+      setNotice(`${todos.length > 1 ? `${todos.length}개` : compactTitle(todos[0].title, 20)} · ${time}${todos.length === 1 && f.endTime ? '–' + f.endTime : ''}`); setPending('');
     } catch { setNotice('시간을 저장하지 못했습니다.'); }
   };
   const moveTo = async (ids, date) => {
@@ -149,14 +157,19 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
       setNotice(`${todos.length > 1 ? `${todos.length}개` : compactTitle(todos[0].title, 20)} → ${dateLabel(date)}`);
     } catch { setNotice('날짜를 옮기지 못했습니다.'); }
   };
-  // Grabbing the knob at the end of a to-do's arc: from here the pointer's turning around that dial's centre adds (or
-  // takes away) time — 12 hours a full turn — past 12 into the afternoon and past midnight into the next days.
-  const grabEnd = (v, half) => e => {
+  // Grabbing a to-do's arc — the knob at its end (stretch), the dot at its start (the start moves) or its body (the
+  // whole thing moves, its length kept): from there the pointer's turning around that dial's centre adds (or takes
+  // away) time — 12 hours a full turn — past 12 into the afternoon and past midnight into the next (or previous) days.
+  const grab = (v, half, mode) => e => {
+    if (e.button != null && e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const todo = db.todos.find(t => t.id === v.id); if (!todo) return;
-    const r = dials.current[half].getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, range = toRange(todo);
+    const r = dials.current[half].getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, range = toRange(todo), angle = angleAt(e.clientX, e.clientY, cx, cy);
+    // The body is grabbed somewhere along the arc: that instant is what the dial and the day follow.
+    const anchor = mode === 'move' && todo.endTime ? Math.min(range.end, Math.max(range.start, toRange({ date: day }, day).start + Math.round(angle * 2 + half * 720) * 60_000)) : null;
     setLens(null);
-    setStretch({ id: todo.id, todo, startMs: range.start, baseDay: day, ref: half, cx, cy, st: stretchStart(range.end, angleAt(e.clientX, e.clientY, cx, cy)), place: placeOf(range.end, day), flash: null });
+    const st = gripStart(range, angle, mode, anchor);
+    setStretch({ id: todo.id, todo, mode, noEnd: !todo.endTime, baseDay: day, ref: half, cx, cy, st, place: placeOf(gripAt(st), day), flash: null });
   };
   useEffect(() => {
     if (!stretch) return undefined;
@@ -169,17 +182,17 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
         ref = over.half; cx = r.left + r.width / 2; cy = r.top + r.height / 2;
         st = { ...st, last: angleAt(e.clientX, e.clientY, cx, cy) }; // no jump: turning carries on from here
       }
-      st = stretchMove(st, angleAt(e.clientX, e.clientY, cx, cy), s.startMs);
-      const place = placeOf(st.end, s.baseDay);
+      st = gripMove(st, angleAt(e.clientX, e.clientY, cx, cy));
+      const place = placeOf(gripAt(st), s.baseDay);
       // The highlight shows on the dial being turned.
       const flash = place.days !== s.place.days ? { kind: 'day', at: Date.now(), days: place.days, on: ref, back: place.days < s.place.days } : place.half !== s.place.half ? { kind: 'half', half: place.half, at: Date.now(), on: ref } : s.flash;
       return { ...s, ref, cx, cy, st, place, flash };
     });
     const up = () => setStretch(s => {
-      if (s?.st.end != null) {
-        const fields = fromRange({ start: s.startMs, end: s.st.end, timed: true });
-        window.api.updateTodo(s.id, spanPatch(s.todo, fields));
-        setNotice(`${compactTitle(s.todo.title, 18)} · ${fields.endDate ? dateLabel(fields.endDate) + ' ' : ''}${fields.endTime}까지`);
+      if (s) {
+        const f = gripFields(s);
+        window.api.updateTodo(s.id, spanPatch(s.todo, f));
+        setNotice(`${compactTitle(s.todo.title, 18)} · ${s.mode === 'end' ? `${f.endDate ? dateLabel(f.endDate) + ' ' : ''}${f.endTime}까지` : s.mode === 'start' ? `${f.startTime}부터` : `${dateLabel(f.date)} ${f.startTime}${f.endTime ? '–' + f.endTime : ''}`}`);
       }
       return null;
     });
@@ -258,27 +271,27 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
           <svg viewBox="0 0 280 280" aria-label={(half ? '오후' : '오전') + ' 시계 · 할 일을 끌어 놓을 수 있어요'}>
             {Array.from({ length: 60 }, (_, i) => { const a = i * Math.PI / 30, r = i % 5 ? 122 : 116; return <line key={i} className={i % 5 ? 'dial-tick' : 'dial-tick major'} x1={140 + Math.sin(a) * r} y1={140 - Math.cos(a) * r} x2={140 + Math.sin(a) * 126} y2={140 - Math.cos(a) * 126} />; })}
             {[12, 3, 6, 9].map(n => <text key={n} className="dial-num" x={140 + Math.sin(n * Math.PI / 6) * 102} y={145 - Math.cos(n * Math.PI / 6) * 102} textAnchor="middle">{half ? n % 12 + 12 + (n === 12 ? 12 : 0) : n}</text>)}
-            {/* Each timed to-do as a torus arc over the time it takes (a dot when it only has a start); the knob at its
-                end is grabbed to stretch it round the dial. */}
+            {/* Each timed to-do as a torus arc over the time it takes (a dot when it only has a start). Grabbed and turned:
+                the knob at its end stretches it, the dot at its start moves the start, the body moves the whole thing. */}
             {scheduled.map((t, i) => {
               const sl = sliceOf(t), piece = sl && onHalf(sl, half); if (!piece) return null;
-              const team = db.teams.find(x => x.id === t.teamId), color = team?.color || 'var(--accent)', r = 91 - i % 3 * 8, faded = t.status === 'done' ? .32 : 1;
-              const label = <title>{t.startTime || '종일'}{t.endTime ? '–' + t.endTime : ''} {compactTitle(t.title)}{t.span ? ` (${t.span.n}일차)` : ''}</title>;
-              if (piece.b == null) { const [x, y] = pointAt(140, 140, r, piece.a); return <circle key={t.id} cx={x} cy={y} r="4" style={{ fill: color }} opacity={faded}>{label}</circle>; }
+              const team = db.teams.find(x => x.id === t.teamId), color = team?.color || 'var(--accent)', r = 91 - i % 3 * 8, faded = t.status === 'done' ? .32 : 1, timed = !!(t.startTime || t.endTime) && !t.span?.allDay;
+              const label = <title>{t.startTime || '종일'}{t.endTime ? '–' + t.endTime : ''} {compactTitle(t.title)}{t.span ? ` (${t.span.n}일차)` : ''}{timed ? ' · 잡고 돌리면 옮겨져요' : ''}</title>;
+              if (piece.b == null) { const [x, y] = pointAt(140, 140, r, piece.a); return <circle key={t.id} className="torus-dot" cx={x} cy={y} r={stretch?.id === t.id ? 6 : 4} style={{ fill: color }} opacity={faded} onPointerDown={grab(t, half, 'move')}>{label}</circle>; }
               const isEnd = sl.e != null && (!t.span || t.span.last) && sl.e > half * 720 && sl.e <= (half + 1) * 720, [kx, ky] = pointAt(140, 140, r, piece.b), startsHere = sl.s >= half * 720 && sl.s < (half + 1) * 720;
-              const active = stretch?.id === t.id, [sx, sy] = pointAt(140, 140, r, piece.a);
-              return <g key={t.id} className={'dial-arc' + (active ? ' active' : '')} style={{ '--arc': color }} opacity={faded}>
-                <path className="torus" d={arcD(140, 140, r, piece.a, piece.b)} />
+              const active = stretch?.id === t.id, [sx, sy] = pointAt(140, 140, r, piece.a), startGrip = startsHere && timed && (!t.span || t.span.n === 1);
+              return <g key={t.id} className={'dial-arc' + (active ? ' active' : '') + (active ? ' mode-' + stretch.mode : '')} style={{ '--arc': color }} opacity={faded}>
+                <path className="torus" d={arcD(140, 140, r, piece.a, piece.b)} onPointerDown={timed ? grab(t, half, 'move') : undefined} />
                 <path className="torus-shine" d={arcD(140, 140, r + 1.6, piece.a, piece.b)} />
                 {label}
-                {startsHere && <circle className="torus-start" cx={sx} cy={sy} r="2.4" />}
-                {isEnd && <circle className="torus-knob" cx={kx} cy={ky} r={active ? 7 : 5.5} onPointerDown={grabEnd(t, half)}><title>끝을 잡고 시계를 돌리면 늘어나요</title></circle>}
+                {startsHere && <circle className={'torus-start' + (startGrip ? ' grip' : '')} cx={sx} cy={sy} r={startGrip ? (active && stretch.mode === 'start' ? 6 : 4.2) : 2.4} onPointerDown={startGrip ? grab(t, half, 'start') : undefined}>{startGrip && <title>시작을 잡고 돌리면 시작 시간이 옮겨져요</title>}</circle>}
+                {isEnd && <circle className="torus-knob" cx={kx} cy={ky} r={active && stretch.mode === 'end' ? 7 : 5.5} onPointerDown={grab(t, half, 'end')}><title>끝을 잡고 시계를 돌리면 늘어나요</title></circle>}
               </g>;
             })}
           </svg>
           {/* Hands only on the dial of the half we are in; the other dial stays clear for picking a time. */}
           {(half === current && nowHere) && <Hands h={h} m={m} seconds={seconds} />}
-          {here && <div className="drop-time">{here}<small>{pendingTodo ? '눌러서 시간 배정' : '놓으면 시간 배정'}</small></div>}
+          {here && <div className="drop-time">{here}{previewRange ? '–' + previewRange.endTime : ''}<small>{pendingTodo ? '눌러서 시간 배정' : '놓으면 시간 배정'}{previewRange ? ' · 길이는 그대로' : ''}</small></div>}
         </div>
         {lens?.half === half && !hover && <Lens lens={lens} half={half} todos={lensItems(scheduled, half, lens.angle * 2, sliceOf)} teams={db.teams} />}
       </div>
@@ -297,9 +310,9 @@ export default function ClockWindow({ db, embedded = false, onClose, selectedTod
       <div className={'clock-date-pill' + (cal ? ' open' : '')} data-clock-date={dragDate}>{dragDate === todayStr() ? '오늘 · ' : ''}{dateLabel(dragDate)}<small>{cal ? '날짜에 놓으면 그날로 옮겨요' : '여기로 가져가면 다른 날로'}</small></div>
       {cal && <DragCalendar month={cal.month} date={dragDate} hover={cal.hover} />}
     </div>}
-    {stretch && stretch.st.end != null && <div className={'clock-stretch-label' + (flashing?.kind === 'day' ? ' new-day' : '')} key={flashing?.kind === 'day' ? flashing.at : 'label'} role="status">
-      <b>{(() => { const f = fromRange({ start: stretch.startMs, end: stretch.st.end, timed: true }); return `${dateLabel(shownDay)} ${f.endTime}`; })()}</b>
-      <small>{stretch.place.days > 0 ? `+${stretch.place.days}일 · 다음 날로 넘어갔어요` : stretch.place.half ? '오후' : '오전'}</small>
+    {stretch && <div className={'clock-stretch-label' + (flashing?.kind === 'day' ? ' new-day' : '')} key={flashing?.kind === 'day' ? flashing.at : 'label'} role="status">
+      <b>{(() => { const f = gripFields(stretch); return stretch.mode === 'end' ? `${dateLabel(shownDay)} ${f.endTime}` : stretch.mode === 'start' ? `${dateLabel(shownDay)} ${f.startTime}부터` : `${dateLabel(f.date)} ${f.startTime}${f.endTime ? '–' + (f.endDate ? dateLabel(f.endDate) + ' ' : '') + f.endTime : ''}`; })()}</b>
+      <small>{stretch.place.days > 0 ? `+${stretch.place.days}일 · 다음 날로 넘어갔어요` : stretch.place.days < 0 ? `${stretch.place.days}일 · 전날로` : stretch.place.half ? '오후' : '오전'}{stretch.mode === 'move' ? ' · 통째로 옮기는 중' : stretch.mode === 'start' ? ' · 시작만' : ''}</small>
     </div>}
     <section className="clock-card" aria-label="날짜와 시계">
       <div className="clock-dials">{HALVES.map(dial)}</div>

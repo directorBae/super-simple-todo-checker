@@ -47,10 +47,16 @@
   .clock-half { gap: 4px; }
 }
 
-/* Torus arcs: each timed to-do as a glossy ring segment over its time; the knob at its end stretches it round. */
-.dial-arc .torus { fill: none; stroke: var(--arc); stroke-width: 7; stroke-linecap: round; opacity: 0.78; filter: drop-shadow(0 1px 2px rgba(8, 14, 40, 0.25)); }
-.dial-arc .torus-shine { fill: none; stroke: #fff; stroke-width: 1.4; stroke-linecap: round; opacity: 0.45; }
+/* Torus arcs: each timed to-do as a glossy ring segment over its time. Grabbed and turned: the knob at its end
+   stretches it, the dot at its start moves the start, the body (or a start-only dot) moves the whole thing. */
+.dial-arc .torus { fill: none; stroke: var(--arc); stroke-width: 7; stroke-linecap: round; opacity: 0.78; filter: drop-shadow(0 1px 2px rgba(8, 14, 40, 0.25)); cursor: grab; pointer-events: stroke; }
+.dial-arc .torus-shine { fill: none; stroke: #fff; stroke-width: 1.4; stroke-linecap: round; opacity: 0.45; pointer-events: none; }
 .dial-arc .torus-start { fill: #fff; opacity: 0.9; }
+.dial-arc .torus-start.grip { stroke: var(--arc); stroke-width: 2; cursor: grab; pointer-events: all; filter: drop-shadow(0 1px 3px rgba(8, 14, 40, 0.35)); transition: r 0.15s; }
+.dial-arc .torus-start.grip:hover { r: 5.5; }
+.torus-dot { cursor: grab; pointer-events: all; transition: r 0.15s; }
+.torus-dot:hover { r: 5.5; }
+.dial-arc.active .torus, .dial-arc.active .torus-start.grip, .torus-dot:active { cursor: grabbing; }
 .dial-arc .torus-knob { fill: #fff; stroke: var(--arc); stroke-width: 2.4; cursor: grab; pointer-events: all; filter: drop-shadow(0 1px 3px rgba(8, 14, 40, 0.35)); transition: r 0.15s; }
 .dial-arc .torus-knob:hover { r: 7; }
 .dial-arc.active .torus { opacity: 1; stroke-width: 8.5; }

@@ -2,6 +2,8 @@
 // minutes, its pieces on the 오전 (0–720) and 오후 (720–1440) dials, the SVG path of a ring arc, and the drag that
 // stretches its end round and round the dial — every full turn is 12 hours, so circling on keeps adding time, into the
 // afternoon and on into the next days. Pure and tested.
+import { toRange, fromRange } from './schedule-span.js';
+
 export const HALF_MIN = 720, DAY_MIN = 1440, STEP_MIN = 5;
 export const toMin = (hhmm) => { if (!hhmm) return null; const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
 
@@ -39,6 +41,33 @@ export function stretchMove(st, angle, startMs) {
   const turned = st.turned + delta, step = STEP_MIN * 60_000;
   const end = Math.max(startMs + step, Math.round((st.endMs + turned * 2 * 60_000) / step) * step);
   return { ...st, last: angle, turned, end };
+}
+// A grip on an arc: its end knob stretches it ('end'), its start dot moves the start ('start'), its body moves the
+// whole thing with its length kept ('move'). Turning works the same: 2 minutes a degree, unwrapped past 12, snapped to
+// 5 minutes; a start and an end stay at least 5 minutes apart. `anchor` is the instant under the grip (the body is
+// grabbed somewhere along the arc): the dial and day shown follow it.
+export function gripStart({ start, end }, angle, mode = 'end', anchor = null) {
+  const at = anchor ?? (mode === 'end' ? end : start);
+  return { mode, startMs: start, endMs: end, last: angle, turned: 0, start, end, offset: mode === 'end' ? at - end : at - start };
+}
+export function gripMove(st, angle) {
+  let delta = angle - st.last;
+  if (delta > 180) delta -= 360; else if (delta < -180) delta += 360;
+  const turned = st.turned + delta, step = STEP_MIN * 60_000, snap = (ms) => Math.round(ms / step) * step, shift = turned * 2 * 60_000;
+  let { startMs: start, endMs: end } = st;
+  if (st.mode === 'end') end = Math.max(start + step, snap(end + shift));
+  else if (st.mode === 'start') start = Math.min(end - step, snap(start + shift));
+  else { start = snap(start + shift); end = start + (st.endMs - st.startMs); }
+  return { ...st, last: angle, turned, start, end };
+}
+// The instant under the grip right now.
+export const gripAt = (st) => (st.mode === 'end' ? st.end : st.start) + (st.offset || 0);
+// A to-do dropped on the clock at `time` of `day` keeps its length — it starts there and ends as long after as before
+// (like grabbing its body). One with only a start stays a start only; one without times gets just the start.
+export function movedTo(todo, day, time) {
+  if (!todo.startTime || !todo.endTime) return { date: day, endDate: null, startTime: time, endTime: null };
+  const r = toRange(todo, day), start = toRange({ date: day, startTime: time }, day).start;
+  return fromRange({ start, end: start + (r.end - r.start), timed: true });
 }
 // Where an instant falls for the highlights: which dial (0 오전 / 1 오후) and how many days after `day` (local).
 export function placeOf(ms, day) {
