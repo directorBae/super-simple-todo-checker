@@ -27,6 +27,7 @@ ipcMain.handle('smoke:memo-show', (_, p) => { folderOpened.push(p); return { ok:
 const asked = [], saved = [];
 ipcMain.handle('smoke:state', () => db);
 ipcMain.handle('smoke:settings', (e, p) => { Object.assign(db.settings, p); e.sender.send('smoke:db', db); return db; });
+ipcMain.handle('smoke:todo', (e, p) => { Object.assign(db.todos.find((t) => t.id === p.id) || {}, p.patch); e.sender.send('smoke:db', db); return db; });
 ipcMain.handle('smoke:integrations', () => ({ ok: true, connections: [], targets: [], jobs: [], configured: {} }));
 ipcMain.handle('smoke:tools', (_, { action, payload }) => {
   if (action === 'work') { asked.push(payload.path); if (payload.path === '/state') return state; if (payload.path === '/dive/delete') { state.dives = state.dives.filter((d) => d.id !== payload.body.dive); return { ok: true }; }
@@ -55,13 +56,17 @@ app.whenReady().then(async () => {
     await pause(250);
     const sel = await js('(()=>{const a=document.activeElement;return a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")?{start:a.selectionStart,end:a.selectionEnd,value:a.value}:null})()');
     if (!sel || sel.start !== 7 || sel.end !== 7) throw Error('the caret should open at the 8th character of "Design review" (click at ' + JSON.stringify(hit) + '), got ' + JSON.stringify(sel));
-    // ↓ from the 8th column of line 1 opens line 2 with the caret in its 8th column (like a notepad).
-    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))'); await pause(250);
+    // Something typed, then ↓: what was typed is saved, and line 2 opens with the caret in the same column (9th now).
+    await js('document.execCommand("insertText", false, "X")'); await pause(100);
+    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true,cancelable:true}))'); await pause(300);
     const down = await js('(()=>{const a=document.activeElement,row=a&&a.closest(".memo-line");return a&&a.tagName==="TEXTAREA"?{id:row?.dataset.todoId,start:a.selectionStart}:null})()');
-    if (!down || down.id !== 'b' || down.start !== 7) throw Error('↓ should open the next line with the caret in the same column: ' + JSON.stringify(down));
-    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}))'); await pause(250);
+    if (!down || down.id !== 'b' || down.start !== 8) throw Error('↓ should open the next line with the caret in the same column: ' + JSON.stringify(down));
+    if (db.todos[0].title !== 'Design Xreview') throw Error('↓ must save the line it leaves: ' + db.todos[0].title);
+    await js('document.execCommand("insertText", false, "Y")'); await pause(100);
+    await js('document.activeElement.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowUp",bubbles:true,cancelable:true}))'); await pause(300);
     const up = await js('(()=>{const a=document.activeElement,row=a&&a.closest(".memo-line");return a&&a.tagName==="TEXTAREA"?{id:row?.dataset.todoId,start:a.selectionStart}:null})()');
-    if (!up || up.id !== 'a' || up.start !== 7) throw Error('↑ should go back to line 1, same column: ' + JSON.stringify(up));
+    if (!up || up.id !== 'a' || up.start !== 9) throw Error('↑ should go back to line 1, same column: ' + JSON.stringify(up));
+    if (db.todos[1].title !== 'Second lYine here') throw Error('↑ must save the line it leaves: ' + db.todos[1].title);
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); await pause(200);
     // Space on the page itself is swallowed (no scrolling); in a text field it is a space.
     const space = await js('(()=>{document.activeElement.blur();const e=new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true});document.body.dispatchEvent(e);const t=document.createElement("textarea");document.body.appendChild(t);t.focus();const e2=new KeyboardEvent("keydown",{key:" ",bubbles:true,cancelable:true});t.dispatchEvent(e2);t.remove();return {page:e.defaultPrevented,field:e2.defaultPrevented}})()');
@@ -161,7 +166,7 @@ app.whenReady().then(async () => {
     await pause(700); // the debounced save
     if (!saved.length || !saved.at(-1).every((x) => x.title && !/^https/.test(x.title))) throw Error('titles not saved: ' + JSON.stringify(saved.at(-1)));
     await snap('music-titles');
-    console.log('work smoke passed: 클릭한 자리에 커서, ↑↓ 같은 열, 스페이스바 안 스크롤, 시계 다른 날, 부재중, 메모 → 노션, 회의록 저장소 (허브·고르기·설정, 폴더 열기), 펫 말풍선 (요약 중 → 정리했어요 → 클릭), 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
+    console.log('work smoke passed: 클릭한 자리에 커서, ↑↓ 같은 열 (떠나는 줄 저장), 스페이스바 안 스크롤, 시계 다른 날, 부재중, 메모 → 노션, 회의록 저장소 (허브·고르기·설정, 폴더 열기), 펫 말풍선 (요약 중 → 정리했어요 → 클릭), 열린 방 (비어 있음 · 후 삭제, 방 삭제 → /dive/delete, 안에 n명, 들어가기·답), 음악 제목 (빈 제목·링크 제목이 받아와 저장됨)', errors.length ? 'console errors: ' + errors.join(' / ') : '');
   } catch (e) { console.error(e.message); process.exitCode = 1; }
   app.quit();
 });

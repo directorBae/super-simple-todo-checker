@@ -178,7 +178,7 @@ function caretRow(el) { const starts = rowStartsOf(el), i = el.selectionStart; l
 // The same column on the first row (coming down) or the last row (going up) of this textarea.
 function caretAtColumn(el, col, fromEnd) { const starts = rowStartsOf(el), start = fromEnd ? starts[starts.length - 1] : 0, end = fromEnd ? el.value.length : (starts[1] ?? el.value.length); return Math.max(0, Math.min(start + col, end)); }
 
-function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected }) {
+function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, onEscape, onBackspace, onArrow, placeAfter, indent, kind, selected, saveRef }) {
   const [detail, setDetail] = useState(false);
   const [repeatOpen, setRepeatOpen] = useState(false);
   const inputRef = useRef(null);
@@ -209,12 +209,22 @@ function MemoLine({ todo, db, editing, caret, onStartEdit, onEndEdit, onEnter, o
   useEffect(() => { if (!editing) setPickedTeam(undefined); }, [editing]);
   const teamPatch = () => (picked.current !== undefined && picked.current !== (todo.teamId || null) ? { teamId: picked.current } : {});
   const save = () => {
+    if (saveRef && saveRef.current === saveOnce.current) saveRef.current = null; // once: the day will not save this line again
     if (!inputRef.current || removed.current) return;
     const v = inputRef.current.value.trim(), patch = { ...(v !== todo.title ? { title: v } : {}), ...teamPatch() };
     if (!v) window.api.deleteTodo(todo.id);
     else if (Object.keys(patch).length) window.api.updateTodo(todo.id, patch);
     onEndEdit();
   };
+  // While this line is edited the day holds its save (saveRef), to run it before it opens another line: the edit box
+  // of a line that stops being edited is taken off the screen, and a box taken off the screen gets no blur.
+  const saveLatest = useRef(null); saveLatest.current = save;
+  const saveOnce = useRef(null);
+  useEffect(() => {
+    if (!editing || !saveRef) return undefined;
+    const fn = () => saveLatest.current?.(); saveOnce.current = fn; saveRef.current = fn;
+    return () => { if (saveRef.current === fn) saveRef.current = null; };
+  }, [editing]);
 
   const onKeyDown = (e) => {
     const el = e.currentTarget;
@@ -703,7 +713,10 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
     }
   };
 
-  const editLine = (id, caret = null) => { setDraft(null); caretRef.current = caret; setEditingId(id); };
+  // Opening a line for editing saves the one being edited first (↑ ↓, a click on another line, the text-selection
+  // tools) — unless that line is just being removed (keep: false).
+  const saveEditing = useRef(null);
+  const editLine = (id, caret = null, { keep = true } = {}) => { if (keep && editingId && editingId !== id) saveEditing.current?.(); setDraft(null); caretRef.current = caret; setEditingId(id); };
   // Backspace at the start of a line, as in a notepad: the line joins the one above it in the day (an empty one just
   // disappears) and the caret stays where they met. The first line of the day only goes away if it is empty.
   const backspaceLine = (todo, text) => {
@@ -711,14 +724,14 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
     if (!prev) {
       if (text) return false;
       window.api.deleteTodo(todo.id);
-      if (next) editLine(next.id, 0); else { setEditingId(null); focusDay(date); }
+      if (next) editLine(next.id, 0, { keep: false }); else { setEditingId(null); focusDay(date); }
       return true;
     }
     const joined = prev.title + text;
     if (Array.from(joined).length > 50) { editLine(prev.id); return false; } // too long to join: just move up
     window.api.deleteTodo(todo.id);
     if (text) window.api.updateTodo(prev.id, { title: joined });
-    editLine(prev.id, prev.title.length);
+    editLine(prev.id, prev.title.length, { keep: false });
     return true;
   };
   // From an empty team input row: up to the last line above it.
@@ -750,6 +763,7 @@ function DaySection({ date, kind, db, isToday, registerInput, focusDay, selectio
       onArrow={stepLine}
       placeAfter={placeAfter}
       selected={selection.has(t.id)}
+      saveRef={saveEditing}
     />
   );
 
