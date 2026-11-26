@@ -4,7 +4,7 @@
     "slug": "todo-checker",
     "scheme": "todochecker",
     "owner": "teamblco",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -35,8 +35,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      },
-      "versionCode": 10
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -75,8 +74,8 @@
           "color": "#7c3aed",
           "mode": "production",
           "sounds": [
-            "./assets/dive-ring.wav",
-            "./assets/dive-ringback.wav"
+            "./assets/dive_ring.wav",
+            "./assets/dive_ringback.wav"
           ]
         }
       ],

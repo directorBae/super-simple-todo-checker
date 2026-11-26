@@ -191,7 +191,7 @@ test('work: a dive picks teammates and an agenda, pushes them first, and anyone 
   // B (picked) gets the important one, C an ordinary one.
   assert.ok(!w.pushes.some((p) => p.to.includes('[a]')), 'not to the caller');
   const toB = w.pushes.find((p) => p.to.includes('[b]')), toC = w.pushes.find((p) => p.to.includes('[c]'));
-  assert.equal(toB.interruptionLevel, 'time-sensitive'); assert.equal(toB.data.picked, true); assert.equal(toB.sound, 'dive-ring.wav');
+  assert.equal(toB.interruptionLevel, 'time-sensitive'); assert.equal(toB.data.picked, true); assert.equal(toB.sound, 'dive_ring.wav');
   assert.equal(toC.interruptionLevel, undefined); assert.equal(toC.data.kind, 'dive');
   // Everyone in the team sees it; B declines with "카톡 가능", C joins (not picked, but allowed).
   let s = await w.c('/state'); assert.equal(s.dives[0].agenda.length, 50); assert.deepEqual(s.dives[0].targets, [USERS['tok-b'].id]);

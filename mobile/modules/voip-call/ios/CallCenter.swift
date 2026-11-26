@@ -43,7 +43,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     config.maximumCallsPerCallGroup = 1
     config.supportedHandleTypes = [.generic]
     config.includesCallsInRecents = false
-    config.ringtoneSound = "dive-ring.wav"
+    config.ringtoneSound = "dive_ring.wav"
     provider = CXProvider(configuration: config)
     super.init()
     provider.setDelegate(self, queue: nil)
@@ -145,7 +145,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
     let content = UNMutableNotificationContent()
     content.title = "🌊 \(caller)님이 다이브를 요청했어요"
     content.body = agenda
-    content.sound = UNNotificationSound(named: UNNotificationSoundName("dive-ring.wav"))
+    content.sound = UNNotificationSound(named: UNNotificationSoundName("dive_ring.wav"))
     content.interruptionLevel = .timeSensitive
     let data: [String: Any] = ["kind": "dive", "dive": dive, "team": team, "picked": true]
     content.userInfo = ["body": data, "kind": "dive", "dive": dive, "team": team, "picked": true]
@@ -164,7 +164,7 @@ final class CallCenter: NSObject, CXProviderDelegate, PKPushRegistryDelegate {
   // audio route; the session itself is left to the call.
 
   func playRingback() {
-    guard ringback == nil, let url = Bundle.main.url(forResource: "dive-ringback", withExtension: "wav") else { return }
+    guard ringback == nil, let url = Bundle.main.url(forResource: "dive_ringback", withExtension: "wav") else { return }
     do {
       let p = try AVAudioPlayer(contentsOf: url)
       p.numberOfLoops = -1

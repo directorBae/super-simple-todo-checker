@@ -375,7 +375,7 @@ export default function TeamScreen() {
 }
 
 // Someone picked you for a dive. Like a phone call: while it is new (RING_MS) it fills the screen and the phone
-// vibrates (the push itself brings the ringtone, mobile/assets/dive-ring.wav); after that it waits as a card at the
+// vibrates (the push itself brings the ringtone, mobile/assets/dive_ring.wav); after that it waits as a card at the
 // bottom until you join or answer.
 const RING_MS = 45_000;
 function Ringing({ x, team, by, go, w, error }) {

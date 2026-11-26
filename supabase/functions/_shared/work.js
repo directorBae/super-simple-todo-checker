@@ -317,9 +317,9 @@ export async function removeMember(env, user, teamId, email) {
 }
 
 // Dive: the caller picks teammates and writes the agenda; the room opens with the caller in it.
-// Like a phone call, the picked people's push has its own ringtone (mobile/assets/dive-ring.wav, ~28 s; a build
+// Like a phone call, the picked people's push has its own ringtone (mobile/assets/dive_ring.wav — no hyphen: Android resource names allow none; ~28 s; a build
 // without it plays the usual sound) and rings again after 20 s and 40 s for whoever has not answered by then.
-export const RING_SOUND = 'dive-ring.wav', RING_AGAIN_MS = [20_000, 40_000], MISSED_MS = 70_000;
+export const RING_SOUND = 'dive_ring.wav', RING_AGAIN_MS = [20_000, 40_000], MISSED_MS = 70_000;
 async function missedCall(env, diveId, rang, who, text, teamId) {
   await env.sleep(MISSED_MS);
   const store = db(env);
