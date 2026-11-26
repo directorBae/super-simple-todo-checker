@@ -1,7 +1,7 @@
 {
   "name": "todo-checklist",
   "productName": "Work",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "팀/프로젝트 기반 메모형 할 일 체커",
   "author": "baejungwon",
   "private": true,
@@ -47,11 +47,8 @@
         "from": "../shared",
         "to": "shared",
         "filter": [
-          "supabase-sync.cjs",
-          "supabase-auth.cjs",
-          "tools-client.cjs",
-          "repeat.cjs",
-          "work-alerts.mjs"
+          "*.cjs",
+          "*.mjs"
         ]
       }
     ],
