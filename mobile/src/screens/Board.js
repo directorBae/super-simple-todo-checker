@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Keyboard, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
+import { Animated, KeyboardAvoidingView, Keyboard, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { ScrollView as GestureScrollView } from 'react-native-gesture-handler';
 import { Text, TextInput } from '../text.js';
 import { useDb } from '../store.js';
